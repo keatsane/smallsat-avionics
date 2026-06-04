@@ -1,0 +1,2 @@
+# python lint + format (ruff)
+line-length = 100

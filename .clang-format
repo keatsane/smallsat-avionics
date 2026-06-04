@@ -1,6 +1,6 @@
 # c/c++ style, based on google
 BasedOnStyle: Google
-IndentWidth: 2
+IndentWidth: 4
 UseTab: Never
 ColumnLimit: 100
 AlignConsecutiveMacros: true

@@ -11,7 +11,7 @@ indent_style = space
 
 # c / c++
 [*.{c,h,cpp,hpp}]
-indent_size = 2
+indent_size = 4
 max_line_length = 100
 
 # python - pep 8
