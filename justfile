@@ -1,6 +1,8 @@
 # task runner - run `just` to list recipes
 
 set shell := ["bash", "-uc"]
+# windows-primary dev: run recipes in powershell so tools on the windows PATH (pre-commit) resolve
+set windows-shell := ["pwsh.exe", "-NoProfile", "-Command"]
 
 # list recipes
 default:
