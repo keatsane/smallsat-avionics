@@ -2,7 +2,13 @@
 # setup: pip install pre-commit && pre-commit install
 # ci runs the same checks
 
-exclude: "^firmware/vendor/"
+exclude: |
+  (?x)^(
+    firmware/vendor/
+    | firmware/avionics_node_f446/(\.cproject|\.project|\.settings/|.*\.launch|Startup/|.*\.ld)
+    | firmware/avionics_node_f446/Src/(syscalls|sysmem)\.c
+    | firmware/avionics_node_f446/Inc/FreeRTOSConfig\.h
+  )
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks

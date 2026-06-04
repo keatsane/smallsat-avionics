@@ -45,7 +45,8 @@ env/
 # editors / ides
 .vscode/
 .idea/
-firmware/.metadata/
+**/.metadata/
+**/.metadata.lock
 *.swp
 *.swo
 *~
