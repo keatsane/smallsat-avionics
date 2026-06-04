@@ -1,0 +1,55 @@
+# build / generated output
+build/
+artifacts/
+
+# firmware build outputs
+firmware/**/Debug/
+firmware/**/Release/
+*.elf
+*.bin
+*.hex
+*.map
+*.o
+*.d
+*.a
+*.list
+*.lst
+
+# cmake / ctest
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+Testing/
+compile_commands.json
+
+# coverage
+*.gcda
+*.gcno
+*.gcov
+coverage/
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+
+# logs and telemetry captures
+*.csv
+*.log
+
+# editors / ides
+.vscode/
+.idea/
+firmware/.metadata/
+*.swp
+*.swo
+*~
+
+# os
+.DS_Store
+Thumbs.db
