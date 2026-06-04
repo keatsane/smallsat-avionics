@@ -51,6 +51,10 @@ env/
 *.swo
 *~
 
+# cubeide per-machine metadata churns (regenerated on project open) - keep only the encoding setting
+firmware/**/.settings/*
+!firmware/**/.settings/org.eclipse.core.resources.prefs
+
 # os
 .DS_Store
 Thumbs.db
