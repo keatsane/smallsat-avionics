@@ -22,7 +22,7 @@ SIL plant model               STM32 HIL node
 | Flight software | C++ | mode manager, fault manager, command validation, telemetry model, host unit tests |
 | Test and analysis | Python | scenario execution, SIL/HIL orchestration, plotting, log parsing, reports |
 
-The flight logic lives in `flight_sw/` and runs on the host; the firmware only owns what actually needs the MCU.
+The flight logic lives in `flight_sw/` and is written to be portable. It runs on the host for development and SIL, and the same source cross-compiles onto the STM32 for the integrated build, where it joins the firmware as the on-board computer. It never touches registers directly - it reaches hardware through a platform abstraction layer, backed by the simulator on the host and by the C firmware drivers on the target. So the split is by layer, not by location: the firmware owns the hardware (registers, peripherals, low-level I/O), the flight software owns the decisions (modes, faults, commands), and they meet at that boundary.
 
 ## Firmware approach
 
