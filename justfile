@@ -12,6 +12,10 @@ default:
 format:
     pre-commit run --all-files
 
+# run the host tests
+test:
+    pytest
+
 # install the pre-commit hook
 hooks:
     pre-commit install

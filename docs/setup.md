@@ -31,6 +31,15 @@ pre-commit install   # once; the hooks then run on every commit
 just format          # format and lint everything on demand
 ```
 
+## Tests
+
+Host-side tests run with pytest (config in `pyproject.toml`); they also run in CI:
+
+```bash
+pip install pytest
+just test     # or: pytest
+```
+
 ## Working environment
 
 Everything is built and run on Windows: firmware in STM32CubeIDE, git and tooling from PowerShell. Python handles the test and sim tooling as those parts come online.

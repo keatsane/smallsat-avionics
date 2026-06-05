@@ -15,4 +15,15 @@ jobs:
           python-version: '3.12'
       - uses: pre-commit/action@v3.0.1
 
-  # build + test jobs come once flight_sw/ and tools/ exist
+  tests:
+    name: Python tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pytest
+      - run: pytest -v
+
+  # firmware build (cmake + arm-none-eabi-gcc) and C++ flight_sw tests come next

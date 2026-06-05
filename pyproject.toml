@@ -1,0 +1,4 @@
+# pytest configuration (ruff config lives in ruff.toml)
+[tool.pytest.ini_options]
+pythonpath = ["tools"]
+testpaths = ["tools/tests"]
