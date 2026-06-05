@@ -1,0 +1,87 @@
+"""Frame and message codec for the avionics telemetry link.
+
+The single Python implementation of the wire format defined in the firmware
+(protocol/frame.c, protocol/msg.h): [AA 55][id][len][payload][crc16, big-endian].
+Shared by the serial monitor and the host tests so the contract lives in one place.
+"""
+
+import struct
+
+SYNC0 = 0xAA
+SYNC1 = 0x55
+
+MSG_HEARTBEAT = 0x01
+MSG_LINK_STATUS = 0x02
+
+
+def crc16(data: bytes) -> int:
+    """CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF) - matches frame.c."""
+    crc = 0xFFFF
+    for b in data:
+        crc ^= b << 8
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x1021) & 0xFFFF if crc & 0x8000 else (crc << 1) & 0xFFFF
+    return crc
+
+
+def encode(msg_id: int, payload: bytes) -> bytes:
+    """Wrap a message in a frame ready to send (mirror of frame_encode)."""
+    body = bytes([msg_id, len(payload)]) + payload
+    crc = crc16(body)
+    return bytes([SYNC0, SYNC1]) + body + bytes([crc >> 8, crc & 0xFF])
+
+
+class FrameDecoder:
+    """Incremental frame decoder - feed it one byte at a time."""
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.state = "sync0"
+        self.msg_id = 0
+        self.length = 0
+        self.payload = bytearray()
+        self.crc_rx = 0
+
+    def push(self, byte: int):
+        """Return (msg_id, payload) when a valid frame completes, else None."""
+        if self.state == "sync0":
+            if byte == SYNC0:
+                self.state = "sync1"
+        elif self.state == "sync1":
+            self.state = "id" if byte == SYNC1 else "sync0"
+        elif self.state == "id":
+            self.msg_id = byte
+            self.state = "len"
+        elif self.state == "len":
+            self.length = byte
+            self.payload = bytearray()
+            self.state = "crc_hi" if byte == 0 else "payload"
+        elif self.state == "payload":
+            self.payload.append(byte)
+            if len(self.payload) >= self.length:
+                self.state = "crc_hi"
+        elif self.state == "crc_hi":
+            self.crc_rx = byte << 8
+            self.state = "crc_lo"
+        elif self.state == "crc_lo":
+            self.crc_rx |= byte
+            self.state = "sync0"
+            body = bytes([self.msg_id, self.length]) + bytes(self.payload)
+            if crc16(body) == self.crc_rx:
+                return self.msg_id, bytes(self.payload)
+        return None
+
+
+def format_frame(msg_id: int, payload: bytes) -> str:
+    """One-line human-readable summary of a decoded frame."""
+    if msg_id == MSG_HEARTBEAT and len(payload) == 8:
+        uptime, mode, faults, seq = struct.unpack("<IBBH", payload)
+        return f"HEARTBEAT    uptime={uptime} ms  mode={mode}  faults=0x{faults:02X}  seq={seq}"
+    if msg_id == MSG_LINK_STATUS and len(payload) == 16:
+        overrun, framing, noise, dropped = struct.unpack("<IIII", payload)
+        return (
+            f"LINK_STATUS  overrun={overrun}  framing={framing}  noise={noise}  dropped={dropped}"
+        )
+    return f"msg 0x{msg_id:02X}  len={len(payload)}  payload={payload.hex()}"
