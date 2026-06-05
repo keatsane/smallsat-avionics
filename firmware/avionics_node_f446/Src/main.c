@@ -1,27 +1,29 @@
 /**
  * @file   main.c
- * @brief  bare-metal LED blink on the Nucleo-F446RE (LD2 / PA5)
+ * @brief  node entry - bring up the board and stream telemetry
  */
 
-#include "stm32f446xx.h"
-#include "systick.h"
-
-#define LED_PIN 5U  // LD2
-
-static void led_init(void);
+#include "app/telemetry.h"
+#include "drivers/clock.h"
+#include "drivers/gpio.h"
+#include "drivers/systick.h"
+#include "drivers/uart.h"
 
 int main(void) {
-  systick_init();
-  led_init();
-  for (;;) {
-    GPIOA->ODR ^= (1U << LED_PIN);
-    delay_ms(500U);  // 1 hz blink
-  }
-}
+    clock_init();
+    systick_init();
+    led_init();
+    uart_init(115200U);
 
-static void led_init(void) {
-  RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
-  (void)RCC->AHB1ENR;  // let the clock settle
-  GPIOA->MODER &= ~(3U << (LED_PIN * 2U));
-  GPIOA->MODER |= (1U << (LED_PIN * 2U));  // pa5 output
+    uart_write((const uint8_t*)"uart up\r\n", 9);  // visual link check
+
+    uint32_t tick = 0;
+    for (;;) {
+        led_toggle();
+        telemetry_send_heartbeat();
+        if (++tick % 5U == 0U) {
+            telemetry_send_link_status();  // link health every 5 s
+        }
+        delay_ms(1000U);  // 1 hz
+    }
 }
