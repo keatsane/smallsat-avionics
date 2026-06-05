@@ -10,6 +10,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define FRAME_SYNC0       0xAAU
 #define FRAME_SYNC1       0x55U
 #define FRAME_MAX_PAYLOAD 64U
@@ -59,5 +63,9 @@ bool frame_decode(frame_parser_t* p, uint8_t byte, frame_t* out);
  * @return the 16-bit crc
  */
 uint16_t crc16(const uint8_t* data, size_t len);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif  // FRAME_H

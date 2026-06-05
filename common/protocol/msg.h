@@ -8,6 +8,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // message types that ride inside a frame
 typedef enum {
     MSG_HEARTBEAT = 0x01,
@@ -29,5 +33,9 @@ typedef struct __attribute__((packed)) {
     uint32_t noise;
     uint32_t dropped;
 } link_status_t;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif  // MSG_H
