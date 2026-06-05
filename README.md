@@ -16,10 +16,14 @@ Everything runs on a workbench with real parts and test gear: an STM32 as the fl
 
 Later work adds real sensors (IMU, voltage/current, temperature), a watchdog reset demonstration, a FreeRTOS task model once the bare-metal side is stable, and a single-axis reaction wheel that points the platform to a commanded angle, run both against NASA's open-source 42 simulator and on the physical rig.
 
+## Status
+The bare-metal firmware is up and verified on the bench: a SysTick millisecond time base, a heartbeat LED, an interrupt-driven USART2 driver, and a CRC-checked frame layer streaming heartbeat and link-status packets over the Nucleo's virtual COM port, decoded by a host script in `tools/`. Next is the C++ flight logic (mode and fault managers).
+
 ## Layout
 - docs/ - architecture and setup notes
 - firmware/ - the STM32 firmware
 - hardware/ - bill of materials and bench notes
+- tools/ - host-side scripts (telemetry monitor)
 
 The C++, sim, and Python directories are added as those parts come together.
 

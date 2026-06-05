@@ -12,6 +12,16 @@ git submodule update --init --recursive
 
 The STM32 firmware is an STM32CubeIDE project under `firmware/avionics_node_f446/`. Open it in CubeIDE, build, and flash to the Nucleo-F446RE over its onboard ST-Link. The board's UART comes back over the same USB cable as a virtual COM port.
 
+## Monitoring telemetry
+
+The node streams CRC-framed telemetry over that virtual COM port. To decode it on the host:
+
+```bash
+pip install pyserial
+python -m serial.tools.list_ports     # find the COM port
+python tools/uart_monitor.py COM3     # decode heartbeat and link-status frames
+```
+
 ## Formatting
 
 Formatting and linting run through pre-commit - clang-format for C/C++, ruff for Python - and the same checks run in CI. With Python and pre-commit installed:

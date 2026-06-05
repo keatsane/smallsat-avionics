@@ -28,6 +28,8 @@ The flight logic lives in `flight_sw/` and runs on the host; the firmware only o
 
 Bare metal first: CMSIS startup, clock, a GPIO heartbeat, a SysTick or timer time base, interrupt-driven UART, then simple packet framing. FreeRTOS comes in later, once the bare-metal packet I/O is solid on the bench, so it isn't covering for unfinished bring-up.
 
+The firmware is grouped by layer under `firmware/avionics_node_f446/`: `drivers/` (clock, gpio, systick, uart), `protocol/` (the frame envelope and message definitions), and `app/` (telemetry). Working on the bench today: the SysTick time base, the interrupt-driven USART2 driver, and a CRC-framed telemetry link that streams heartbeat and link-status packets to a host decoder.
+
 ## Vendored dependencies
 
 Third-party firmware lives under `firmware/vendor/` as Git submodules rather than copied-in source.
