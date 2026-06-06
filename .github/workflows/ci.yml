@@ -26,4 +26,22 @@ jobs:
       - run: pip install pytest
       - run: pytest -v
 
-  # firmware build (cmake + arm-none-eabi-gcc) and C++ flight_sw tests come next
+  flight-sw:
+    name: C++ flight software
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch ETL
+        run: git submodule update --init vendor/etl
+      - name: Configure
+        run: cmake -S fsw -B fsw/build -DCMAKE_BUILD_TYPE=Debug -DFSW_WERROR=ON
+      - name: Build
+        run: cmake --build fsw/build
+      - name: Static analysis (clang-tidy)
+        run: |
+          sudo apt-get update && sudo apt-get install -y clang-tidy
+          clang-tidy -p fsw/build --extra-arg=-Wno-error fsw/src/*.cpp fsw/platform/host/*.cpp
+      - name: Test
+        run: ctest --test-dir fsw/build --output-on-failure
+
+  # firmware cross-build (arm-none-eabi-gcc) comes next

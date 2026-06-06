@@ -1,0 +1,16 @@
+# static analysis for the host C++ flight software (fsw). run with `just tidy`.
+# scoped to fsw's own sources - the vendored doctest and the C protocol aren't the target.
+Checks: >
+  -*,
+  bugprone-*,
+  performance-*,
+  portability-*,
+  modernize-use-nullptr,
+  modernize-use-override,
+  modernize-use-equals-default,
+  readability-braces-around-statements,
+  readability-misleading-indentation,
+  readability-redundant-control-flow
+WarningsAsErrors: ''
+HeaderFilterRegex: '.*/fsw/(include|src|platform)/.*'
+FormatStyle: file
