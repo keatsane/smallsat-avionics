@@ -2,7 +2,7 @@
 
 ## Get the code
 
-Clone the repo, then pull in the vendored firmware - CMSIS and FreeRTOS live under `vendor/` as Git submodules:
+Clone the repo, then pull in the vendored dependencies - CMSIS, FreeRTOS, and ETL live under `vendor/` as Git submodules:
 
 ```bash
 git submodule update --init --recursive
@@ -24,7 +24,7 @@ python tools/uart_monitor.py COM3     # decode heartbeat and link-status frames
 
 ## Formatting
 
-Formatting and linting run through pre-commit - clang-format for C/C++, ruff for Python - and the same checks run in CI. With Python and pre-commit installed:
+Formatting and linting run through pre-commit - clang-format for C/C++, ruff for Python - and the same checks run in CI, which also runs clang-tidy static analysis on the flight software. With Python and pre-commit installed:
 
 ```bash
 pre-commit install   # once; the hooks then run on every commit

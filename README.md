@@ -25,7 +25,7 @@ The bare-metal firmware is up and verified on the bench: a SysTick millisecond t
 - docs/ - architecture, setup, requirements, and the bill of materials
 - fsw/ - portable C++ flight software (modes, faults) with host unit tests
 - tools/ - host-side scripts (telemetry monitor)
-- vendor/ - CMSIS and FreeRTOS, vendored as Git submodules
+- vendor/ - CMSIS, FreeRTOS, and ETL, vendored as Git submodules
 
 The simulation directory is added as that part comes together.
 
