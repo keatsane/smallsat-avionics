@@ -4,10 +4,11 @@
 
 exclude: |
   (?x)^(
-    firmware/vendor/
-    | firmware/avionics_node_f446/(\.cproject|\.project|\.settings/|.*\.launch|Startup/|.*\.ld)
-    | firmware/avionics_node_f446/Src/(syscalls|sysmem)\.c
-    | firmware/avionics_node_f446/Inc/FreeRTOSConfig\.h
+    vendor/
+    | bsp/(\.cproject|\.project|\.settings/|.*\.launch|Startup/|.*\.ld)
+    | bsp/Src/(syscalls|sysmem)\.c
+    | bsp/Inc/FreeRTOSConfig\.h
+    | fsw/third_party/
   )
 
 repos:

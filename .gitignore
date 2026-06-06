@@ -3,8 +3,8 @@ build/
 artifacts/
 
 # firmware build outputs
-firmware/**/Debug/
-firmware/**/Release/
+bsp/**/Debug/
+bsp/**/Release/
 *.elf
 *.bin
 *.hex
@@ -52,8 +52,8 @@ env/
 *~
 
 # cubeide per-machine metadata churns (regenerated on project open) - keep only the encoding setting
-firmware/**/.settings/*
-!firmware/**/.settings/org.eclipse.core.resources.prefs
+bsp/**/.settings/*
+!bsp/**/.settings/org.eclipse.core.resources.prefs
 
 # os
 .DS_Store
