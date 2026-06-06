@@ -2,7 +2,7 @@
 
 ## Get the code
 
-Clone the repo, then pull in the vendored firmware - CMSIS and FreeRTOS live under `firmware/vendor/` as Git submodules:
+Clone the repo, then pull in the vendored firmware - CMSIS and FreeRTOS live under `vendor/` as Git submodules:
 
 ```bash
 git submodule update --init --recursive
@@ -10,7 +10,7 @@ git submodule update --init --recursive
 
 ## Firmware
 
-The STM32 firmware is an STM32CubeIDE project under `firmware/avionics_node_f446/`. Open it in CubeIDE, build, and flash to the Nucleo-F446RE over its onboard ST-Link. The board's UART comes back over the same USB cable as a virtual COM port.
+The STM32 firmware is an STM32CubeIDE project under `bsp/`. Open it in CubeIDE, build, and flash to the Nucleo-F446RE over its onboard ST-Link. The board's UART comes back over the same USB cable as a virtual COM port.
 
 ## Monitoring telemetry
 
@@ -33,12 +33,15 @@ just format          # format and lint everything on demand
 
 ## Tests
 
-Host-side tests run with pytest (config in `pyproject.toml`); they also run in CI:
+Host-side tests come in two suites: pytest for the Python tooling, and CMake + doctest for the C++ flight software. `just test` runs both, and the same suites run in CI.
 
 ```bash
-pip install pytest
-just test     # or: pytest
+just test        # python + c++
+just test-py     # pytest only (config in pyproject.toml)
+just test-cpp    # configure, build, and run the fsw tests
 ```
+
+The C++ suite needs CMake and a host C++ compiler; `just test-cpp` does the configure, build, and run in one step.
 
 ## Working environment
 

@@ -14,18 +14,20 @@ Everything runs on a workbench with real parts and test gear: an STM32 as the fl
 3. First SIL demo: a scenario drops the bus voltage and the flight software enters SAFE, with a pass/fail report.
 4. First HIL demo: the STM32 streams heartbeat packets over UART and the host detects a dropped link.
 
-Later work adds real sensors (IMU, voltage/current, temperature), a watchdog reset demonstration, a FreeRTOS task model once the bare-metal side is stable, and a single-axis reaction wheel that points the platform to a commanded angle, run both against NASA's open-source 42 simulator and on the physical rig.
+Later work adds real sensors (IMU, voltage/current, temperature), a FreeRTOS task model once the workload turns concurrent, a watchdog reset demonstration, and a single-axis reaction wheel that detumbles and points the platform - run both against NASA's open-source 42 simulator and on the physical rig, eventually untethered with telemetry over a radio link.
 
 ## Status
-The bare-metal firmware is up and verified on the bench: a SysTick millisecond time base, a heartbeat LED, an interrupt-driven USART2 driver, and a CRC-checked frame layer streaming heartbeat and link-status packets over the Nucleo's virtual COM port, decoded by a host script in `tools/`. Next is the C++ flight logic (mode and fault managers).
+The bare-metal firmware is up and verified on the bench: a SysTick millisecond time base, a heartbeat LED, an interrupt-driven USART2 driver, and a CRC-checked frame layer streaming heartbeat and link-status packets over the Nucleo's virtual COM port, decoded by a host script in `tools/`. The C++ flight software is underway: a portable mode/fault-manager project that builds and unit-tests on the host (CMake + doctest), with the protocol codec now shared between the firmware and the flight software. The fault-handling logic is being filled in.
 
 ## Layout
-- docs/ - architecture and setup notes
-- firmware/ - the STM32 firmware
-- hardware/ - bill of materials and bench notes
+- bsp/ - STM32 board-support firmware (drivers, startup, board bring-up)
+- common/ - protocol code shared by the firmware and the flight software
+- docs/ - architecture, setup, requirements, and the bill of materials
+- fsw/ - portable C++ flight software (modes, faults) with host unit tests
 - tools/ - host-side scripts (telemetry monitor)
+- vendor/ - CMSIS and FreeRTOS, vendored as Git submodules
 
-The C++, sim, and Python directories are added as those parts come together.
+The simulation directory is added as that part comes together.
 
 ## License
 Apache 2.0.
