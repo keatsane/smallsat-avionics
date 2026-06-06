@@ -21,8 +21,8 @@ typedef enum {
 // MSG_HEARTBEAT - periodic "node is alive" beacon (little-endian on the wire)
 typedef struct __attribute__((packed)) {
     uint32_t uptime_ms;  // millis() since boot
-    uint8_t mode;        // current mode-manager state
-    uint8_t faults;      // active fault flags
+    uint8_t mode;        // current mode (MODE_* / fsw::Mode in state.h)
+    uint32_t faults;     // bitmask of active faults (1 << FAULT_* from state.h)
     uint16_t seq;        // increments each heartbeat, so drops are visible
 } heartbeat_t;
 

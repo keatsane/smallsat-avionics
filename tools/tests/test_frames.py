@@ -29,7 +29,7 @@ def test_crc16_known_vector():
 
 
 def test_heartbeat_roundtrip():
-    payload = struct.pack("<IBBH", 123456, 1, 0x04, 42)
+    payload = struct.pack("<IBIH", 123456, 1, 0x04, 42)
     assert _decode_all(encode(MSG_HEARTBEAT, payload)) == (MSG_HEARTBEAT, payload)
 
 
@@ -50,6 +50,6 @@ def test_resync_after_garbage():
 
 
 def test_format_heartbeat():
-    text = format_frame(MSG_HEARTBEAT, struct.pack("<IBBH", 5000, 0, 0, 5))
+    text = format_frame(MSG_HEARTBEAT, struct.pack("<IBIH", 5000, 0, 0, 5))
     assert "HEARTBEAT" in text
     assert "seq=5" in text

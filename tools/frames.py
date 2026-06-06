@@ -1,7 +1,7 @@
 """Frame and message codec for the avionics telemetry link.
 
-The single Python implementation of the wire format defined in the firmware
-(protocol/frame.c, protocol/msg.h): [AA 55][id][len][payload][crc16, big-endian].
+The single Python implementation of the wire format defined in C under
+common/protocol/ (frame.c, msg.h, state.h): [AA 55][id][len][payload][crc16, big-endian].
 Shared by the serial monitor and the host tests so the contract lives in one place.
 """
 
@@ -76,9 +76,9 @@ class FrameDecoder:
 
 def format_frame(msg_id: int, payload: bytes) -> str:
     """One-line human-readable summary of a decoded frame."""
-    if msg_id == MSG_HEARTBEAT and len(payload) == 8:
-        uptime, mode, faults, seq = struct.unpack("<IBBH", payload)
-        return f"HEARTBEAT    uptime={uptime} ms  mode={mode}  faults=0x{faults:02X}  seq={seq}"
+    if msg_id == MSG_HEARTBEAT and len(payload) == 11:
+        uptime, mode, faults, seq = struct.unpack("<IBIH", payload)
+        return f"HEARTBEAT    uptime={uptime} ms  mode={mode}  faults=0x{faults:08X}  seq={seq}"
     if msg_id == MSG_LINK_STATUS and len(payload) == 16:
         overrun, framing, noise, dropped = struct.unpack("<IIII", payload)
         return (
