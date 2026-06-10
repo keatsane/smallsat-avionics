@@ -34,16 +34,6 @@
 			<type>1</type>
 			<locationURI>copy_PARENT/vendor/cmsis-device-f4/Source/Templates/system_stm32f4xx.c</locationURI>
 		</link>
-		<link>
-			<name>Src/protocol</name>
-			<type>2</type>
-			<locationURI>virtual:/virtual</locationURI>
-		</link>
-		<link>
-			<name>Src/protocol/frame.c</name>
-			<type>1</type>
-			<locationURI>copy_PARENT/common/protocol/frame.c</locationURI>
-		</link>
 	</linkedResources>
 	<variableList>
 		<variable>

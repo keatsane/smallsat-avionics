@@ -1,9 +1,9 @@
 /**
  * @file   main.c
- * @brief  node entry - bring up the board and stream telemetry
+ * @brief  node entry - bring up the board
  */
 
-#include "app/telemetry.h"
+// #include "../../fsw/include/fsw/executive.hpp"
 #include "drivers/clock.h"
 #include "drivers/gpio.h"
 #include "drivers/systick.h"
@@ -20,13 +20,9 @@ int main(void) {
 
     uart_write(uart_console, (const uint8_t*)"uart up\r\n", 9);  // visual link check
 
-    uint32_t tick = 0;
     for (;;) {
         led_toggle();
-        telemetry_send_heartbeat();
-        if (++tick % 5U == 0U) {
-            telemetry_send_link_status();  // link health every 5 s
-        }
-        delay_ms(1000U);  // 1 hz
+        // cycle(millis());
+        delay_ms(1000U);  // 1 hz heartbeat blink
     }
 }
