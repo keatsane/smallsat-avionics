@@ -1,7 +1,8 @@
-"""Frame and message codec for the avionics telemetry link.
+"""Frame and message codec for the avionics link.
 
-The single Python implementation of the wire format defined in C under
-common/protocol/ (frame.c, msg.h, state.h): [AA 55][id][len][payload][crc16, big-endian].
+The single Python implementation of the wire format defined in C++ under
+common/protocol/ (frame.hpp, msg.hpp, state.hpp):
+[AA 55][id][len][payload][crc16, big-endian].
 Shared by the serial monitor and the host tests so the contract lives in one place.
 """
 
@@ -10,12 +11,15 @@ import struct
 SYNC0 = 0xAA
 SYNC1 = 0x55
 
-MSG_HEARTBEAT = 0x01
-MSG_LINK_STATUS = 0x02
+# message ids - mirror MsgId in msg.hpp (tags only, no priority semantics)
+MSG_COMMAND = 0x01
+MSG_COMMAND_ACK = 0x02
+MSG_HEARTBEAT = 0x03
+MSG_UART_STATUS = 0x04
 
 
 def crc16(data: bytes) -> int:
-    """CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF) - matches frame.c."""
+    """CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF) - matches frame.cpp."""
     crc = 0xFFFF
     for b in data:
         crc ^= b << 8
@@ -76,12 +80,19 @@ class FrameDecoder:
 
 def format_frame(msg_id: int, payload: bytes) -> str:
     """One-line human-readable summary of a decoded frame."""
+    if msg_id == MSG_COMMAND and len(payload) == 4:
+        cmd_id, arg, seq = struct.unpack("<BBH", payload)
+        return f"COMMAND      cmd={cmd_id}  arg={arg}  seq={seq}"
+    if msg_id == MSG_COMMAND_ACK and len(payload) == 5:
+        cmd_id, seq, accepted, reason = struct.unpack("<BHBB", payload)
+        verdict = "accepted" if accepted else f"rejected (reason={reason})"
+        return f"COMMAND_ACK  cmd={cmd_id}  seq={seq}  {verdict}"
     if msg_id == MSG_HEARTBEAT and len(payload) == 11:
         uptime, mode, faults, seq = struct.unpack("<IBIH", payload)
         return f"HEARTBEAT    uptime={uptime} ms  mode={mode}  faults=0x{faults:08X}  seq={seq}"
-    if msg_id == MSG_LINK_STATUS and len(payload) == 16:
+    if msg_id == MSG_UART_STATUS and len(payload) == 16:
         overrun, framing, noise, dropped = struct.unpack("<IIII", payload)
         return (
-            f"LINK_STATUS  overrun={overrun}  framing={framing}  noise={noise}  dropped={dropped}"
+            f"UART_STATUS  overrun={overrun}  framing={framing}  noise={noise}  dropped={dropped}"
         )
     return f"msg 0x{msg_id:02X}  len={len(payload)}  payload={payload.hex()}"

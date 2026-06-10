@@ -3,8 +3,10 @@
 import struct
 
 from frames import (
+    MSG_COMMAND,
+    MSG_COMMAND_ACK,
     MSG_HEARTBEAT,
-    MSG_LINK_STATUS,
+    MSG_UART_STATUS,
     FrameDecoder,
     crc16,
     encode,
@@ -28,14 +30,19 @@ def test_crc16_known_vector():
     assert crc16(b"123456789") == 0x29B1
 
 
+def test_command_roundtrip():
+    payload = struct.pack("<BBH", 1, 3, 99)
+    assert _decode_all(encode(MSG_COMMAND, payload)) == (MSG_COMMAND, payload)
+
+
 def test_heartbeat_roundtrip():
     payload = struct.pack("<IBIH", 123456, 1, 0x04, 42)
     assert _decode_all(encode(MSG_HEARTBEAT, payload)) == (MSG_HEARTBEAT, payload)
 
 
-def test_link_status_roundtrip():
+def test_uart_status_roundtrip():
     payload = struct.pack("<IIII", 3, 0, 1, 0)
-    assert _decode_all(encode(MSG_LINK_STATUS, payload)) == (MSG_LINK_STATUS, payload)
+    assert _decode_all(encode(MSG_UART_STATUS, payload)) == (MSG_UART_STATUS, payload)
 
 
 def test_bad_crc_is_rejected():
@@ -45,11 +52,17 @@ def test_bad_crc_is_rejected():
 
 
 def test_resync_after_garbage():
-    stream = b"\x11\xaa\x22" + encode(MSG_LINK_STATUS, b"\x00" * 16)
-    assert _decode_all(stream) == (MSG_LINK_STATUS, b"\x00" * 16)
+    stream = b"\x11\xaa\x22" + encode(MSG_UART_STATUS, b"\x00" * 16)
+    assert _decode_all(stream) == (MSG_UART_STATUS, b"\x00" * 16)
 
 
 def test_format_heartbeat():
     text = format_frame(MSG_HEARTBEAT, struct.pack("<IBIH", 5000, 0, 0, 5))
     assert "HEARTBEAT" in text
     assert "seq=5" in text
+
+
+def test_format_command_ack():
+    text = format_frame(MSG_COMMAND_ACK, struct.pack("<BHBB", 1, 7, 0, 2))
+    assert "COMMAND_ACK" in text
+    assert "rejected" in text
