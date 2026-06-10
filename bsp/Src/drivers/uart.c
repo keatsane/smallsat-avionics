@@ -8,7 +8,8 @@
 #include "drivers/clock.h"
 #include "stm32f446xx.h"
 
-#define BUF_SIZE 256U  // power of 2
+#define BUF_SIZE 256U  // power of 2 - the wrap masks below depend on it
+_Static_assert((BUF_SIZE & (BUF_SIZE - 1U)) == 0U, "BUF_SIZE must be a power of 2");
 
 // per-instance state: the register block plus this uart's own ring buffers
 struct uart {
@@ -74,7 +75,7 @@ void uart_write(uart_t* u, const uint8_t* data, size_t len) {
     for (size_t i = 0; i < len; i++) {
         uint16_t next = (uint16_t)((u->tx_head + 1U) & (BUF_SIZE - 1U));
         while (next == u->tx_tail) {
-            // tx buffer full - wait for the isr to make room
+            __WFI();  // tx buffer full - sleep until an interrupt (the txe isr) makes room
         }
         u->tx_buf[u->tx_head] = data[i];
         u->tx_head = next;
