@@ -48,9 +48,9 @@
 #define configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY 5
 
 #define configKERNEL_INTERRUPT_PRIORITY \
-  (configLIBRARY_LOWEST_INTERRUPT_PRIORITY << (8 - configPRIO_BITS))
+    (configLIBRARY_LOWEST_INTERRUPT_PRIORITY << (8 - configPRIO_BITS))
 #define configMAX_SYSCALL_INTERRUPT_PRIORITY \
-  (configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY << (8 - configPRIO_BITS))
+    (configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY << (8 - configPRIO_BITS))
 
 #define INCLUDE_vTaskDelay                  1
 #define INCLUDE_vTaskDelayUntil             1
@@ -61,14 +61,14 @@
 #define INCLUDE_uxTaskGetStackHighWaterMark 1
 #define INCLUDE_eTaskGetState               1
 
-#define configASSERT(x)          \
-  do {                           \
-    if ((x) == 0) {              \
-      __asm volatile("bkpt #0"); \
-      for (;;) {                 \
-      }                          \
-    }                            \
-  } while (0)
+#define configASSERT(x)                \
+    do {                               \
+        if ((x) == 0) {                \
+            __asm volatile("bkpt #0"); \
+            for (;;) {                 \
+            }                          \
+        }                              \
+    } while (0)
 
 #define vPortSVCHandler     SVC_Handler
 #define xPortPendSVHandler  PendSV_Handler
