@@ -17,10 +17,14 @@ test: test-py test-cpp
 
 # run the python host tests
 test-py:
-    pytest
+    pytest -q
 
-# build + run the flight-software unit tests
+# build + run the flight-software unit tests (clean summary; full detail only on failure)
 test-cpp: build-cpp
+    ./fsw/build/fsw_tests.exe
+
+# build + run the unit tests through ctest (per-test names, for CI)
+test-cpp-ci: build-cpp
     ctest --test-dir fsw/build --output-on-failure
 
 # build the c++ flight software (configure is cached, safe to re-run)
