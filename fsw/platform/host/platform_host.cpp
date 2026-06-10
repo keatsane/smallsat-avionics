@@ -1,5 +1,7 @@
-// host backend of the platform layer - used for SIL and the unit tests. the target
-// backend (firmware drivers) lives with the firmware and is linked instead on the board.
+/**
+ * @file   platform_host.cpp
+ * @brief  host backend of the platform layer - std clock and stdout, for SIL and unit tests
+ */
 
 #include <chrono>
 #include <cstdio>

@@ -19,19 +19,22 @@ add_compile_options(-Wall -Wextra)
 # CI passes -DFSW_WERROR=ON; scoped to the fsw library below (not the vendored doctest tests)
 option(FSW_WERROR "treat warnings as errors" OFF)
 
-# the C frame/msg code is shared with the firmware and compiled from here too
-set(COMMON_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../common)
-
 # ETL - fixed-capacity, no-heap containers (header-only, vendored as a submodule)
 set(ETL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../vendor/etl/include)
 
-# the flight logic itself - mode + fault managers, plus the host backend of the
-# platform layer. pure decisions; reaches the outside world only through platform.hpp
+# the wire contract (frame codec, message layouts, id catalog) - shared with the ground box
+# firmware when it lands (phase 8); the flight software owns and evolves it until then
+set(COMMON_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../common)
+
+# the flight logic
 add_library(fsw STATIC
+    src/comms/command_handler.cpp
+	src/comms/telemetry_producer.cpp
+    src/executive.cpp
     src/mode_manager.cpp
     src/fault_manager.cpp
     platform/host/platform_host.cpp
-    ${COMMON_DIR}/protocol/frame.c
+    ${COMMON_DIR}/protocol/frame.cpp
 )
 target_include_directories(fsw PUBLIC include ${COMMON_DIR} ${ETL_DIR})
 
@@ -42,10 +45,11 @@ endif()
 # unit tests (doctest, single header under third_party/)
 enable_testing()
 add_executable(fsw_tests
-    test/test_main.cpp
-    test/test_mode_manager.cpp
+    test/test_comms.cpp
     test/test_fault_manager.cpp
-    test/test_protocol.cpp
+	test/test_main.cpp
+    test/test_mode_manager.cpp
+    test/test_executive.cpp
 )
 target_include_directories(fsw_tests PRIVATE third_party)
 target_link_libraries(fsw_tests PRIVATE fsw)
