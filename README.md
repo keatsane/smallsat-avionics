@@ -17,13 +17,13 @@ Everything runs on a workbench with real parts and test gear: an STM32 as the fl
 Later work adds real sensors (IMU, voltage/current, temperature), a FreeRTOS task model once the workload turns concurrent, a watchdog reset demonstration, and a single-axis reaction wheel that detumbles and points the platform - run both against NASA's open-source 42 simulator and on the physical rig, eventually untethered with telemetry over a radio link.
 
 ## Status
-The bare-metal firmware is up and verified on the bench: a SysTick millisecond time base, a heartbeat LED, an interrupt-driven USART2 driver, and a CRC-checked frame layer streaming heartbeat and link-status packets over the Nucleo's virtual COM port, decoded by a host script in `tools/`. The C++ flight software is underway: a portable mode/fault-manager project that builds and unit-tests on the host (CMake + doctest), with the protocol codec now shared between the firmware and the flight software. The fault-handling logic is being filled in.
+The bare-metal firmware is up and verified on the bench: a SysTick millisecond time base, a heartbeat LED, and interrupt-driven UART drivers on USART2 and USART6 - frame streaming was proven over the Nucleo's virtual COM port and on a scope, decoded by a host script in `tools/`, before the codec moved into the flight software (it returns as the flight software's telemetry path). The C++ flight software is underway: a portable project that builds and unit-tests on the host (CMake + doctest), with the mode manager, fault manager, and command validation done and the executive that ties them together next. The framing and message codec lives in `common/protocol/` as the wire contract between the spacecraft and the ground - the flight software builds and parses the frames while the firmware drivers just move bytes, and the ground-station firmware shares the same headers when it lands.
 
 ## Layout
 - bsp/ - STM32 board-support firmware (drivers, startup, board bring-up)
-- common/ - protocol code shared by the firmware and the flight software
+- common/ - the wire contract: frame codec, message layouts, and the command/fault/mode id catalog
 - docs/ - architecture, setup, requirements, and the bill of materials
-- fsw/ - portable C++ flight software (modes, faults) with host unit tests
+- fsw/ - portable C++ flight software: modes, faults, command handling, with host unit tests
 - tools/ - host-side scripts (telemetry monitor)
 - vendor/ - CMSIS, FreeRTOS, and ETL, vendored as Git submodules
 
