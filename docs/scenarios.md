@@ -9,9 +9,9 @@ A SIL scenario declares an input timeline and the expected response, under `fsw/
 ### Running
 
 ```
-just sil                                              # the whole suite
-just sil fsw/sil/scenarios/sil_005_command_loss.yaml  # one scenario
-just sil-shim                                         # one scenario's timeline through the bare shim, ungraded
+just sil                # the whole suite
+just sil 5              # one scenario by number...
+just sil command_loss   # ...or by name fragment (a path works too)
 ```
 
 Exit code 0 means every check passed, 1 means a scenario failed, 2 means the harness itself hit an error (bad scenario file, shim missing, corrupt frame). Reports are written either way.
@@ -96,9 +96,9 @@ A HIL scenario tests the same flight software on the real STM32 over the live se
 ### Running
 
 ```
-just hil COM3                                           # the default scenario (HIL-001)
-just hil COM3 fsw/hil/scenarios/hil_002_link_loss.yaml  # a specific one
-just hil-scope 1 frame                                  # file a scope capture for a HIL test
+just hil COM3            # the whole campaign, pausing for the operator between scenarios
+just hil COM3 2          # one scenario by number, name fragment, or path
+just hil-scope 1 frame   # file a scope capture for a HIL test
 ```
 
 HIL runs need the bench - the board flashed and on a COM port - so they are manual and never run in CI. Exit codes match SIL: 0 pass, 1 fail, 2 harness error.

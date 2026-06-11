@@ -29,7 +29,7 @@ The SIL harness runs declared fault-injection scenarios against the flight softw
 ```bash
 pip install pyyaml
 just sil                              # run the whole scenario suite, reports to docs/reports/sil/
-just sil fsw/sil/scenarios/sil_001_undervoltage.yaml    # or one scenario
+just sil 1                            # or one scenario, by number or name
 ```
 
 ## Formatting
@@ -43,19 +43,18 @@ just format          # format and lint everything on demand
 
 ## Tests
 
-Tests come in levels: unit suites (pytest for the Python tooling, CMake + doctest for the C++ flight software) and the SIL scenario suite, with HIL joining later. `just test` runs everything, and the same suites run in CI.
+Tests come in levels: unit suites (pytest for the Python tooling, CMake + doctest for the C++ flight software), the SIL scenario suite, and the HIL scenarios on the bench. `just test` runs everything machine-runnable, and the same suites run in CI; HIL needs the board, so it stays manual.
 
 ```bash
-just test                # everything: all unit suites + the SIL scenario suite
-just unit                # both unit suites
-just unit-fsw            # c++ flight software only
-just unit-tools          # python tooling only (config in pyproject.toml)
-just sil                 # the SIL scenario suite
+just test                # everything machine-runnable: all unit suites + the SIL suite
+just unit                # both unit suites (or one: `just unit fsw`, `just unit tools`)
+just sil                 # the SIL scenario suite (or one scenario: `just sil 5`)
+just hil COM3            # the HIL campaign on the live board (or one: `just hil COM3 2`)
 ```
 
-Every test recipe takes an optional `verbose` argument (`just test verbose`, `just unit-fsw verbose`, ...) that switches to per-test names - through ctest for the C++ suite, `pytest -v` for the tooling, and per-check output for SIL.
+Every test recipe takes an optional trailing `verbose` argument (`just test verbose`, `just unit fsw verbose`, ...) that switches to per-test names - through ctest for the C++ suite, `pytest -v` for the tooling, and per-check output for SIL.
 
-The C++ suite needs CMake and a host C++ compiler; `just unit-fsw` does the configure, build, and run in one step.
+The C++ suite needs CMake and a host C++ compiler; `just unit fsw` does the configure, build, and run in one step.
 
 ## Working environment
 

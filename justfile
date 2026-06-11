@@ -15,63 +15,48 @@ _default:
 format:
     pre-commit run --all-files
 
-# build both host fsw and cubeide debug firmware
+# build the flight software and/or firmware (target: all, fsw, or bsp)
 [group('build')]
-build: build-fsw build-bsp
-    @Write-Output "build complete"
+build target="all":
+    {{ if target == "all" { "just _build-fsw && just _build-bsp" } else if target == "fsw" { "just _build-fsw" } else if target == "bsp" { "just _build-bsp" } else { error("build target must be all, fsw, or bsp") } }}
 
-# build the c++ flight software (configure is cached, safe to re-run)
-[group('build')]
-build-fsw:
+# configure is cached, safe to re-run
+_build-fsw:
     cmake -S fsw -B fsw/build -G "Unix Makefiles" -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ && cmake --build fsw/build
 
-# build the cubeide debug firmware image (bsp/Debug makefiles come from a first ide build)
-[group('build')]
-build-bsp:
+# bsp/Debug makefiles come from a first cubeide build
+_build-bsp:
     make -C bsp/Debug -j
 
-# build and flash the debug firmware image over st-link swd
+# build and flash the firmware image over st-link swd
 [group('build')]
-flash: build-bsp
+flash: (build "bsp")
     & "{{cubeprog}}" -c port=SWD mode=UR reset=HWrst -d "bsp/Debug/bsp.elf" -v -rst
-
-# flash an already-built firmware image over st-link swd
-[group('build')]
-flash-only elf="bsp/Debug/bsp.elf":
-    & "{{cubeprog}}" -c port=SWD mode=UR reset=HWrst -d "{{elf}}" -v -rst
 
 # run every machine-runnable suite - unit + SIL (HIL needs the bench: `just hil`); add "verbose" for detail
 [group('testing')]
-test detail="": (unit detail) (sil "fsw/sil/scenarios" detail)
+test detail="": (unit "all" detail) (sil "all" detail)
 
-# run all unit suites (python tooling + c++ flight software); add "verbose" for per-test names
+# unit suites (suite: all, fsw, or tools); add "verbose" for per-test names
 [group('testing')]
-unit detail="": (unit-tools detail) (unit-fsw detail)
+unit suite="all" detail="":
+    {{ if suite == "all" { "just _unit-tools " + detail + " && just _unit-fsw " + detail } else if suite == "fsw" { "just _unit-fsw " + detail } else if suite == "tools" { "just _unit-tools " + detail } else { error("unit suite must be all, fsw, or tools") } }}
 
-# c++ flight-software unit tests; add "verbose" for per-test names via ctest
-[group('testing')]
-unit-fsw detail="": build-fsw
+_unit-fsw detail="": (build "fsw")
     {{ if detail == "verbose" { "ctest --test-dir fsw/build --output-on-failure" } else { "./fsw/build/fsw_tests.exe" } }}
 
-# python tooling unit tests (frames codec + sil runner); add "verbose" for per-test names
-[group('testing')]
-unit-tools detail="":
+_unit-tools detail="":
     pytest {{ if detail == "verbose" { "-v" } else { "-q" } }}
 
-# run SIL scenarios (the whole suite, or pass one yaml); add "verbose" for every check
+# run SIL scenarios (scenario: all, a number, a name, or a path); add "verbose" for every check
 [group('testing')]
-sil scenario="fsw/sil/scenarios" detail="": build-fsw
+sil scenario="all" detail="": (build "fsw")
     python tools/sil_runner.py {{ if detail == "verbose" { "-v" } else { "" } }} {{scenario}}
 
-# run the bare SIL shim on one scenario's timeline, ungraded (debugging aid)
+# run HIL scenarios on the live board (scenario: all, a number, a name, or a path; needs the bench - never in CI)
 [group('testing')]
-sil-shim scenario="fsw/sil/scenarios/sil_001_undervoltage.yaml": build-fsw
-    python tools/sil_runner.py --compile-only {{scenario}} | ./fsw/build/sil_shim.exe
-
-# run a HIL scenario against the live board (needs the bench, so manual - never in CI)
-[group('testing')]
-hil port scenario="fsw/hil/scenarios/hil_001_timing.yaml":
-    python tools/hil_runner.py {{scenario}} {{port}}
+hil port scenario="all":
+    python tools/hil_runner.py {{port}} {{scenario}}
 
 # save a scope capture for a HIL test, named and filed (e.g. `just hil-scope 1 frame`)
 [group('testing')]
