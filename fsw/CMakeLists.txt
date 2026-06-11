@@ -58,3 +58,9 @@ target_link_libraries(fsw_tests PRIVATE fsw)
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
 include(doctest)
 doctest_discover_tests(fsw_tests)
+
+# the sil shim
+add_executable(sil_shim
+    sil/sil_shim.cpp
+)
+target_link_libraries(sil_shim PRIVATE fsw)

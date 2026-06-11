@@ -31,6 +31,10 @@ test-cpp-ci: build-cpp
 build-cpp:
     cmake -S fsw -B fsw/build -G "Unix Makefiles" -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ && cmake --build fsw/build
 
+# run the SIL shim on a timeline (the scenario runner claims `just sil` when it lands)
+sil-shim timeline="fsw/sil/timelines/undervoltage.txt": build-cpp
+    cat {{timeline}} | ./fsw/build/sil_shim.exe
+
 # install the pre-commit git hook
 hooks:
     pre-commit install
