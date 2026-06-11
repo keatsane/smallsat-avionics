@@ -248,12 +248,12 @@ The fault catalog (14 faults: undervoltage, overcurrent, gyro-dropout, ...) is d
 **REQ-PAL-002** - The identical flight-software source shall build and run on the host (SIL) and cross-compile onto the STM32 (HIL and flight); only the platform backend shall differ.  
 **Status**: in progress  
 **Verification**: inspection and build (both targets compile the same sources)  
-**Artifact**: host backend now; integrated STM32 build (phase 4 to 5)
+**Artifact**: backend chosen per executable (host backend for the unit tests, SIL backend in fsw/sil/sil_shim.cpp); integrated STM32 build (phase 4 to 5)
 
 ## Verification and traceability
 
 **REQ-VV-001** - The SIL harness shall drive the flight software from a declared scenario - an initial state, an input and fault timeline, and the expected response - and shall emit a pass/fail report. The runner shall be scenario-agnostic: any scenario it can express runs the same way, with no fault-specific logic in the runner.  
-**Status**: planned  
+**Status**: in progress  
 **Verification**: demonstration (a scenario produces a report)
 
 **REQ-VV-002** - Every SIL and HIL scenario shall have an id and shall trace to the requirement(s) it verifies; the report shall record the scenario id, the requirement id, and the observed versus expected result.  
