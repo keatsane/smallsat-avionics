@@ -78,6 +78,26 @@ class FrameDecoder:
         return None
 
 
+# rejection reasons - mirror CmdReject in fsw/include/fsw/comms/command_handler.hpp
+REJECT_REASONS = ["Ok", "UnknownId", "IllegalInMode", "BadArg"]
+
+
+def reject_name(reason: int) -> str:
+    """Name for an ack's reason byte, or 'UNKNOWN' if out of range."""
+    return REJECT_REASONS[reason] if 0 <= reason < len(REJECT_REASONS) else "UNKNOWN"
+
+
+def decode_command_ack(payload: bytes) -> dict:
+    """Unpack a command_ack_t payload (msg.hpp) into a dict."""
+    cmd_id, seq, accepted, reason = struct.unpack("<BHBB", payload)
+    return {
+        "cmd_id": cmd_id,
+        "seq": seq,
+        "accepted": bool(accepted),
+        "reason": reject_name(reason),
+    }
+
+
 def format_frame(msg_id: int, payload: bytes) -> str:
     """One-line human-readable summary of a decoded frame."""
     if msg_id == MSG_COMMAND and len(payload) == 4:
