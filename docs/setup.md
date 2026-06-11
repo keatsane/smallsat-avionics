@@ -28,7 +28,7 @@ The SIL harness runs declared fault-injection scenarios against the flight softw
 
 ```bash
 pip install pyyaml
-just sil                              # run the whole scenario suite, reports to docs/reports/
+just sil                              # run the whole scenario suite, reports to docs/reports/sil/
 just sil fsw/sil/scenarios/sil_001_undervoltage.yaml    # or one scenario
 ```
 

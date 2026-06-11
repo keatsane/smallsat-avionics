@@ -43,7 +43,7 @@ The spacecraft operates in exactly one of six modes at any time. Their intent:
 **REQ-MODE-004** - On a request for a transition that is not in the legal set, the flight software shall leave the current mode unchanged and shall not append a transition log entry.  
 **Status**: SIL-verified  
 **Verification**: unit test and SIL  
-**Artifact**: fsw/test/test_mode_manager.cpp, docs/reports/SIL-007.md
+**Artifact**: fsw/test/test_mode_manager.cpp, docs/reports/sil/SIL-007.md
 
 **REQ-MODE-005** - Every operating mode (BOOT, STANDBY, DETUMBLE, POINTING, DOWNLINK) shall have a legal transition to SAFE, so a fault response can command SAFE from any operating mode.  
 **Status**: unit-verified  
@@ -53,7 +53,7 @@ The spacecraft operates in exactly one of six modes at any time. Their intent:
 **REQ-MODE-006** - The flight software shall perform no autonomous transition out of SAFE. The only permitted exit from SAFE shall be a ground-commanded transition to STANDBY.  
 **Status**: SIL-verified  
 **Verification**: unit test and SIL  
-**Artifact**: fsw/test/test_mode_manager.cpp, docs/reports/SIL-006.md
+**Artifact**: fsw/test/test_mode_manager.cpp, docs/reports/sil/SIL-006.md
 
 **REQ-MODE-007** - The flight software shall record, for every transition, the trigger that caused it, drawn from the set {PowerOn, Nominal, FaultEntry, FaultCleared, Timeout, Command}.  
 **Status**: unit-verified  
@@ -90,7 +90,7 @@ The fault catalog (14 faults: undervoltage, overcurrent, gyro-dropout, ...) is d
 **REQ-FAULT-002** - A latched Critical fault shall command SAFE, and only after its debounce window so a transient sample cannot force it.  
 **Status**: SIL-verified  
 **Verification**: unit test, then SIL scenario (undervoltage -> SAFE, phase 3)  
-**Artifact**: fsw/test/test_fault_manager.cpp, docs/reports/SIL-001.md (scenario SIL-001)
+**Artifact**: fsw/test/test_fault_manager.cpp, docs/reports/sil/SIL-001.md (scenario SIL-001)
 
 **REQ-FAULT-003** - Each fault shall have a defined policy - severity, debounce threshold, and owning requirement - held in a single fault table that is the only place fault policy is written; a compile-time check shall keep that table sized to the fault catalog.  
 **Status**: unit-verified  
@@ -100,12 +100,12 @@ The fault catalog (14 faults: undervoltage, overcurrent, gyro-dropout, ...) is d
 **REQ-FAULT-004** - A fault shall latch only after its debounce threshold of consecutive bad samples is reached; a single transient bad sample shall never latch it.  
 **Status**: SIL-verified  
 **Verification**: unit test and SIL  
-**Artifact**: fsw/test/test_fault_manager.cpp, docs/reports/SIL-004.md
+**Artifact**: fsw/test/test_fault_manager.cpp, docs/reports/sil/SIL-004.md
 
 **REQ-FAULT-005** - A fault of Warning or Degraded severity shall not by itself command SAFE; a Degraded fault shall switch to its documented fallback behavior, and every such fault shall be latched and reported in telemetry.  
 **Status**: in progress (the no-SAFE and latch/report clauses are SIL-verified; fallback behaviors arrive with the sensors)  
 **Verification**: unit test and SIL  
-**Artifact**: fsw/test/test_fault_manager.cpp, docs/reports/SIL-003.md
+**Artifact**: fsw/test/test_fault_manager.cpp, docs/reports/sil/SIL-003.md
 
 **REQ-FAULT-006** - The flight software shall evaluate the full fault set once per control cycle and apply the required response; when more than one response is indicated, the most conservative one shall win (SAFE dominates).  
 **Status**: unit-verified  
@@ -125,12 +125,12 @@ The fault catalog (14 faults: undervoltage, overcurrent, gyro-dropout, ...) is d
 **REQ-FAULT-009** - A good (healthy) sample shall reset a fault's consecutive-bad-sample count, but shall not clear a fault that has already latched (see REQ-FAULT-001).  
 **Status**: SIL-verified  
 **Verification**: unit test and SIL  
-**Artifact**: fsw/test/test_fault_manager.cpp, docs/reports/SIL-004.md
+**Artifact**: fsw/test/test_fault_manager.cpp, docs/reports/sil/SIL-004.md
 
 **REQ-FAULT-010** - A latched fault shall be cleared only by an explicit action - a ground command or a defined recovery sequence - never autonomously by the flight software.  
 **Status**: SIL-verified  
 **Verification**: unit test and SIL  
-**Artifact**: fsw/test/test_fault_manager.cpp, fsw/test/test_executive.cpp, docs/reports/SIL-006.md
+**Artifact**: fsw/test/test_fault_manager.cpp, fsw/test/test_executive.cpp, docs/reports/sil/SIL-006.md
 
 **REQ-FAULT-011** - The fault manager shall maintain a time-ordered log of fault state-change events; each entry shall record the platform timestamp, the fault id, and whether the fault latched or cleared. Only edges shall be logged - never per-sample - and the log shall be a fixed-capacity ring that overwrites its oldest entry when full.  
 **Status**: unit-verified  
@@ -142,24 +142,24 @@ The fault catalog (14 faults: undervoltage, overcurrent, gyro-dropout, ...) is d
 **REQ-EXEC-001** - The flight software shall process each control cycle's inputs in a fixed, documented order: fault-sample ingestion, command validation, fault response, command dispatch. The fault response shall take precedence: a command accepted in the same cycle a critical fault forces SAFE shall not override the SAFE entry. Command acceptance acknowledges validation only; execution outcome is observed through telemetry.  
 **Status**: SIL-verified  
 **Verification**: unit test and SIL  
-**Artifact**: fsw/src/executive.cpp, fsw/test/test_executive.cpp, docs/reports/SIL-008.md
+**Artifact**: fsw/src/executive.cpp, fsw/test/test_executive.cpp, docs/reports/sil/SIL-008.md
 
 ## Comms - command uplink and telemetry downlink
 
 **REQ-CMD-001** - The flight software shall validate every command - known id, in-range parameters, and legal in the current mode - before acting on it; an invalid command shall be rejected and reported, never executed.  
 **Status**: SIL-verified  
 **Verification**: unit test and SIL  
-**Artifact**: fsw/test/test_comms.cpp, docs/reports/SIL-002.md (scenario SIL-002)
+**Artifact**: fsw/test/test_comms.cpp, docs/reports/sil/SIL-002.md (scenario SIL-002)
 
 **REQ-CMD-002** - Loss of ground command contact for longer than a defined timeout shall raise COMMAND_LINK_LOSS.  
 **Status**: SIL-verified  
 **Verification**: unit test and SIL  
-**Artifact**: fsw/test/test_comms.cpp, docs/reports/SIL-005.md
+**Artifact**: fsw/test/test_comms.cpp, docs/reports/sil/SIL-005.md
 
 **REQ-CMD-003** - Every command shall be acknowledged in telemetry as accepted or rejected, with a reason given on rejection.  
 **Status**: SIL-verified (both verdicts observed as decoded telemetry frames; HIL still owed)  
 **Verification**: unit test (ack construction), SIL and HIL  
-**Artifact**: fsw/test/test_comms.cpp, docs/reports/SIL-002.md (scenario SIL-002)
+**Artifact**: fsw/test/test_comms.cpp, docs/reports/sil/SIL-002.md (scenario SIL-002)
 
 **REQ-CMD-004** - Every handled command shall be appended to a command event log recording the platform timestamp, the command id, the verdict, and the rejection reason. The log shall be a fixed-capacity ring that allocates no memory dynamically and overwrites its oldest entry when full.  
 **Status**: unit-verified  
@@ -167,19 +167,19 @@ The fault catalog (14 faults: undervoltage, overcurrent, gyro-dropout, ...) is d
 **Artifact**: fsw/test/test_comms.cpp
 
 **REQ-TLM-001** - All telemetry shall be framed with a sync header, message id, length, and CRC-16; a corrupted or mis-framed packet shall be detected and discarded, never acted on.  
-**Status**: unit-verified (the codec; the bench emission was retired when the protocol moved into the flight software, and returns through the executive)  
+**Status**: HIL-verified (live framing on the real wire, every frame CRC-checked with zero rejects over the window; the discard path itself is unit-verified)  
 **Verification**: unit test and HIL  
-**Artifact**: common/protocol/frame.cpp, fsw/test/test_comms.cpp, tools/uart_monitor.py
+**Artifact**: common/protocol/frame.cpp, fsw/test/test_comms.cpp, docs/reports/hil/HIL-001.md, docs/reports/hil/HIL-001-scope.md
 
 **REQ-TLM-002** - The flight software shall emit a periodic heartbeat carrying uptime, a sequence number, the current mode, and the active-fault bitmask.  
-**Status**: SIL-verified (1 Hz emission observed and decoded in SIL-001; HIL still owed)  
+**Status**: HIL-verified (1 Hz emission decoded live from the STM32 and timed on the scope; the on-wire frame carries real mode and fault state)  
 **Verification**: unit test, SIL and HIL  
-**Artifact**: fsw/test/test_comms.cpp, docs/reports/SIL-001.md
+**Artifact**: fsw/test/test_comms.cpp, docs/reports/sil/SIL-001.md, docs/reports/hil/HIL-001.md, docs/reports/hil/HIL-001-scope.md
 
 **REQ-TLM-003** - The heartbeat sequence number shall increment monotonically so the ground can detect dropped packets.  
-**Status**: unit-verified  
+**Status**: HIL-verified (59 consecutive live periods with zero gaps; a board reset is detected as a sequence discontinuity in HIL-002)  
 **Verification**: unit test; demonstration (scope/host decode)  
-**Artifact**: fsw/test/test_comms.cpp, tools/uart_monitor.py
+**Artifact**: fsw/test/test_comms.cpp, docs/reports/hil/HIL-001.md, docs/reports/hil/HIL-002.md
 
 **REQ-TLM-004** - The telemetry transport shall be swappable behind the frame format - UART now, radio later - with no change to the wire format.  
 **Status**: in progress  
@@ -246,25 +246,26 @@ The fault catalog (14 faults: undervoltage, overcurrent, gyro-dropout, ...) is d
 **Artifact**: fsw/include/fsw/platform.hpp + host backend
 
 **REQ-PAL-002** - The identical flight-software source shall build and run on the host (SIL) and cross-compile onto the STM32 (HIL and flight); only the platform backend shall differ.  
-**Status**: in progress  
+**Status**: bench-verified (the unmodified flight-software library builds and runs on both targets; the STM32 image beacons its real mode and fault state)  
 **Verification**: inspection and build (both targets compile the same sources)  
-**Artifact**: backend chosen per executable (host backend for the unit tests, SIL backend in fsw/sil/sil_shim.cpp); integrated STM32 build (phase 4 to 5)
+**Artifact**: backend chosen per executable (host backend for the unit tests, SIL backend in fsw/sil/sil_shim.cpp, STM32 backend in fsw/platform/stm32/platform_stm32.cpp); docs/reports/hil/HIL-001.md
 
 ## Verification and traceability
 
 **REQ-VV-001** - The SIL harness shall drive the flight software from a declared scenario - an initial state, an input and fault timeline, and the expected response - and shall emit a pass/fail report. The runner shall be scenario-agnostic: any scenario it can express runs the same way, with no fault-specific logic in the runner.  
 **Status**: SIL-verified (two scenarios of different kinds run through the unmodified runner)  
 **Verification**: demonstration (a scenario produces a report)  
-**Artifact**: fsw/sil/sil_shim.cpp, tools/sil_runner.py, docs/reports/SIL-001.md, docs/reports/SIL-002.md
+**Artifact**: fsw/sil/sil_shim.cpp, tools/sil_runner.py, docs/reports/sil/SIL-001.md, docs/reports/sil/SIL-002.md
 
 **REQ-VV-002** - Every SIL and HIL scenario shall have an id and shall trace to the requirement(s) it verifies; the report shall record the scenario id, the requirement id, and the observed versus expected result.  
 **Status**: SIL-verified  
 **Verification**: inspection  
-**Artifact**: fsw/sil/scenarios/, docs/reports/, docs/scenarios.md
+**Artifact**: fsw/sil/scenarios/, fsw/hil/scenarios/, docs/reports/, docs/scenarios.md
 
 **REQ-VV-003** - The HIL harness shall consume live STM32 telemetry, detect link loss against a heartbeat timeout, and capture packet timing.  
-**Status**: planned  
-**Verification**: HIL (timing capture + timeout demonstration)
+**Status**: HIL-verified (loss declared 5.03 s after the last live heartbeat and recovery observed; packet timing measured on the scope)  
+**Verification**: HIL (timing capture + timeout demonstration)  
+**Artifact**: tools/hil_runner.py, docs/reports/hil/HIL-001.md, docs/reports/hil/HIL-002.md, docs/reports/hil/HIL-001-scope.md
 
 **REQ-VV-004** - Every requirement shall trace forward to at least one verifying artifact, and code and tests shall trace back to a requirement id; the trace shall be kept current as the system evolves.  
 **Status**: in progress  
