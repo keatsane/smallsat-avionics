@@ -26,14 +26,13 @@ set(ETL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../vendor/etl/include)
 # firmware when it lands (phase 8); the flight software owns and evolves it until then
 set(COMMON_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../common)
 
-# the flight logic
+# the flight logic - backend-neutral: each executable below adds its own platform backend
 add_library(fsw STATIC
     src/comms/command_handler.cpp
 	src/comms/telemetry_producer.cpp
     src/executive.cpp
     src/mode_manager.cpp
     src/fault_manager.cpp
-    platform/host/platform_host.cpp
     ${COMMON_DIR}/protocol/frame.cpp
 )
 target_include_directories(fsw PUBLIC include ${COMMON_DIR} ${ETL_DIR})
@@ -50,6 +49,7 @@ add_executable(fsw_tests
 	test/test_main.cpp
     test/test_mode_manager.cpp
     test/test_executive.cpp
+    platform/host/platform_host.cpp
 )
 target_include_directories(fsw_tests PRIVATE third_party)
 target_link_libraries(fsw_tests PRIVATE fsw)
