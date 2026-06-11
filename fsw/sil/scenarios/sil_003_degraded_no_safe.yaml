@@ -1,0 +1,19 @@
+# a Degraded fault latches and is reported, but must not by itself command SAFE
+# (REQ-FAULT-005, the no-SAFE clause) - gyro dropout has a documented fallback path
+id: SIL-003
+title: degraded fault latches without entering safe mode
+verifies: [REQ-FAULT-005]
+timeline:
+  - { t: 100, cmd: { name: SET_MODE, arg: 1, seq: 1 } }
+  - { t: 200, fault: { name: GYRO_DROPOUT, bad: 1 } }
+  - { t: 300, fault: { name: GYRO_DROPOUT, bad: 1 } }
+  - { t: 400, fault: { name: GYRO_DROPOUT, bad: 1 } }
+  - { t: 600 }
+expect:
+  mode_log:
+    - { to: STANDBY, trigger: Command, req: REQ-CMD-001 }
+  acks:
+    - { seq: 1, accepted: true }
+  final:
+    mode: STANDBY
+    faults_set: [GYRO_DROPOUT]

@@ -1,0 +1,21 @@
+# undervoltage -> SAFE (ancestor of SIL-001, REQ-FAULT-002)
+# climb out of boot, then brown out the bus; whole run stays under the 5 s
+# command-loss dead man so the only critical fault in play is the injected one
+id: SIL-001
+title: undervoltage drives safe mode
+verifies: [REQ-FAULT-002]
+timeline:                                  # compiles 1:1 into shim input lines
+  - { t: 100, cmd: { name: SET_MODE, arg: 1, seq: 1 } }
+  - { t: 1000 }
+  - { t: 1400, fault: { name: UNDERVOLTAGE, bad: 1 } }
+  - { t: 1500, fault: { name: UNDERVOLTAGE, bad: 1 } }
+  - { t: 1600, fault: { name: UNDERVOLTAGE, bad: 1 } }
+  - { t: 2000 }
+expect:
+  mode_log:                                # each entry must match an observed EVENT mode line
+    - { to: SAFE, trigger: FaultEntry, req: REQ-FAULT-002 }
+  acks:                                    # each entry must match a decoded COMMAND_ACK frame
+    - { seq: 1, accepted: true }
+  final:
+    mode: SAFE
+    faults_set: [UNDERVOLTAGE]

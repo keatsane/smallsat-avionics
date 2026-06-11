@@ -1,0 +1,20 @@
+# transient bad samples never reach the debounce threshold (3 consecutive for
+# undervoltage), and a good sample resets the streak - so four bads with a good one in
+# the middle must latch nothing (REQ-FAULT-004, REQ-FAULT-009)
+id: SIL-004
+title: transient bad samples are debounced away
+verifies: [REQ-FAULT-004, REQ-FAULT-009]
+timeline:
+  - { t: 100, cmd: { name: SET_MODE, arg: 1, seq: 1 } }
+  - { t: 200, fault: { name: UNDERVOLTAGE, bad: 1 } }
+  - { t: 300, fault: { name: UNDERVOLTAGE, bad: 1 } }
+  - { t: 400, fault: { name: UNDERVOLTAGE, bad: 0 } }
+  - { t: 500, fault: { name: UNDERVOLTAGE, bad: 1 } }
+  - { t: 600, fault: { name: UNDERVOLTAGE, bad: 1 } }
+  - { t: 800 }
+expect:
+  acks:
+    - { seq: 1, accepted: true }
+  final:
+    mode: STANDBY
+    faults_set: []

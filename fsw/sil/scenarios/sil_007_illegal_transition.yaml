@@ -1,0 +1,19 @@
+# acceptance is not execution: SET_MODE POINTING is a valid command everywhere (known
+# id, in-range arg), so it is ACCEPTED - but STANDBY -> POINTING is not in the
+# transition allow-list, so the mode manager refuses it and nothing changes
+# (REQ-MODE-003/004). the final mode is the proof the transition never happened
+id: SIL-007
+title: accepted command, illegal transition refused
+verifies: [REQ-MODE-004]
+timeline:
+  - { t: 100, cmd: { name: SET_MODE, arg: 1, seq: 1 } }
+  - { t: 300, cmd: { name: SET_MODE, arg: 3, seq: 2 } }
+  - { t: 500 }
+expect:
+  mode_log:
+    - { to: STANDBY, trigger: Command, req: REQ-CMD-001 }
+  acks:
+    - { seq: 2, accepted: true }
+  final:
+    mode: STANDBY
+    faults_set: []

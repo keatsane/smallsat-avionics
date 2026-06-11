@@ -1,0 +1,23 @@
+# the dead man: uplink silence past the 5 s timeout raises COMMAND_LINK_LOSS
+# (REQ-CMD-002), which is Critical and safes the spacecraft - the last command lands
+# at t=100, so the link is lost just past t=5100
+id: SIL-005
+title: command-link silence trips the dead man into safe mode
+verifies: [REQ-CMD-002]
+timeline:
+  - { t: 100, cmd: { name: SET_MODE, arg: 1, seq: 1 } }
+  - { t: 1000 }
+  - { t: 2000 }
+  - { t: 3000 }
+  - { t: 4000 }
+  - { t: 5000 }
+  - { t: 5200 }
+  - { t: 5400 }
+expect:
+  mode_log:
+    - { to: SAFE, trigger: FaultEntry, req: REQ-FAULT-002 }
+  acks:
+    - { seq: 1, accepted: true }
+  final:
+    mode: SAFE
+    faults_set: [COMMAND_LINK_LOSS]

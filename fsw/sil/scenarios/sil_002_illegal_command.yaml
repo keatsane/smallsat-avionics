@@ -1,0 +1,19 @@
+# a rejected command, end to end: CAPTURE_IMAGE is legal only in POINTING (REQ-CMD-001),
+# and every command is answered in telemetry with a verdict and a reason (REQ-CMD-003).
+# the rejected command must change nothing - same mode, no faults
+id: SIL-002
+title: illegal-in-mode command is rejected and acked
+verifies: [REQ-CMD-001, REQ-CMD-003]
+timeline:
+  - { t: 100, cmd: { name: SET_MODE, arg: 1, seq: 1 } }
+  - { t: 300, cmd: { name: CAPTURE_IMAGE, arg: 0, seq: 2 } }
+  - { t: 500 }
+expect:
+  mode_log:
+    - { to: STANDBY, trigger: Command, req: REQ-CMD-001 }
+  acks:
+    - { seq: 1, accepted: true }
+    - { seq: 2, accepted: false, reason: IllegalInMode }
+  final:
+    mode: STANDBY
+    faults_set: []

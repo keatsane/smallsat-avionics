@@ -1,0 +1,21 @@
+# the same-cycle conflict (REQ-EXEC-001): at t=400 the third undervoltage sample
+# latches the fault AND a SET_MODE DETUMBLE arrives in the same cycle - the command is
+# accepted (validation passed) but the safing wins; the spacecraft must end in SAFE,
+# never DETUMBLE
+id: SIL-008
+title: safing wins a same-cycle conflict with an accepted command
+verifies: [REQ-EXEC-001]
+timeline:
+  - { t: 100, cmd: { name: SET_MODE, arg: 1, seq: 1 } }
+  - { t: 200, fault: { name: UNDERVOLTAGE, bad: 1 } }
+  - { t: 300, fault: { name: UNDERVOLTAGE, bad: 1 } }
+  - { t: 400, fault: { name: UNDERVOLTAGE, bad: 1 }, cmd: { name: SET_MODE, arg: 2, seq: 2 } }
+  - { t: 600 }
+expect:
+  mode_log:
+    - { to: SAFE, trigger: FaultEntry, req: REQ-FAULT-002 }
+  acks:
+    - { seq: 2, accepted: true }
+  final:
+    mode: SAFE
+    faults_set: [UNDERVOLTAGE]

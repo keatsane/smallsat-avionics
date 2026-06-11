@@ -1,9 +1,0 @@
-# undervoltage -> SAFE (ancestor of SIL-001, REQ-FAULT-002)
-# climb out of boot, then brown out the bus; whole run stays under the 5 s
-# command-loss dead man so the only critical fault in play is the injected one
-100 cmd SET_MODE 1 1
-1000
-1400 fault UNDERVOLTAGE 1
-1500 fault UNDERVOLTAGE 1
-1600 fault UNDERVOLTAGE 1
-2000
