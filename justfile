@@ -31,9 +31,13 @@ test-cpp-ci: build-cpp
 build-cpp:
     cmake -S fsw -B fsw/build -G "Unix Makefiles" -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ && cmake --build fsw/build
 
-# run the SIL shim on a timeline (the scenario runner claims `just sil` when it lands)
-sil-shim timeline="fsw/sil/timelines/undervoltage.txt": build-cpp
-    cat {{timeline}} | ./fsw/build/sil_shim.exe
+# run SIL scenarios (the whole suite, or pass one yaml); reports land in docs/reports/
+sil scenario="fsw/sil/scenarios": build-cpp
+    python tools/sil_runner.py {{scenario}}
+
+# run the bare SIL shim on one scenario's timeline, ungraded (debugging aid)
+sil-shim scenario="fsw/sil/scenarios/sil_001_undervoltage.yaml": build-cpp
+    python tools/sil_runner.py --compile-only {{scenario}} | ./fsw/build/sil_shim.exe
 
 # install the pre-commit git hook
 hooks:
