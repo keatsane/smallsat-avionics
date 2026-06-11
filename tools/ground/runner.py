@@ -38,6 +38,42 @@ class Check:
     passed: bool
 
 
+def resolve_scenarios(refs: list, scenario_dir: Path, prefix: str) -> list:
+    """Scenario references -> a deduped, ordered list of yaml paths.
+
+    A reference is "all" (every scenario in the level's directory), an existing
+    file or directory path, a bare number (5 -> <prefix>_005_*.yaml), or a name
+    fragment (command_loss). No match is a harness error - it dies loudly with
+    the available ids rather than silently running nothing.
+    """
+    files = []
+    for ref in refs:
+        path = Path(ref)
+        if ref == "all":
+            hits = sorted(scenario_dir.glob("*.yaml"))
+        elif path.is_file():
+            hits = [path]
+        elif path.is_dir():
+            hits = sorted(path.glob("*.yaml"))
+        elif ref.isdigit():
+            hits = sorted(scenario_dir.glob(f"{prefix}_{int(ref):03d}_*.yaml"))
+        else:
+            hits = sorted(scenario_dir.glob(f"{prefix}_*{ref}*.yaml"))
+        if not hits:
+            available = ", ".join(f.stem for f in sorted(scenario_dir.glob("*.yaml"))) or "(none)"
+            die(f"no scenario matches '{ref}' (available: {available})")
+        files += hits
+    seen = set()
+    return [f for f in files if not (f in seen or seen.add(f))]
+
+
+def repo_relative(path: Path) -> Path:
+    """Repo-relative form of a path for display in reports - a checked-in report must
+    regenerate byte-identical on any machine, so absolute paths never land in one."""
+    resolved = Path(path).resolve()
+    return resolved.relative_to(REPO_ROOT) if resolved.is_relative_to(REPO_ROOT) else path
+
+
 def write_report(
     report_id: str, title: str, meta_lines: list, checks: list, evidence: list, subdir: str
 ) -> Path:

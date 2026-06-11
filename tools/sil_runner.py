@@ -6,7 +6,8 @@ expectation grammar, never a specific fault or scenario. New scenarios are new Y
 under fsw/sil/scenarios/, not runner changes. Each run writes docs/reports/<id>.md with
 observed-vs-expected per check (REQ-VV-002).
 
-Run: python tools/sil_runner.py fsw/sil/scenarios/sil_001_undervoltage.yaml
+Run: python tools/sil_runner.py            (the whole suite)
+     python tools/sil_runner.py 5          (one scenario - number, name, or path)
 """
 
 import argparse
@@ -18,7 +19,16 @@ from pathlib import Path
 import yaml  # pip install pyyaml
 
 from ground.frames import MSG_COMMAND_ACK, FrameDecoder, decode_command_ack
-from ground.runner import EXIT_PASS, REPO_ROOT, Check, die, print_verdict, write_report
+from ground.runner import (
+    EXIT_PASS,
+    REPO_ROOT,
+    Check,
+    die,
+    print_verdict,
+    repo_relative,
+    resolve_scenarios,
+    write_report,
+)
 
 SHIM_TIMEOUT_S = 10
 
@@ -98,7 +108,7 @@ def find_shim() -> Path:
         path = REPO_ROOT / "fsw" / "build" / name
         if path.exists():
             return path
-    die("shim not built - run `just build-fsw` first")
+    die("shim not built - run `just build fsw` first")
 
 
 def run_shim(timeline_text: str) -> str:
@@ -241,20 +251,6 @@ def grade(expect: dict, events: list, acks: list) -> list:
     return checks
 
 
-def expand_scenarios(paths: list) -> list:
-    """Scenario files and/or directories -> a flat, sorted list of yaml files."""
-    files = []
-    for p in (Path(a) for a in paths):
-        if p.is_dir():
-            found = sorted(p.glob("*.yaml"))
-            if not found:
-                die(f"no scenario yaml files in {p}")
-            files += found
-        else:
-            files.append(p)
-    return files
-
-
 def run_scenario(path: Path, verbose: bool) -> int:
     """One scenario end to end; prints the verdict, returns the exit code for it."""
     scenario = load_scenario(path)
@@ -263,7 +259,7 @@ def run_scenario(path: Path, verbose: bool) -> int:
     events, acks = parse_output(stdout)
     checks = grade(scenario.expect, events, acks)
     meta = [
-        f"- Scenario: `{scenario.path.as_posix()}`",
+        f"- Scenario: `{repo_relative(scenario.path).as_posix()}`",
         f"- Verifies: {', '.join(scenario.verifies) if scenario.verifies else '(none listed)'}",
     ]
     evidence = [("Injected timeline", timeline_text), ("Shim output", stdout)]
@@ -273,7 +269,11 @@ def run_scenario(path: Path, verbose: bool) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="run SIL scenarios against the flight software")
-    ap.add_argument("scenarios", nargs="+", help="scenario yaml files and/or directories of them")
+    ap.add_argument(
+        "scenarios",
+        nargs="*",
+        help="scenario refs: 'all' (default), a number (5), a name (command_loss), or a path",
+    )
     ap.add_argument(
         "--compile-only",
         action="store_true",
@@ -283,7 +283,9 @@ def main() -> int:
         "-v", "--verbose", action="store_true", help="print every check, not just failures"
     )
     args = ap.parse_args()
-    files = expand_scenarios(args.scenarios)
+    files = resolve_scenarios(
+        args.scenarios or ["all"], REPO_ROOT / "fsw" / "sil" / "scenarios", "sil"
+    )
 
     if args.compile_only:
         if len(files) != 1:

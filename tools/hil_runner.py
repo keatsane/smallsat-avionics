@@ -8,7 +8,8 @@ decision core: it owns no clock and no serial port, so all of its behavior is
 unit-tested with injected time; the serial pump around it is deliberately dumb
 plumbing whose proof is the bench.
 
-Run: python tools/hil_runner.py fsw/hil/scenarios/hil_001_timing.yaml COM5
+Run: python tools/hil_runner.py COM5       (the whole campaign, prompts between scenarios)
+     python tools/hil_runner.py COM5 2     (one scenario - number, name, or path)
 """
 
 import argparse
@@ -20,7 +21,16 @@ from pathlib import Path
 import yaml  # pip install pyyaml
 
 from ground.frames import MSG_HEARTBEAT, FrameDecoder, decode_heartbeat
-from ground.runner import Check, die, print_verdict, write_report
+from ground.runner import (
+    EXIT_PASS,
+    REPO_ROOT,
+    Check,
+    die,
+    print_verdict,
+    repo_relative,
+    resolve_scenarios,
+    write_report,
+)
 
 EXPECT_KEYS = {"link", "seq_gaps", "crc_rejects", "period_s", "outage_s"}
 
@@ -253,30 +263,18 @@ def grade(expect: dict, events: list, stats: dict) -> list:
     return checks
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description="run a HIL scenario against the live board")
-    ap.add_argument("scenario", help="scenario yaml, e.g. fsw/hil/scenarios/hil_001_timing.yaml")
-    ap.add_argument("port", help="serial port, e.g. COM5 or /dev/ttyACM0")
-    ap.add_argument("-b", "--baud", type=int, default=115200)
-    ap.add_argument(
-        "-v", "--verbose", action="store_true", help="print every check, not just failures"
-    )
-    args = ap.parse_args()
-
-    sc = load_scenario(Path(args.scenario))
+def run_scenario(sc: HilScenario, port: str, baud: int, verbose: bool) -> int:
+    """One scenario end to end on the live link; returns its exit code."""
     print(f"{sc.id}  {sc.title}")
-    print(f"  window: {sc.duration_s:.0f}s on {args.port} @ {args.baud}")
+    print(f"  window: {sc.duration_s:.0f}s on {port} @ {baud}")
     print(f"  operator: {sc.operator}")
 
     mon = LinkMonitor(timeout_s=sc.timeout_s)
-    try:
-        events = pump(args.port, args.baud, sc.duration_s, mon)
-    except KeyboardInterrupt:
-        die("interrupted before the observation window ended")
+    events = pump(port, baud, sc.duration_s, mon)
 
     checks = grade(sc.expect, events, mon.stats())
     meta = [
-        f"- Scenario: `{sc.path.as_posix()}`",
+        f"- Scenario: `{repo_relative(sc.path).as_posix()}`",
         f"- Verifies: {', '.join(sc.verifies) if sc.verifies else '(none listed)'}",
         f"- Window: {sc.duration_s:.0f} s, heartbeat timeout {sc.timeout_s:.0f} s",
     ]
@@ -285,7 +283,44 @@ def main() -> int:
         ("Timing stats", _fmt_stats(mon.stats())),
     ]
     report = write_report(sc.id, sc.title, meta, checks, evidence, "hil")
-    return print_verdict(sc.id, sc.title, checks, report, args.verbose)
+    return print_verdict(sc.id, sc.title, checks, report, verbose)
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="run HIL scenarios against the live board")
+    ap.add_argument("port", help="serial port, e.g. COM5 or /dev/ttyACM0")
+    ap.add_argument(
+        "scenarios",
+        nargs="*",
+        help="scenario refs: 'all' (default), a number (2), a name (link_loss), or a path",
+    )
+    ap.add_argument("-b", "--baud", type=int, default=115200)
+    ap.add_argument(
+        "-v", "--verbose", action="store_true", help="print every check, not just failures"
+    )
+    args = ap.parse_args()
+
+    files = resolve_scenarios(
+        args.scenarios or ["all"], REPO_ROOT / "fsw" / "hil" / "scenarios", "hil"
+    )
+
+    results = []
+    try:
+        for path in files:
+            sc = load_scenario(path)
+            if len(files) > 1:
+                # a human performs the stimuli, so a campaign pauses between scenarios
+                input(f"\nnext: {sc.id} - press enter when the bench is ready... ")
+            results.append(run_scenario(sc, args.port, args.baud, args.verbose))
+    except KeyboardInterrupt:
+        die("interrupted before the observation window ended")
+    except EOFError:
+        die("no stdin for the ready prompt - run campaigns from an interactive shell")
+
+    if len(files) > 1:
+        passed = sum(1 for r in results if r == EXIT_PASS)
+        print(f"campaign: {passed}/{len(files)} scenarios passed (reports in docs/reports/hil/)")
+    return max(results)
 
 
 if __name__ == "__main__":
