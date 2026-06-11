@@ -14,29 +14,16 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import NoReturn
 
 import yaml  # pip install pyyaml
 
-from frames import MSG_COMMAND_ACK, FrameDecoder, decode_command_ack
+from ground.frames import MSG_COMMAND_ACK, FrameDecoder, decode_command_ack
+from ground.runner import EXIT_PASS, REPO_ROOT, Check, die, print_verdict, write_report
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-REPORT_DIR = REPO_ROOT / "docs" / "reports"
 SHIM_TIMEOUT_S = 10
-
-# exit codes: a failed scenario and a broken harness are different news
-EXIT_PASS = 0
-EXIT_FAIL = 1
-EXIT_ERROR = 2
 
 EXPECT_KEYS = {"mode_log", "acks", "final"}
 FINAL_KEYS = {"mode", "faults_set"}
-
-
-def die(msg: str) -> NoReturn:
-    """Harness error - not a scenario verdict. One line to stderr, exit 2."""
-    print(f"sil_runner: {msg}", file=sys.stderr)
-    sys.exit(EXIT_ERROR)
 
 
 @dataclass
@@ -58,16 +45,6 @@ class Event:
     tag: str  # CYCLE, EVENT, END
     kind: str  # mode / fault / cmd for EVENT lines, "" otherwise
     fields: dict  # the line's key=value pairs, as strings
-
-
-@dataclass
-class Check:
-    """One graded expectation - a row of the report table."""
-
-    name: str
-    expected: str
-    observed: str
-    passed: bool
 
 
 def load_scenario(path: Path) -> Scenario:
@@ -264,50 +241,6 @@ def grade(expect: dict, events: list, acks: list) -> list:
     return checks
 
 
-def write_report(scenario: Scenario, checks: list, timeline_text: str, stdout: str) -> Path:
-    """Render the markdown report (REQ-VV-002) and return its path."""
-    passed = all(c.passed for c in checks)
-    # no timestamp on purpose: a rerun with the same result must be byte-identical, so the
-    # report only diffs when the verdict or evidence actually changes
-    lines = [
-        f"# {scenario.id} - {scenario.title}",
-        "",
-        f"**Verdict: {'PASS' if passed else 'FAIL'}**",
-        "",
-        f"- Scenario: `{scenario.path.as_posix()}`",
-        f"- Verifies: {', '.join(scenario.verifies) if scenario.verifies else '(none listed)'}",
-        f"- Checks: {sum(c.passed for c in checks)}/{len(checks)} passed",
-        "",
-        "## Checks",
-        "",
-        "| Check | Expected | Observed | Result |",
-        "| ----- | -------- | -------- | ------ |",
-    ]
-    for c in checks:
-        result = "pass" if c.passed else "FAIL"
-        lines.append(f"| {c.name} | `{c.expected}` | `{c.observed}` | {result} |")
-    lines += [
-        "",
-        "## Injected timeline",
-        "",
-        "```",
-        timeline_text.rstrip(),
-        "```",
-        "",
-        "## Shim output",
-        "",
-        "```",
-        stdout.rstrip(),
-        "```",
-        "",
-    ]
-    REPORT_DIR.mkdir(parents=True, exist_ok=True)
-    out = REPORT_DIR / f"{scenario.id}.md"
-    # pin LF so reports regenerated on windows and linux CI are byte-identical
-    out.write_text("\n".join(lines), encoding="utf-8", newline="\n")
-    return out
-
-
 def expand_scenarios(paths: list) -> list:
     """Scenario files and/or directories -> a flat, sorted list of yaml files."""
     files = []
@@ -329,19 +262,13 @@ def run_scenario(path: Path, verbose: bool) -> int:
     stdout = run_shim(timeline_text)
     events, acks = parse_output(stdout)
     checks = grade(scenario.expect, events, acks)
-    report = write_report(scenario, checks, timeline_text, stdout)
-
-    passed = all(c.passed for c in checks)
-    summary = f"{sum(c.passed for c in checks)}/{len(checks)} checks"
-    print(f"{'PASS' if passed else 'FAIL'}  {scenario.id}  {scenario.title} ({summary})")
-    # clean summary by default; per-check detail only when it matters (a failure) or asked for
-    for c in checks:
-        if verbose or not c.passed:
-            result = "pass" if c.passed else "FAIL"
-            print(f"      {result}  {c.name}: expected {c.expected}, observed {c.observed}")
-    if verbose or not passed:
-        print(f"      report: {report.relative_to(REPO_ROOT).as_posix()}")
-    return EXIT_PASS if passed else EXIT_FAIL
+    meta = [
+        f"- Scenario: `{scenario.path.as_posix()}`",
+        f"- Verifies: {', '.join(scenario.verifies) if scenario.verifies else '(none listed)'}",
+    ]
+    evidence = [("Injected timeline", timeline_text), ("Shim output", stdout)]
+    report = write_report(scenario.id, scenario.title, meta, checks, evidence, "sil")
+    return print_verdict(scenario.id, scenario.title, checks, report, verbose)
 
 
 def main() -> int:
@@ -367,7 +294,7 @@ def main() -> int:
     results = [run_scenario(f, args.verbose) for f in files]
     if len(files) > 1:
         passed = sum(1 for r in results if r == EXIT_PASS)
-        print(f"suite: {passed}/{len(files)} scenarios passed (reports in docs/reports/)")
+        print(f"suite: {passed}/{len(files)} scenarios passed (reports in docs/reports/sil/)")
     return max(results)
 
 

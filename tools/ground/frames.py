@@ -47,6 +47,7 @@ class FrameDecoder:
         self.length = 0
         self.payload = bytearray()
         self.crc_rx = 0
+        self.crc_errors = 0  # frames dropped on a bad crc since reset
 
     def push(self, byte: int):
         """Return (msg_id, payload) when a valid frame completes, else None."""
@@ -75,6 +76,7 @@ class FrameDecoder:
             body = bytes([self.msg_id, self.length]) + bytes(self.payload)
             if crc16(body) == self.crc_rx:
                 return self.msg_id, bytes(self.payload)
+            self.crc_errors += 1
         return None
 
 
@@ -95,6 +97,26 @@ def decode_command_ack(payload: bytes) -> dict:
         "seq": seq,
         "accepted": bool(accepted),
         "reason": reject_name(reason),
+    }
+
+
+# modes - mirror FSW_MODE_LIST in common/protocol/state.hpp (drift-checked by test_frames)
+MODES = ["BOOT", "STANDBY", "DETUMBLE", "POINTING", "DOWNLINK", "SAFE"]
+
+
+def mode_name(mode: int) -> str:
+    """Name for a heartbeat's mode byte, or 'UNKNOWN' if out of range."""
+    return MODES[mode] if 0 <= mode < len(MODES) else "UNKNOWN"
+
+
+def decode_heartbeat(payload: bytes) -> dict:
+    """Unpack a heartbeat_t payload (msg.hpp) into a dict."""
+    uptime_ms, mode, faults, seq = struct.unpack("<IBIH", payload)
+    return {
+        "uptime_ms": uptime_ms,
+        "mode": mode_name(mode),
+        "faults": faults,
+        "seq": seq,
     }
 
 

@@ -8,7 +8,7 @@ import argparse
 import sys
 
 import serial  # pyserial: pip install pyserial
-from frames import FrameDecoder, format_frame
+from ground.frames import FrameDecoder, format_frame
 
 
 def main() -> int:
