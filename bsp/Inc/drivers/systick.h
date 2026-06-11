@@ -8,6 +8,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * @brief  start systick at 1 khz (1 ms tick)
  *
@@ -27,5 +31,9 @@ uint32_t millis(void);
  * @param  ms delay length in milliseconds
  */
 void delay_ms(uint32_t ms);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif  // SYSTICK_H

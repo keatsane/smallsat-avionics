@@ -8,6 +8,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * @brief  refresh the cached clock values from the rcc registers (call at startup)
  */
@@ -30,5 +34,9 @@ uint32_t clock_pclk1_hz(void);
  * @return pclk2 frequency
  */
 uint32_t clock_pclk2_hz(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif  // CLOCK_H

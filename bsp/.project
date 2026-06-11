@@ -21,6 +21,7 @@
 	<natures>
 		<nature>com.st.stm32cube.ide.mcu.MCUProjectNature</nature>
 		<nature>org.eclipse.cdt.core.cnature</nature>
+		<nature>org.eclipse.cdt.core.ccnature</nature>
 		<nature>com.st.stm32cube.ide.mcu.MCUCubeIdeServicesRevAev2ProjectNature</nature>
 		<nature>com.st.stm32cube.ide.mcu.MCUManagedMakefileProjectNature</nature>
 		<nature>com.st.stm32cube.ide.mcu.MCUSingleCpuProjectNature</nature>
@@ -30,9 +31,79 @@
 	</natures>
 	<linkedResources>
 		<link>
+			<name>Src/common</name>
+			<type>2</type>
+			<locationURI>virtual:/virtual</locationURI>
+		</link>
+		<link>
+			<name>Src/fsw</name>
+			<type>2</type>
+			<locationURI>virtual:/virtual</locationURI>
+		</link>
+		<link>
 			<name>Src/system_stm32f4xx.c</name>
 			<type>1</type>
 			<locationURI>copy_PARENT/vendor/cmsis-device-f4/Source/Templates/system_stm32f4xx.c</locationURI>
+		</link>
+		<link>
+			<name>Src/common/protocol</name>
+			<type>2</type>
+			<locationURI>virtual:/virtual</locationURI>
+		</link>
+		<link>
+			<name>Src/fsw/platform</name>
+			<type>2</type>
+			<locationURI>virtual:/virtual</locationURI>
+		</link>
+		<link>
+			<name>Src/fsw/src</name>
+			<type>2</type>
+			<locationURI>virtual:/virtual</locationURI>
+		</link>
+		<link>
+			<name>Src/common/protocol/frame.cpp</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/common/protocol/frame.cpp</locationURI>
+		</link>
+		<link>
+			<name>Src/fsw/platform/stm32</name>
+			<type>2</type>
+			<locationURI>virtual:/virtual</locationURI>
+		</link>
+		<link>
+			<name>Src/fsw/src/comms</name>
+			<type>2</type>
+			<locationURI>virtual:/virtual</locationURI>
+		</link>
+		<link>
+			<name>Src/fsw/src/executive.cpp</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/fsw/src/executive.cpp</locationURI>
+		</link>
+		<link>
+			<name>Src/fsw/src/fault_manager.cpp</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/fsw/src/fault_manager.cpp</locationURI>
+		</link>
+		<link>
+			<name>Src/fsw/src/mode_manager.cpp</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/fsw/src/mode_manager.cpp</locationURI>
+		</link>
+		<link>
+			<name>Src/fsw/platform/stm32/platform_stm32.cpp</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/fsw/platform/stm32/platform_stm32.cpp</locationURI>
+		</link>
+		<link>
+			<name>Src/fsw/src/comms/command_handler.cpp</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/fsw/src/comms/command_handler.cpp</locationURI>
+		</link>
+		<link>
+			<name>Src/fsw/src/comms/telemetry_producer.cpp</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/fsw/src/comms/telemetry_producer.cpp</locationURI>
 		</link>
 	</linkedResources>
 	<variableList>

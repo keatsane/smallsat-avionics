@@ -6,6 +6,10 @@
 #ifndef GPIO_H
 #define GPIO_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * @brief  enable gpioa and drive pa5 (ld2) as a push-pull output
  */
@@ -15,5 +19,9 @@ void led_init(void);
  * @brief  toggle pa5 (ld2) output data register
  */
 void led_toggle(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif  // GPIO_H

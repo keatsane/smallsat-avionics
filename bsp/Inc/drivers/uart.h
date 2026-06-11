@@ -10,6 +10,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // opaque per-instance handle; the two board uarts are exposed below
 typedef struct uart uart_t;
 
@@ -80,5 +84,9 @@ typedef struct {
  * @param  out  destination for the counts
  */
 void uart_get_errors(uart_t* u, uart_errors_t* out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif  // UART_H
