@@ -1,10 +1,9 @@
 /**
  * @file   platform_host.cpp
- * @brief  host backend of the platform layer - std clock and stdout, for SIL and unit tests
+ * @brief  host backend of the platform layer for the unit tests - std clock, frames discarded
  */
 
 #include <chrono>
-#include <cstdio>
 
 #include "fsw/platform.hpp"
 
@@ -17,8 +16,10 @@ uint32_t now_ms() {
 }
 
 void send_telemetry(const uint8_t* frame, uint32_t len) {
-    // dump the framed bytes to stdout for the SIL runner / host decoder to pick up
-    fwrite(frame, 1, len, stdout);
+    // unit tests have nowhere to send a frame - emissions are SIL's to observe (the shim
+    // backend prints them); swallowing keeps raw binary out of the doctest output
+    (void)frame;
+    (void)len;
 }
 
 }  // namespace fsw::platform
