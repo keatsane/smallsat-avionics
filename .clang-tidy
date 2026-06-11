@@ -1,5 +1,6 @@
-# static analysis for the host C++ flight software (fsw). run with `just tidy`.
-# scoped to fsw's own sources - the vendored doctest and the C protocol aren't the target.
+# static analysis for the host C++ flight software (fsw), run by the CI flight-sw job
+# (no local recipe - windows/mingw needs header-path injection that isn't worth carrying).
+# scoped to fsw's own sources - the vendored doctest and ETL aren't the target.
 Checks: >
   -*,
   bugprone-*,
@@ -12,5 +13,5 @@ Checks: >
   readability-misleading-indentation,
   readability-redundant-control-flow
 WarningsAsErrors: ''
-HeaderFilterRegex: '.*/fsw/(include|src|platform)/.*'
+HeaderFilterRegex: '.*/fsw/(include|src|platform|sil)/.*'
 FormatStyle: file

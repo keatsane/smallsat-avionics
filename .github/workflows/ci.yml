@@ -40,7 +40,8 @@ jobs:
       - name: Static analysis (clang-tidy)
         run: |
           sudo apt-get update && sudo apt-get install -y clang-tidy
-          clang-tidy -p fsw/build --extra-arg=-Wno-error fsw/src/*.cpp fsw/platform/host/*.cpp
+          # find, not globs - new subdirectories must never fall out of coverage silently
+          clang-tidy -p fsw/build --extra-arg=-Wno-error $(find fsw/src fsw/platform fsw/sil -name '*.cpp')
       - name: Test
         run: ctest --test-dir fsw/build --output-on-failure
 
