@@ -22,6 +22,16 @@ python -m serial.tools.list_ports     # find the COM port
 python tools/uart_monitor.py COM3     # decode heartbeat and link-status frames
 ```
 
+## SIL scenarios
+
+The SIL harness runs declared fault-injection scenarios against the flight software on the host - no hardware involved. See [scenarios.md](scenarios.md) for the catalog and [vv.md](vv.md) for how the harness fits the verification approach.
+
+```bash
+pip install pyyaml
+just sil                              # run the whole scenario suite, reports to docs/reports/
+just sil fsw/sil/scenarios/sil_001_undervoltage.yaml    # or one scenario
+```
+
 ## Formatting
 
 Formatting and linting run through pre-commit - clang-format for C/C++, ruff for Python - and the same checks run in CI, which also runs clang-tidy static analysis on the flight software. With Python and pre-commit installed:

@@ -1,18 +1,20 @@
 # Architecture
 
-The idea is to get flight behavior working in software before asking the STM32 to prove anything with wires attached. Python drives test scenarios into the C++ flight logic, which runs first against a simulated plant (SIL) and later against the real STM32 node over UART (HIL).
+The idea is to get flight behavior working in software before asking the STM32 to prove anything with wires attached. Python drives declared test scenarios into the C++ flight logic, first on the host (SIL) and later against the real STM32 node over UART (HIL).
 
 ```text
-Python scenario tools  (fault injection, simulated telemetry, logs, reports)
+Python scenario runner  (YAML scenarios: fault injection, grading, pass/fail reports)
         |
         v
-C++ flight software    (modes, faults, commands, telemetry)
+C++ flight software     (modes, faults, commands, telemetry)
         |
         +----------------------------+
         v                            v
-SIL plant model               STM32 HIL node
-(power, thermal, sensors)     (bare-metal UART packets first; sensors and watchdog later)
+SIL shim (host exe,           STM32 HIL node
+injected time + faults)       (bare-metal UART packets first; sensors and watchdog later)
 ```
+
+On the SIL side this exists today: scenarios in `fsw/sil/scenarios/` drive the unmodified flight-software library through a small shim executable, and the runner grades the observed behavior and writes reports to `docs/reports/` (the details live in [vv.md](vv.md)). A physics plant model joins when real sensor and attitude dynamics matter - NASA's 42 simulator in the ADCS phase.
 
 ## Language split
 
