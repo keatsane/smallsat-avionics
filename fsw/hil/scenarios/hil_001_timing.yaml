@@ -1,0 +1,14 @@
+# HIL-001: leave the link alone for the whole window - heartbeat cadence, framing
+# integrity, and seq continuity on the real wire
+id: HIL-001
+title: heartbeat timing on the live link
+verifies: [REQ-VV-003, REQ-TLM-002, REQ-TLM-003]
+duration_s: 60
+operator: none - leave the board and link untouched for the whole window
+expect:
+  link: up
+  seq_gaps: 0
+  crc_rejects: 0
+  # 1 hz heartbeat gated on the ~100 ms super-loop grid, so the period quantizes
+  # to roughly 1.0-1.1 s; fixed-rate execution is REQ-RT-002 (phase 6)
+  period_s: { min: 0.8, max: 1.3 }

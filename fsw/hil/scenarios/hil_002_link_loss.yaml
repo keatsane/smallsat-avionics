@@ -1,0 +1,13 @@
+# HIL-002: silence the board mid-run - the host declares link loss after the 5 s
+# heartbeat timeout and observes the recovery when the beacons resume.
+# holding reset is the right stimulus on the st-link vcp: the firmware stops (true
+# heartbeat silence) while the com port stays alive. the reboot restarts seq and
+# uptime, so a seq_gap event in the log is expected - ungraded here on purpose.
+id: HIL-002
+title: link loss declared and recovery observed
+verifies: [REQ-VV-003]
+duration_s: 45
+operator: about 10 s in, hold the reset button down for about 10 s, then release
+expect:
+  link: recovered
+  outage_s: { min: 5.0 }
