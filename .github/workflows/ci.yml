@@ -23,7 +23,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install pytest
+      - run: pip install pytest pyyaml
       - run: pytest -v
 
   flight-sw:
@@ -44,5 +44,9 @@ jobs:
           clang-tidy -p fsw/build --extra-arg=-Wno-error $(find fsw/src fsw/platform fsw/sil -name '*.cpp')
       - name: Test
         run: ctest --test-dir fsw/build --output-on-failure
+      - name: SIL scenarios
+        run: |
+          pip install pyyaml
+          python3 tools/sil_runner.py fsw/sil/scenarios
 
   # firmware cross-build (arm-none-eabi-gcc) comes next
