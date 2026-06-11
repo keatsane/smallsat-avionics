@@ -39,7 +39,9 @@ uint32_t now_ms() { return g_now_ms; }
 
 void send_telemetry(const uint8_t* frame, uint32_t len) {
     std::printf("FRAME ");
-    for (uint32_t i = 0; i < len; ++i) std::printf("%02x", frame[i]);
+    for (uint32_t i = 0; i < len; ++i) {
+        std::printf("%02x", frame[i]);
+    }
     std::printf("\n");
 }
 
@@ -50,7 +52,9 @@ void send_telemetry(const uint8_t* frame, uint32_t len) {
 // name -> command id by walking the catalog (state.hpp only gives id -> name)
 static std::optional<Command> command_from_name(const std::string& name) {
     for (uint8_t i = 0; i < kCommandCount; ++i) {
-        if (name == command_name(i)) return static_cast<Command>(i);
+        if (name == command_name(i)) {
+            return static_cast<Command>(i);
+        }
     }
     return std::nullopt;  // unknown name - caller decides to die
 }
@@ -58,7 +62,9 @@ static std::optional<Command> command_from_name(const std::string& name) {
 // name -> fault id by walking the catalog (state.hpp only gives id -> name)
 static std::optional<Fault> fault_from_name(const std::string& name) {
     for (uint8_t i = 0; i < kFaultCount; ++i) {
-        if (name == fault_name(i)) return static_cast<Fault>(i);
+        if (name == fault_name(i)) {
+            return static_cast<Fault>(i);
+        }
     }
     return std::nullopt;  // unknown name - caller decides to die
 }
@@ -100,17 +106,23 @@ static const char* reject_name(CmdReject r) {
 // match on t instead of counting rows - safe because the timeline's t strictly increases
 static void print_events(const Executive& exec, uint32_t t_ms) {
     for (const CommandEvent& e : exec.commands().log()) {
-        if (e.t_ms != t_ms) continue;
+        if (e.t_ms != t_ms) {
+            continue;
+        }
         std::printf("EVENT cmd t=%u cmd=%s accepted=%d reason=%s\n", e.t_ms, command_name(e.cmd_id),
                     e.accepted ? 1 : 0, reject_name(e.reason));
     }
     for (const FaultEvent& e : exec.faults().log()) {
-        if (e.t_ms != t_ms) continue;
+        if (e.t_ms != t_ms) {
+            continue;
+        }
         std::printf("EVENT fault t=%u fault=%s edge=%s\n", e.t_ms,
                     fault_name(static_cast<uint8_t>(e.fault)), e.latched ? "latch" : "clear");
     }
     for (const ModeTransition& e : exec.modes().log()) {
-        if (e.t_ms != t_ms) continue;
+        if (e.t_ms != t_ms) {
+            continue;
+        }
         std::printf("EVENT mode t=%u from=%s to=%s trigger=%s req=%s\n", e.t_ms,
                     mode_name(static_cast<uint8_t>(e.from)), mode_name(static_cast<uint8_t>(e.to)),
                     trigger_name(e.trigger), e.req_id);
@@ -126,42 +138,63 @@ int main() {
     std::string line;
     while (std::getline(std::cin, line)) {
         // <t_ms> [fault <NAME> <0|1>]... [cmd <NAME> <arg> <seq>]
-        if (line.empty() || line[0] == '#') continue;
+        if (line.empty() || line[0] == '#') {
+            continue;
+        }
 
         std::istringstream iss(line);
 
         Inputs inputs;
         uint32_t t_ms;
-        if (!(iss >> t_ms)) die("expected integer t_ms at line start: '" + line + "'");
-        if (ran && t_ms <= last_t)
+        if (!(iss >> t_ms)) {
+            die("expected integer t_ms at line start: '" + line + "'");
+        }
+        if (ran && t_ms <= last_t) {
             die("t must strictly increase (got " + std::to_string(t_ms) + " after " +
                 std::to_string(last_t) + ")");
+        }
 
         std::string word;
         while (iss >> word) {
             if (word == "fault") {
                 std::string name;
-                if (!(iss >> name)) die("expected fault name after 'fault'");
+                if (!(iss >> name)) {
+                    die("expected fault name after 'fault'");
+                }
                 auto f = fault_from_name(name);
-                if (!f) die("unknown fault '" + name + "'");
+                if (!f) {
+                    die("unknown fault '" + name + "'");
+                }
                 int bad;  // 0|1 via int - never stream into 8-bit types (they read as chars)
-                if (!(iss >> bad) || (bad != 0 && bad != 1))
+                if (!(iss >> bad) || (bad != 0 && bad != 1)) {
                     die("expected 0|1 after fault '" + name + "'");
-                if (inputs.fault_updates.full()) die("too many fault items on one line");
+                }
+                if (inputs.fault_updates.full()) {
+                    die("too many fault items on one line");
+                }
                 inputs.fault_updates.push_back(FaultReport{*f, bad == 1});
             } else if (word == "cmd") {
-                if (inputs.command) die("only one cmd per line");
+                if (inputs.command) {
+                    die("only one cmd per line");
+                }
                 std::string name;
-                if (!(iss >> name)) die("expected command name after 'cmd'");
+                if (!(iss >> name)) {
+                    die("expected command name after 'cmd'");
+                }
                 auto c = command_from_name(name);
-                if (!c) die("unknown command '" + name + "'");
+                if (!c) {
+                    die("unknown command '" + name + "'");
+                }
                 // parse via locals: streams read 8-bit types as chars, and command_t is
                 // packed, so its fields can't bind to >>'s reference parameter anyway
                 int arg;
-                if (!(iss >> arg) || arg < 0 || arg > 255)
+                if (!(iss >> arg) || arg < 0 || arg > 255) {
                     die("expected 8-bit arg after command '" + name + "'");
+                }
                 uint16_t seq;
-                if (!(iss >> seq)) die("expected seq after command '" + name + "'");
+                if (!(iss >> seq)) {
+                    die("expected seq after command '" + name + "'");
+                }
                 command_t cmd{};
                 cmd.cmd_id = static_cast<uint8_t>(*c);
                 cmd.arg = static_cast<uint8_t>(arg);

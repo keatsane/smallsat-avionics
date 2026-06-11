@@ -45,13 +45,17 @@ constexpr uint32_t kForcesSafe = forces_safe_mask();
 }  // namespace
 
 void FaultManager::set(Fault f, uint32_t t_ms) {
-    if (is_active(f)) return;  // already latched - no edge, no duplicate event
+    if (is_active(f)) {
+        return;  // already latched - no edge, no duplicate event
+    }
     active_ |= fault_bit(f);
     log_.push(FaultEvent{t_ms, f, true});
 }
 
 void FaultManager::clear(Fault f, uint32_t t_ms) {
-    if (!is_active(f)) return;  // wasn't latched - nothing to clear or log
+    if (!is_active(f)) {
+        return;  // wasn't latched - nothing to clear or log
+    }
     active_ &= ~fault_bit(f);
     log_.push(FaultEvent{t_ms, f, false});
 }
@@ -66,8 +70,12 @@ bool FaultManager::should_enter_safe() const {
 void FaultManager::update(Fault f, bool bad, uint32_t t_ms) {
     const auto id = static_cast<size_t>(f);
     if (bad) {
-        if (streak_[id] < kFaultTable[id].debounce_n) streak_[id]++;  // count this bad sample
-        if (streak_[id] >= kFaultTable[id].debounce_n) set(f, t_ms);  // hit threshold -> latch
+        if (streak_[id] < kFaultTable[id].debounce_n) {
+            streak_[id]++;  // count this bad sample
+        }
+        if (streak_[id] >= kFaultTable[id].debounce_n) {
+            set(f, t_ms);  // hit threshold -> latch
+        }
     } else {
         streak_[id] = 0;  // a good sample breaks the streak, but does NOT clear latch
     }
