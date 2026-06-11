@@ -7,10 +7,12 @@ A scenario is a declared test of the flight software: an input timeline, the exp
 ```
 just sil                                              # the whole suite
 just sil fsw/sil/scenarios/sil_005_command_loss.yaml  # one scenario
-just sil-shim                                         # one timeline through the bare shim, ungraded
+just sil-shim                                         # one scenario's timeline through the bare shim, ungraded
 ```
 
-Exit code 0 means every check passed, 1 means a scenario failed, 2 means the harness itself hit an error (bad scenario file, shim missing, corrupt frame). Reports are written either way. To hand-feed the shim directly, generate a timeline from any scenario with `python tools/sil_runner.py --compile-only <scenario.yaml>` and pipe it in - timelines are never stored, only generated.
+Exit code 0 means every check passed, 1 means a scenario failed, 2 means the harness itself hit an error (bad scenario file, shim missing, corrupt frame). Reports are written either way.
+
+For debugging the harness itself, the bare shim also runs interactively (`./fsw/build/sil_shim.exe`, type timeline lines, end with EOF) or piped a hand-picked timeline (`python tools/sil_runner.py --compile-only <scenario.yaml> | ./fsw/build/sil_shim.exe`) - timelines are never stored, only generated.
 
 ## Catalog
 

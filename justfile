@@ -12,31 +12,30 @@ default:
 format:
     pre-commit run --all-files
 
-# run all host test suites (python + c++)
-test: test-py test-cpp
+# run every test suite in the repo - unit + SIL (HIL joins at phase 4); add "verbose" for detail
+test detail="": (unit detail) (sil "fsw/sil/scenarios" detail)
 
-# run the python host tests
-test-py:
-    pytest -q
+# run all unit suites (python tooling + c++ flight software); add "verbose" for per-test names
+unit detail="": (unit-tools detail) (unit-fsw detail)
 
-# build + run the flight-software unit tests (clean summary; full detail only on failure)
-test-cpp: build-cpp
-    ./fsw/build/fsw_tests.exe
+# c++ flight-software unit tests; add "verbose" for per-test names via ctest
+unit-fsw detail="": build-fsw
+    {{ if detail == "verbose" { "ctest --test-dir fsw/build --output-on-failure" } else { "./fsw/build/fsw_tests.exe" } }}
 
-# build + run the unit tests through ctest (per-test names, for CI)
-test-cpp-ci: build-cpp
-    ctest --test-dir fsw/build --output-on-failure
+# python tooling unit tests (frames codec + sil runner); add "verbose" for per-test names
+unit-tools detail="":
+    pytest {{ if detail == "verbose" { "-v" } else { "-q" } }}
 
 # build the c++ flight software (configure is cached, safe to re-run)
-build-cpp:
+build-fsw:
     cmake -S fsw -B fsw/build -G "Unix Makefiles" -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ && cmake --build fsw/build
 
-# run SIL scenarios (the whole suite, or pass one yaml); reports land in docs/reports/
-sil scenario="fsw/sil/scenarios": build-cpp
-    python tools/sil_runner.py {{scenario}}
+# run SIL scenarios (the whole suite, or pass one yaml); add "verbose" for every check
+sil scenario="fsw/sil/scenarios" detail="": build-fsw
+    python tools/sil_runner.py {{ if detail == "verbose" { "-v" } else { "" } }} {{scenario}}
 
 # run the bare SIL shim on one scenario's timeline, ungraded (debugging aid)
-sil-shim scenario="fsw/sil/scenarios/sil_001_undervoltage.yaml": build-cpp
+sil-shim scenario="fsw/sil/scenarios/sil_001_undervoltage.yaml": build-fsw
     python tools/sil_runner.py --compile-only {{scenario}} | ./fsw/build/sil_shim.exe
 
 # install the pre-commit git hook

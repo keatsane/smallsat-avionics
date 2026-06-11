@@ -121,7 +121,7 @@ def find_shim() -> Path:
         path = REPO_ROOT / "fsw" / "build" / name
         if path.exists():
             return path
-    die("shim not built - run `just build-cpp` first")
+    die("shim not built - run `just build-fsw` first")
 
 
 def run_shim(timeline_text: str) -> str:

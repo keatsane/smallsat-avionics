@@ -43,15 +43,19 @@ just format          # format and lint everything on demand
 
 ## Tests
 
-Host-side tests come in two suites: pytest for the Python tooling, and CMake + doctest for the C++ flight software. `just test` runs both, and the same suites run in CI.
+Tests come in levels: unit suites (pytest for the Python tooling, CMake + doctest for the C++ flight software) and the SIL scenario suite, with HIL joining later. `just test` runs everything, and the same suites run in CI.
 
 ```bash
-just test        # python + c++
-just test-py     # pytest only (config in pyproject.toml)
-just test-cpp    # configure, build, and run the fsw tests
+just test                # everything: all unit suites + the SIL scenario suite
+just unit                # both unit suites
+just unit-fsw            # c++ flight software only
+just unit-tools          # python tooling only (config in pyproject.toml)
+just sil                 # the SIL scenario suite
 ```
 
-The C++ suite needs CMake and a host C++ compiler; `just test-cpp` does the configure, build, and run in one step.
+Every test recipe takes an optional `verbose` argument (`just test verbose`, `just unit-fsw verbose`, ...) that switches to per-test names - through ctest for the C++ suite, `pytest -v` for the tooling, and per-check output for SIL.
+
+The C++ suite needs CMake and a host C++ compiler; `just unit-fsw` does the configure, build, and run in one step.
 
 ## Working environment
 
