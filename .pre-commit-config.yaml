@@ -9,6 +9,7 @@ exclude: |
     | bsp/Src/(syscalls|sysmem)\.c
     | bsp/Inc/FreeRTOSConfig\.h
     | fsw/third_party/
+    | docs/datasheets/
   )
 
 repos:
