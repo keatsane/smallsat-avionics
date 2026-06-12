@@ -24,9 +24,11 @@ build target="all":
 _build-fsw:
     cmake -S fsw -B fsw/build -G "Unix Makefiles" -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ && cmake --build fsw/build
 
-# bsp/Debug makefiles come from a first cubeide build
+# bsp/Debug makefiles come from a first cubeide build; "all" is load-bearing -
+# the generated subdir.mk clean targets get included before the all target, so
+# bare make's default goal is clean (cubeide itself always invokes make all)
 _build-bsp:
-    make -C bsp/Debug -j
+    make -C bsp/Debug -j all
 
 # build and flash the firmware image over st-link swd
 [group('build')]
