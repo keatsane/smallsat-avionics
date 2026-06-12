@@ -65,10 +65,10 @@ hil port scenario="all":
 hil-scope test name:
     $n = '{0:000}' -f [int]"{{test}}"; python tools/scope_shot.py "docs/reports/hil/img/HIL-$n-{{name}}.png"
 
-# watch decoded UART frames from a flashed board (python -m serial.tools.list_ports to see ports)
+# watch decoded UART frames from a flashed board (python -m serial.tools.list_ports to see ports); add "raw" to also echo every byte as hex
 [group('bench')]
-uart port:
-    python tools/uart_monitor.py {{port}}
+uart port detail="":
+    python tools/uart_monitor.py {{ if detail == "raw" { "--raw" } else { "" } }} {{port}}
 
 # save the scope's screen over usb (siglent sds; needs pyvisa + a visa backend)
 [group('bench')]

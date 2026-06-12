@@ -19,16 +19,34 @@ def main() -> int:
     args = ap.parse_args()
 
     decoder = FrameDecoder()
+    text = bytearray()  # printable bytes between frames - firmware debug prints
+
+    def flush_text() -> None:
+        if text:
+            print(f"{'TEXT':<12} {text.decode('ascii')}")
+            text.clear()
+
     with serial.Serial(args.port, args.baud, timeout=1) as ser:
         print(f"listening on {args.port} at {args.baud} 8N1 (ctrl-c to quit)")
         while True:
-            for byte in ser.read(64):
+            data = ser.read(64)
+            if not data:
+                flush_text()  # idle - show any half line rather than sitting on it
+                continue
+            for byte in data:
                 if args.raw:
                     sys.stdout.write(f"{byte:02X} ")
                     sys.stdout.flush()
+                hunting = decoder.state == "sync0"
                 frame = decoder.push(byte)
                 if frame is not None:
                     print(format_frame(*frame))
+                elif hunting and decoder.state == "sync0":
+                    # stray byte outside any frame: debug text from the firmware
+                    if byte == 0x0A:
+                        flush_text()
+                    elif 0x20 <= byte < 0x7F:
+                        text.append(byte)
     return 0
 
 
