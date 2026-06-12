@@ -1,54 +1,85 @@
 name: CI
 
+# one job per concern, named to match the justfile's test levels (unit fsw/tools, sil);
+# hil is absent by design - it needs the bench
+
 on:
   push:
   pull_request:
 
 jobs:
-  pre-commit:
+  format:
     name: Format & lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - uses: pre-commit/action@v3.0.1
+      - uses: actions/cache@v5
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+      - run: pip install pre-commit
+      - run: pre-commit run --all-files --show-diff-on-failure
 
-  tests:
-    name: Python tests
+  unit-tools:
+    name: Unit (python tools)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
       - run: pip install pytest pyyaml
       - run: pytest -v
 
-  flight-sw:
-    name: C++ flight software
+  unit-fsw:
+    name: Unit (c++ flight software)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Fetch ETL
         run: git submodule update --init vendor/etl
       - name: Configure
         run: cmake -S fsw -B fsw/build -DCMAKE_BUILD_TYPE=Debug -DFSW_WERROR=ON
       - name: Build
         run: cmake --build fsw/build
-      - name: Static analysis (clang-tidy)
+      - name: Test
+        run: ctest --test-dir fsw/build --output-on-failure
+
+  static-analysis:
+    name: Static analysis (clang-tidy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Fetch ETL
+        run: git submodule update --init vendor/etl
+      - name: Configure
+        # tidy only needs the compile database the configure step emits
+        run: cmake -S fsw -B fsw/build -DCMAKE_BUILD_TYPE=Debug -DFSW_WERROR=ON
+      - name: Analyze
         run: |
           sudo apt-get update && sudo apt-get install -y clang-tidy
           # find, not globs - new subdirectories must never fall out of coverage silently.
           # the stm32 backend is excluded explicitly: it compiles against bsp/cmsis headers
           # the host build doesn't have, and gets analyzed by the arm cross-build job below
           clang-tidy -p fsw/build --extra-arg=-Wno-error $(find fsw/src fsw/platform fsw/sil -name '*.cpp' -not -path '*/platform/stm32/*')
-      - name: Test
-        run: ctest --test-dir fsw/build --output-on-failure
-      - name: SIL scenarios
+
+  sil:
+    name: SIL scenarios
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Fetch ETL
+        run: git submodule update --init vendor/etl
+      - name: Configure
+        run: cmake -S fsw -B fsw/build -DCMAKE_BUILD_TYPE=Debug -DFSW_WERROR=ON
+      - name: Build the shim
+        run: cmake --build fsw/build --target sil_shim
+      - name: Run the suite
         run: |
           pip install pyyaml
-          python3 tools/sil_runner.py fsw/sil/scenarios
+          python3 tools/sil_runner.py
 
   # firmware cross-build (arm-none-eabi-gcc) comes next
