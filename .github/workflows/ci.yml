@@ -40,8 +40,10 @@ jobs:
       - name: Static analysis (clang-tidy)
         run: |
           sudo apt-get update && sudo apt-get install -y clang-tidy
-          # find, not globs - new subdirectories must never fall out of coverage silently
-          clang-tidy -p fsw/build --extra-arg=-Wno-error $(find fsw/src fsw/platform fsw/sil -name '*.cpp')
+          # find, not globs - new subdirectories must never fall out of coverage silently.
+          # the stm32 backend is excluded explicitly: it compiles against bsp/cmsis headers
+          # the host build doesn't have, and gets analyzed by the arm cross-build job below
+          clang-tidy -p fsw/build --extra-arg=-Wno-error $(find fsw/src fsw/platform fsw/sil -name '*.cpp' -not -path '*/platform/stm32/*')
       - name: Test
         run: ctest --test-dir fsw/build --output-on-failure
       - name: SIL scenarios
