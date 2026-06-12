@@ -8,8 +8,9 @@ The bench hardware on hand right now. More sensors and actuator parts get added 
 | Mini-USB cable, data capable | 1 | $8.99 | ST-Link programming and UART-over-USB. |
 | Breadboard | 1 | ~$5.00 | Bench wiring. |
 | Jumper wires | 1 set | ~$6.00 | Bench wiring. |
+| SparkFun ICM-20948 9-DoF IMU breakout | 1 | ~$17.00 | Accel + gyro + magnetometer over SPI; accel/gyro live on the bench, mag pending (it sits behind the chip's internal I2C master). |
 
-The sensors (IMU, voltage/current, temperature), the reaction-wheel parts, and the rest get added here as they're bought.
+The remaining sensors (voltage/current, temperature), the reaction-wheel parts, and the rest get added here as they arrive.
 
 ## Datasheets and references
 
@@ -23,3 +24,9 @@ Linked rather than vendored - the PDFs are large and the vendors keep these URLs
 - [UM1724 user manual](https://www.st.com/resource/en/user_manual/um1724-stm32-nucleo64-boards-mb1136-stmicroelectronics.pdf) - the Nucleo-64 board: jumpers, ST-Link, pin mapping
 - [ES0298 errata](https://www.st.com/resource/en/errata_sheet/es0298-stm32f446xcxe-device-errata-stmicroelectronics.pdf) - silicon limitations and workarounds
 - [Board product page](https://www.st.com/en/evaluation-tools/nucleo-f446re.html) - schematics (MB1136) under CAD Resources, plus CubeIDE downloads
+
+### ICM-20948 9-DoF IMU (SparkFun breakout)
+
+- [ICM-20948 datasheet (DS-000189)](https://invensense.tdk.com/wp-content/uploads/2021/10/DS-000189-ICM-20948-v1.5.pdf) - register map (four banks), SPI/I2C interface formats, electrical specs
+- [Product page](https://invensense.tdk.com/en-us/products/9-axis/icm-20948) - latest datasheet revisions and app notes
+- [SparkFun hookup guide](https://learn.sparkfun.com/tutorials/sparkfun-9dof-imu-icm-20948-breakout-hookup-guide) - breakout pinout, onboard 1.8 V regulation + level shifting, jumper notes
