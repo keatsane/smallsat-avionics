@@ -1,6 +1,6 @@
 /**
  * @file   imu.h
- * @brief  imu driver - accessing gyroscope / accelerometer registers
+ * @brief  imu driver - accessing accelerometer, gyroscope, and magnetometer on ICM-20948
  */
 
 #ifndef IMU_H
@@ -16,6 +16,7 @@ extern "C" {
 typedef struct {
     int16_t accel[3];  // high/low bytes combined for raw: x, y, z
     int16_t gyro[3];   // high/low bytes combined for raw: x, y, z
+    int16_t mag[3];    // high/low bytes combined for raw: x, y, z
     uint32_t t_ms;     // acquisition time
     bool valid;        // false until proven; never use invalid sample
 } imu_sample_t;
@@ -27,8 +28,8 @@ typedef struct {
 bool imu_init(void);
 
 /**
- * @brief read imu sample (accel, gyro), stamp time, validity
- * @param out  destination sample - filled with accel/gyro counts, timestamp, validity
+ * @brief read imu sample (accel, gyro, mag), stamp time, validity
+ * @param out  destination sample - filled with accel/gyro/mag counts, timestamp, validity
  */
 void imu_read(imu_sample_t* out);
 

@@ -62,6 +62,10 @@ int main(void) {
             print_i16(s.gyro[0]);
             print_i16(s.gyro[1]);
             print_i16(s.gyro[2]);
+            uart_write(uart_console, (const uint8_t*)", MAG: ", 7U);
+            print_i16(s.mag[0]);
+            print_i16(s.mag[1]);
+            print_i16(s.mag[2]);
             uart_write(uart_console, (const uint8_t*)"\r\n", 2U);
         }
 

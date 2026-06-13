@@ -1,6 +1,6 @@
 # Bill of Materials
 
-The bench hardware on hand right now. More sensors and actuator parts get added as the work reaches them.
+The bench hardware in use right now. More sensors and actuator parts get added as each is brought up.
 
 | Item | Qty | Est. cost | Notes |
 | ---- | --- | --------- | ----- |
@@ -10,7 +10,7 @@ The bench hardware on hand right now. More sensors and actuator parts get added 
 | Jumper wires | 1 set | ~$6.00 | Bench wiring. |
 | SparkFun ICM-20948 9-DoF IMU breakout | 1 | ~$17.00 | Accelerometer + gyro, read over SPI - both live on the bench. The package also carries a magnetometer, unused for now (it sits behind the chip's internal I2C master, not on the SPI bus). |
 
-The remaining sensors (voltage/current, temperature), the reaction-wheel parts, and the rest get added here as they arrive.
+The remaining sensors (voltage/current, temperature), the reaction-wheel parts, and the rest get added here as each is brought up on the bench.
 
 ## Datasheets and references
 
