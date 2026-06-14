@@ -41,7 +41,8 @@ TEST_SUITE("FAULT MANAGEMENT REQUIREMENTS") {
 
             CHECK_FALSE(fm.should_enter_safe());
 
-            fm.set(Fault::GYRO_DROPOUT, 0);  // degraded -> documented fallback, must NOT force SAFE
+            fm.set(Fault::ACCEL_GYRO_DROPOUT,
+                   0);  // degraded -> documented fallback, must NOT force SAFE
 
             CHECK_FALSE(fm.should_enter_safe());
         }
@@ -139,9 +140,9 @@ TEST_SUITE("FAULT MANAGEMENT REQUIREMENTS") {
         CHECK(fm.is_active(Fault::SENSOR_DISAGREEMENT));
         CHECK_FALSE(fm.should_enter_safe());
 
-        fm.set(Fault::DATA_STALE, 0);  // degraded
+        fm.set(Fault::ACCEL_GYRO_DROPOUT, 0);  // degraded
 
-        CHECK(fm.is_active(Fault::DATA_STALE));
+        CHECK(fm.is_active(Fault::ACCEL_GYRO_DROPOUT));
         CHECK_FALSE(fm.should_enter_safe());
 
         // tbd degraded fallback behaviour
@@ -153,15 +154,15 @@ TEST_SUITE("FAULT MANAGEMENT REQUIREMENTS") {
         SUBCASE("Most conservative response wins") {
             FaultManager fm;
 
-            fm.set(Fault::GYRO_DROPOUT, 0);  // Degraded -> would fail over
-            fm.set(Fault::UNDERVOLTAGE, 0);  // Critical -> demands SAFE
+            fm.set(Fault::ACCEL_GYRO_DROPOUT, 0);  // Degraded -> would fail over
+            fm.set(Fault::UNDERVOLTAGE, 0);        // Critical -> demands SAFE
 
             CHECK(fm.should_enter_safe());  // SAFE is most conservative -> it wins
 
             fm.clear(Fault::UNDERVOLTAGE, 0);
 
-            CHECK_FALSE(fm.should_enter_safe());       // critical cleared -> not demanding SAFE
-            CHECK(fm.is_active(Fault::GYRO_DROPOUT));  // the degraded one never forced SAFE
+            CHECK_FALSE(fm.should_enter_safe());  // critical cleared -> not demanding SAFE
+            CHECK(fm.is_active(Fault::ACCEL_GYRO_DROPOUT));  // the degraded one never forced SAFE
         }
 
         SUBCASE("Full end to end - repeated cycles never duplicate the SAFE transition") {
@@ -195,12 +196,13 @@ TEST_SUITE("FAULT MANAGEMENT REQUIREMENTS") {
         FaultManager fm;
 
         fm.set(Fault::ACTUATOR_SATURATION, 0);
-        fm.set(Fault::GYRO_DROPOUT, 0);
+        fm.set(Fault::ACCEL_GYRO_DROPOUT, 0);
         fm.set(Fault::UNDERVOLTAGE, 0);
 
         // check against expected bitmask
-        CHECK(fm.active() == (fault_bit(Fault::ACTUATOR_SATURATION) |
-                              fault_bit(Fault::GYRO_DROPOUT) | fault_bit(Fault::UNDERVOLTAGE)));
+        CHECK(fm.active() ==
+              (fault_bit(Fault::ACTUATOR_SATURATION) | fault_bit(Fault::ACCEL_GYRO_DROPOUT) |
+               fault_bit(Fault::UNDERVOLTAGE)));
     }
 
     TEST_CASE("REQ-FAULT-009") {

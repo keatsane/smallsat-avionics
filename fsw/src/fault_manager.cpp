@@ -9,15 +9,16 @@ namespace fsw {
 namespace {
 
 // fault table: severity, debounce_n, req_id
+// rows are positional - this MUST stay in the same order as FSW_FAULT_LIST in state.hpp
+// (kFaultTable[(size_t)fault]); the static_assert below only catches a count mismatch, not order
 constexpr FaultSpec kFaultTable[] = {
     /* SENSOR_DISAGREEMENT */ {Severity::Warning, 3, "REQ-FAULT-001"},
     /* ACTUATOR_SATURATION */ {Severity::Warning, 5, "REQ-FAULT-001"},
     /* UNDERTEMPERATURE    */ {Severity::Warning, 5, "REQ-FAULT-001"},
     /* GYRO_BIAS_DRIFT     */ {Severity::Warning, 10, "REQ-FAULT-001"},
-    /* COMMAND_LINK_LOSS   */ {Severity::Critical, 1, "REQ-CMD-002"},  // command-loss dead man
-    /* DATA_STALE          */ {Severity::Degraded, 3, "REQ-FAULT-005"},
-    /* GYRO_DROPOUT        */ {Severity::Degraded, 3, "REQ-FAULT-005"},
-    /* MAG_DROPOUT         */ {Severity::Degraded, 3, "REQ-FAULT-005"},
+    /* COMMAND_LINK_LOSS   */ {Severity::Critical, 1, "REQ-CMD-002"},
+    /* ACCEL_GYRO_DROPOUT  */ {Severity::Degraded, 3, "REQ-FAULT-005"},
+    /* MAG_DROPOUT         */ {Severity::Warning, 3, "REQ-FAULT-001"},
     /* WATCHDOG_TIMEOUT    */ {Severity::Critical, 1, "REQ-FAULT-002"},
     /* BUS_FAULT           */ {Severity::Critical, 1, "REQ-FAULT-002"},
     /* UNDERVOLTAGE        */ {Severity::Critical, 3, "REQ-FAULT-002"},

@@ -1,5 +1,5 @@
 # the full incident-and-recovery arc: undervoltage forces SAFE, the ground clears the
-# latched fault explicitly (REQ-FAULT-010, CLEAR_FAULT arg 10 = UNDERVOLTAGE's id), and
+# latched fault explicitly (REQ-FAULT-010, CLEAR_FAULT arg 9 = UNDERVOLTAGE's id), and
 # the only legal exit from SAFE is this ground-commanded return to STANDBY (REQ-MODE-006)
 id: SIL-006
 title: ground recovers the spacecraft from safe mode
@@ -9,7 +9,7 @@ timeline:
   - { t: 200, fault: { name: UNDERVOLTAGE, bad: 1 } }
   - { t: 300, fault: { name: UNDERVOLTAGE, bad: 1 } }
   - { t: 400, fault: { name: UNDERVOLTAGE, bad: 1 } }
-  - { t: 600, cmd: { name: CLEAR_FAULT, arg: 10, seq: 2 } }
+  - { t: 600, cmd: { name: CLEAR_FAULT, arg: 9, seq: 2 } }
   - { t: 700, cmd: { name: SET_MODE, arg: 1, seq: 3 } }
   - { t: 900 }
 expect:

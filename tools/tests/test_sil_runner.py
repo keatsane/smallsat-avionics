@@ -48,10 +48,10 @@ def test_parse_output_events_and_acks():
 def test_replay_fault_set_latch_then_clear():
     events = [
         Event("EVENT", "fault", {"t": "100", "fault": "UNDERVOLTAGE", "edge": "latch"}),
-        Event("EVENT", "fault", {"t": "200", "fault": "GYRO_DROPOUT", "edge": "latch"}),
+        Event("EVENT", "fault", {"t": "200", "fault": "ACCEL_GYRO_DROPOUT", "edge": "latch"}),
         Event("EVENT", "fault", {"t": "300", "fault": "UNDERVOLTAGE", "edge": "clear"}),
     ]
-    assert replay_fault_set(events) == {"GYRO_DROPOUT"}
+    assert replay_fault_set(events) == {"ACCEL_GYRO_DROPOUT"}
 
 
 def _safe_entry_events():
@@ -68,7 +68,7 @@ def _safe_entry_events():
                 "req": "REQ-FAULT-002",
             },
         ),
-        Event("END", "", {"t": "500", "mode": "SAFE", "faults": "0x00000400"}),
+        Event("END", "", {"t": "500", "mode": "SAFE", "faults": "0x00000200"}),
     ]
 
 

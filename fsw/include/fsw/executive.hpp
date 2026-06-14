@@ -6,35 +6,20 @@
 #ifndef FSW_EXECUTIVE_HPP
 #define FSW_EXECUTIVE_HPP
 
-#include <optional>
-
-#include "etl/vector.h"
 #include "fsw/comms/command_handler.hpp"
 #include "fsw/comms/telemetry_producer.hpp"
 #include "fsw/fault_manager.hpp"
+#include "fsw/inputs.hpp"
 #include "fsw/mode_manager.hpp"
 #include "fsw/platform.hpp"
+#include "fsw/sensor_monitor.hpp"
 #include "protocol/frame.hpp"
 #include "protocol/msg.hpp"
 
 namespace fsw {
 
-// fault and if its now active
-struct FaultReport {
-    Fault fault;  // fault
-    bool bad;     // is this fault active
-};
-
-// new inputs to be passed into the next cycle
-struct Inputs {
-    etl::vector<FaultReport, kFaultCount> fault_updates;  // fault updates since last cycle
-    std::optional<command_t> command;                     // incoming command (optional)
-};
-
 class Executive {
    public:
-    // generate Inputs method to build the struct?
-
     /**
      * @brief  runs a full control cycle, handling commands, faults, and modes
      * @param  inputs incoming command (optional) + report of active faults since last cycle
@@ -69,6 +54,7 @@ class Executive {
     TelemetryProducer tp_;
     FaultManager fm_;
     ModeManager mm_;
+    SensorMonitor sm_;
 };
 
 }  // namespace fsw

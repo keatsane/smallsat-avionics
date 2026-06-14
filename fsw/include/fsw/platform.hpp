@@ -1,6 +1,7 @@
 /**
  * @file   platform.hpp
- * @brief  platform-abstraction layer - the only door from flight logic to the outside
+ * @brief  platform-abstraction layer - the fsw's active i/o with the outside (time base + link).
+ *         inbound data (commands, sensor samples) arrives via Inputs, assembled by the caller.
  */
 
 #ifndef FSW_PLATFORM_HPP
@@ -19,8 +20,6 @@ uint32_t now_ms();
  * @param  len   the length of the frame
  */
 void send_telemetry(const uint8_t* frame, uint32_t len);
-
-// sensor reads (read_imu, read_bus_voltage, ...) join here as the sensor phase lands
 
 }  // namespace fsw::platform
 

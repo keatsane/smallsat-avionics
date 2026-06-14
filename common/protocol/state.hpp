@@ -25,9 +25,8 @@
     X(UNDERTEMPERATURE)    /* a component below its min temp */   \
     X(GYRO_BIAS_DRIFT)     /* gyro bias drifting out of spec */   \
     X(COMMAND_LINK_LOSS)   /* command-loss timer expired */       \
-    X(DATA_STALE)          /* a data source stopped updating */   \
-    X(GYRO_DROPOUT)        /* gyro stopped responding */          \
-    X(MAG_DROPOUT)         /* magnetometer stopped responding */  \
+    X(ACCEL_GYRO_DROPOUT)  /* accel/gyro invalid or frozen */     \
+    X(MAG_DROPOUT)         /* magnetometer invalid or frozen */   \
     X(WATCHDOG_TIMEOUT)    /* watchdog not kicked in time */      \
     X(BUS_FAULT)           /* power or data bus fault */          \
     X(UNDERVOLTAGE)        /* bus below the brownout threshold */ \

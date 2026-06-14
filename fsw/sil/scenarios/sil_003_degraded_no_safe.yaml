@@ -5,9 +5,9 @@ title: degraded fault latches without entering safe mode
 verifies: [REQ-FAULT-005]
 timeline:
   - { t: 100, cmd: { name: SET_MODE, arg: 1, seq: 1 } }
-  - { t: 200, fault: { name: GYRO_DROPOUT, bad: 1 } }
-  - { t: 300, fault: { name: GYRO_DROPOUT, bad: 1 } }
-  - { t: 400, fault: { name: GYRO_DROPOUT, bad: 1 } }
+  - { t: 200, fault: { name: ACCEL_GYRO_DROPOUT, bad: 1 } }
+  - { t: 300, fault: { name: ACCEL_GYRO_DROPOUT, bad: 1 } }
+  - { t: 400, fault: { name: ACCEL_GYRO_DROPOUT, bad: 1 } }
   - { t: 600 }
 expect:
   mode_log:
@@ -16,4 +16,4 @@ expect:
     - { seq: 1, accepted: true }
   final:
     mode: STANDBY
-    faults_set: [GYRO_DROPOUT]
+    faults_set: [ACCEL_GYRO_DROPOUT]

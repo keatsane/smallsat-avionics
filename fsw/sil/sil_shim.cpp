@@ -27,15 +27,9 @@ using namespace fsw;
     std::exit(1);
 }
 
-// --- the shim's platform backend: injected scenario time, frames out as hex lines ---
-
-namespace {
-uint32_t g_now_ms = 0;  // current cycle's injected time
-}
+// --- the shim's platform backend: frames out as hex lines (time enters via cycle's t_ms) ---
 
 namespace fsw::platform {
-
-uint32_t now_ms() { return g_now_ms; }
 
 void send_telemetry(const uint8_t* frame, uint32_t len) {
     std::printf("FRAME ");
@@ -208,7 +202,6 @@ int main() {
         // one declared cycle: CYCLE opens the block, frames land inside it as cycle() emits
         // them, then the log rows this cycle appended
         std::printf("CYCLE t=%u\n", t_ms);
-        g_now_ms = t_ms;
         exec.cycle(inputs, t_ms);
         print_events(exec, t_ms);
         std::fflush(stdout);

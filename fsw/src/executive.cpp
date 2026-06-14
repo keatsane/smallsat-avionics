@@ -13,6 +13,9 @@ void Executive::cycle(const Inputs& inputs, uint32_t t_ms) {
         fm_.update(report.fault, report.bad, t_ms);
     }
 
+    // detect sensor faults from this cycle's readings, feeding the same fault manager (REQ-SNS-002)
+    sm_.evaluate(inputs, fm_, t_ms);
+
     CommandEvent ce{};
     if (inputs.command) {
         ce = ch_.handle(*inputs.command, mm_.mode(), t_ms);
@@ -30,9 +33,14 @@ void Executive::cycle(const Inputs& inputs, uint32_t t_ms) {
             mm_.request(Mode::SAFE, Trigger::FaultEntry, t_ms, "REQ-FAULT-002");
     }
 
-    // dispatch accepted ground commands. acceptance means the command passed validation, not
-    // that it executed - the safing above wins a same-cycle conflict (REQ-EXEC-001), and the
-    // ground reads the outcome from telemetry (mode + fault bits in the heartbeat)
+    // imu degraded fallback
+    if ((mm_.mode() == Mode::POINTING || mm_.mode() == Mode::DETUMBLE) &&
+        fm_.is_active(Fault::ACCEL_GYRO_DROPOUT)) {
+        mm_.request(Mode::STANDBY, Trigger::FaultEntry, t_ms,
+                    fm_.fault_spec(Fault::ACCEL_GYRO_DROPOUT).req_id);
+    }
+
+    // dispatch accepted ground commands. acceptance only means the command passed validation
     if (inputs.command && ce.accepted) {
         const Command cmd = static_cast<Command>(ce.cmd_id);
         switch (cmd) {
@@ -56,6 +64,11 @@ void Executive::cycle(const Inputs& inputs, uint32_t t_ms) {
     // heartbeat
     if (tp_.heartbeat_due(t_ms)) {
         send(MsgId::Heartbeat, tp_.heartbeat(t_ms, mm_.mode(), fm_.active()));
+    }
+
+    // imu data
+    if (inputs.imu) {
+        send(MsgId::ImuData, *inputs.imu);
     }
 }
 
