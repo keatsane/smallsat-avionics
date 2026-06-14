@@ -11,11 +11,17 @@ import struct
 SYNC0 = 0xAA
 SYNC1 = 0x55
 
-# message ids - mirror MsgId in msg.hpp (tags only, no priority semantics)
+# message ids - mirror MsgId in msg.hpp
 MSG_COMMAND = 0x01
 MSG_COMMAND_ACK = 0x02
 MSG_HEARTBEAT = 0x03
 MSG_UART_STATUS = 0x04
+# LoraStatus = 0x05,
+# Nrf24Status = 0x06,
+MSG_IMU_DATA = 0x07
+# PowerData = 0x08,
+# TempData = 0x09,
+# PayloadData = 0x10,
 
 
 def crc16(data: bytes) -> int:
@@ -120,21 +126,39 @@ def decode_heartbeat(payload: bytes) -> dict:
     }
 
 
+def decode_imu(payload: bytes) -> dict:
+    """Unpack a imu_data_t payload (msg.hpp) into a dict."""
+    t_ms, ax, ay, az, gx, gy, gz, mx, my, mz, flags = struct.unpack("<I9hB", payload)
+    return {
+        "t_ms": t_ms,
+        "accel": (ax, ay, az),
+        "gyro": (gx, gy, gz),
+        "mag": (mx, my, mz),
+        "flags": flags,
+    }
+
+
 def format_frame(msg_id: int, payload: bytes) -> str:
     """One-line human-readable summary of a decoded frame."""
     if msg_id == MSG_COMMAND and len(payload) == 4:
         cmd_id, arg, seq = struct.unpack("<BBH", payload)
         return f"COMMAND      cmd={cmd_id}  arg={arg}  seq={seq}"
     if msg_id == MSG_COMMAND_ACK and len(payload) == 5:
-        cmd_id, seq, accepted, reason = struct.unpack("<BHBB", payload)
-        verdict = "accepted" if accepted else f"rejected (reason={reason})"
-        return f"COMMAND_ACK  cmd={cmd_id}  seq={seq}  {verdict}"
+        d = decode_command_ack(payload)
+        verdict = "accepted" if d["accepted"] else f"rejected (reason={d['reason']})"
+        return f"COMMAND_ACK  cmd={d['cmd_id']}  seq={d['seq']}  {verdict}"
     if msg_id == MSG_HEARTBEAT and len(payload) == 11:
-        uptime, mode, faults, seq = struct.unpack("<IBIH", payload)
-        return f"HEARTBEAT    uptime={uptime} ms  mode={mode}  faults=0x{faults:08X}  seq={seq}"
+        d = decode_heartbeat(payload)
+        return f"HEARTBEAT    uptime={d['uptime_ms']} ms  mode={d['mode']}  faults=0x{d['faults']:08X}  seq={d['seq']}"
     if msg_id == MSG_UART_STATUS and len(payload) == 16:
         overrun, framing, noise, dropped = struct.unpack("<IIII", payload)
         return (
             f"UART_STATUS  overrun={overrun}  framing={framing}  noise={noise}  dropped={dropped}"
+        )
+    if msg_id == MSG_IMU_DATA and len(payload) == 23:
+        d = decode_imu(payload)
+        return (
+            f"IMU_DATA     t={d['t_ms']} ms  accel={d['accel']}  "
+            f"gyro={d['gyro']}  mag={d['mag']}  flags=0x{d['flags']:02X}"
         )
     return f"msg 0x{msg_id:02X}  len={len(payload)}  payload={payload.hex()}"

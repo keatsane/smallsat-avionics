@@ -4,16 +4,19 @@ import re
 import struct
 from pathlib import Path
 
+from ground import frames
 from ground.frames import (
     MODES,
     MSG_COMMAND,
     MSG_COMMAND_ACK,
     MSG_HEARTBEAT,
+    MSG_IMU_DATA,
     MSG_UART_STATUS,
     REJECT_REASONS,
     FrameDecoder,
     crc16,
     decode_heartbeat,
+    decode_imu,
     encode,
     format_frame,
     mode_name,
@@ -88,6 +91,30 @@ def test_mode_name_out_of_range():
     assert mode_name(200) == "UNKNOWN"
 
 
+def test_imu_roundtrip():
+    payload = struct.pack("<I9hB", 1000, 16380, -8, 4, 1, -1, 0, 445, 190, 199, 0x03)
+    assert _decode_all(encode(MSG_IMU_DATA, payload)) == (MSG_IMU_DATA, payload)
+
+
+def test_decode_imu_fields():
+    # all-0xff is the unplugged signature - the signed decode must surface -1, not 65535
+    payload = struct.pack("<I9hB", 50, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0x00)
+    assert decode_imu(payload) == {
+        "t_ms": 50,
+        "accel": (-1, -1, -1),
+        "gyro": (-1, -1, -1),
+        "mag": (-1, -1, -1),
+        "flags": 0x00,
+    }
+
+
+def test_format_imu():
+    text = format_frame(MSG_IMU_DATA, struct.pack("<I9hB", 5000, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0x03))
+    assert "IMU_DATA" in text
+    assert "accel=(1, 2, 3)" in text
+    assert "flags=0x03" in text
+
+
 # --- mirror drift tests ---
 # the wire carries bare ints; the names live in c++. the python catalogs are hand-written
 # mirrors, so each is checked against its owning header - add a name in c++ and forget
@@ -112,3 +139,19 @@ def test_reject_reasons_mirror_command_handler_hpp():
     block = re.search(r"enum class CmdReject[^{]*\{(.*?)\}", header.read_text(), re.S)
     assert block is not None, "CmdReject enum not found"
     assert REJECT_REASONS == re.findall(r"^\s*(\w+),", block.group(1), re.M)
+
+
+def _camel_to_macro(name: str) -> str:
+    """MsgId CamelCase -> the MSG_SNAKE constant frames.py uses (ImuData -> MSG_IMU_DATA)."""
+    return "MSG_" + "_".join(p.upper() for p in re.findall(r"[A-Z][a-z0-9]*", name))
+
+
+def test_msgids_mirror_msg_hpp():
+    header = REPO_ROOT / "common" / "protocol" / "msg.hpp"
+    block = re.search(r"enum class MsgId[^{]*\{(.*?)\}", header.read_text(), re.S)
+    assert block is not None, "MsgId enum not found"
+    # active entries only - reserved ids are commented out, so `name = 0xNN` won't match them
+    pairs = re.findall(r"^\s*(\w+)\s*=\s*(0x[0-9A-Fa-f]+)", block.group(1), re.M)
+    expected = {_camel_to_macro(name): int(val, 16) for name, val in pairs}
+    actual = {k: v for k, v in vars(frames).items() if k.startswith("MSG_")}
+    assert actual == expected
