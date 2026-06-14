@@ -1,6 +1,6 @@
 # Requirements
 
-Verification spine for the avionics stack. Each requirement has an ID, a statement, a status, and a verification method (test, analysis, inspection, or demonstration); once it has real evidence, the artifact that proves it is listed too. Requirements are written ahead of the code they govern, so most carry a planned status until their phase lands - the status, not the presence of a requirement, is what tracks reality. The status names the highest evidence level reached: planned -> in progress -> unit-verified -> SIL-verified -> bench-verified -> HIL-verified. A requirement whose verification line lists methods beyond its current status still owes that evidence.
+Running requirements for the avionics stack. Each requirement has an ID, a statement, a status, and a verification method (test, analysis, inspection, or demonstration); once there is evidence, the artifact is listed too. Requirements are written ahead of the code they govern, so many start as planned until their phase lands. The status, not the existence of the requirement, tracks reality: planned -> in progress -> unit-verified -> SIL-verified -> bench-verified -> HIL-verified. A requirement whose verification line lists methods beyond its current status still owes that evidence.
 
 ## Mode management
 
@@ -80,7 +80,7 @@ Every fault carries a severity that drives its response:
 | Degraded | a capability was lost but a documented fallback exists; switch to it and keep operating; does not force SAFE |
 | Critical | a capability was lost with no fallback; forces SAFE if unresolved |
 
-The fault catalog (14 faults: undervoltage, overcurrent, gyro-dropout, ...) is defined once in `common/protocol/state.hpp`; a fault's position there is both its id and its bit in the active-fault bitmask.
+The fault catalog (13 faults: undervoltage, overcurrent, accel/gyro-dropout, mag-dropout, ...) is defined once in `common/protocol/state.hpp`; a fault's position there is both its id and its bit in the active-fault bitmask.
 
 **REQ-FAULT-001** - The fault manager shall latch an active fault until it is explicitly cleared; a condition that clears on its own shall not un-latch the fault.  
 **Status**: unit-verified  
@@ -102,10 +102,20 @@ The fault catalog (14 faults: undervoltage, overcurrent, gyro-dropout, ...) is d
 **Verification**: unit test and SIL  
 **Artifact**: fsw/test/test_fault_manager.cpp, docs/reports/sil/SIL-004.md
 
-**REQ-FAULT-005** - A fault of Warning or Degraded severity shall not by itself command SAFE; a Degraded fault shall switch to its documented fallback behavior, and every such fault shall be latched and reported in telemetry.  
-**Status**: in progress (the no-SAFE and latch/report clauses are SIL-verified; fallback behaviors arrive with the sensors)  
+**REQ-FAULT-005** - A fault of Warning or Degraded severity shall not by itself command SAFE; a Degraded fault shall switch to its documented fallback behavior (see Degraded fallback behaviors below), and every such fault shall be latched and reported in telemetry.
+**Status**: in progress (no-SAFE, latch, and report are SIL-verified; the ACCEL_GYRO_DROPOUT -> STANDBY retreat is implemented in the executive, but the POINTING/DETUMBLE scenario for that retreat is still owed)
 **Verification**: unit test and SIL  
-**Artifact**: fsw/test/test_fault_manager.cpp, docs/reports/sil/SIL-003.md
+**Artifact**: fsw/src/executive.cpp, fsw/src/sensor_monitor.cpp, fsw/test/test_fault_manager.cpp, docs/reports/sil/SIL-003.md
+
+### Degraded fallback behaviors
+
+REQ-FAULT-005 requires every Degraded fault to switch to a *documented* fallback rather than safing. The current Degraded fault is defined here; it keeps the spacecraft operating with reduced capability, chosen so the loss of body-rate feedback is contained. Warning faults, including `MAG_DROPOUT`, latch and report without changing mode.
+
+| Fault | Fallback when latched |
+| ----- | --------------------- |
+| ACCEL_GYRO_DROPOUT | In POINTING or DETUMBLE - the modes that depend on body-rate feedback - retreat to STANDBY, a stable idle; holding attitude without the gyro is unsafe, but the loss is not mission-ending. In any other mode, latch and report only. |
+
+The active retreat (POINTING/DETUMBLE -> STANDBY on ACCEL_GYRO_DROPOUT) runs in the executive's fault-response step and is logged as a `FaultEntry` transition stamped REQ-FAULT-005. Recovery is ground-commanded like every fault (CLEAR_FAULT, REQ-FAULT-010); the planned RESET_DEVICE command will let the ground re-initialize the affected sensor before clearing it.
 
 **REQ-FAULT-006** - The flight software shall evaluate the full fault set once per control cycle and apply the required response; when more than one response is indicated, the most conservative one shall win (SAFE dominates).  
 **Status**: unit-verified  
@@ -213,12 +223,14 @@ The fault catalog (14 faults: undervoltage, overcurrent, gyro-dropout, ...) is d
 ## Sensors and data validity
 
 **REQ-SNS-001** - Every sensor sample shall be tagged with an acquisition timestamp and a validity flag; the flight software shall never use a sample marked invalid.  
-**Status**: planned  
+**Status**: bench-verified (the IMU sample carries an acquisition timestamp and per-half validity flags, streaming live on the bench; the sensor monitor treats an invalid half as a dropout rather than consuming it - a full attitude consumer that honors the flag lands with ADCS)
 **Verification**: unit test and HIL
+**Artifact**: common/protocol/msg.hpp (imu_data_t), bsp/Src/drivers/imu.c, fsw/src/sensor_monitor.cpp, fsw/test/test_sensor_monitor.cpp
 
-**REQ-SNS-002** - A sensor whose data stops updating within a defined staleness window shall raise DATA_STALE and the matching dropout fault.  
-**Status**: planned  
+**REQ-SNS-002** - A sensor whose data is invalid, missing, or frozen beyond a defined staleness window shall raise that sensor's dropout fault.
+**Status**: unit-verified (the sensor monitor raises the matching dropout on invalid or frozen IMU sources; the invalid-source path is bench-exercised - pulling the IMU latches ACCEL_GYRO_DROPOUT + MAG_DROPOUT - with HIL still owed)
 **Verification**: unit test and HIL
+**Artifact**: fsw/src/sensor_monitor.cpp, fsw/test/test_sensor_monitor.cpp
 
 **REQ-SNS-003** - Where redundant sources exist, disagreement beyond a defined threshold shall raise SENSOR_DISAGREEMENT.  
 **Status**: planned  
@@ -240,7 +252,7 @@ The fault catalog (14 faults: undervoltage, overcurrent, gyro-dropout, ...) is d
 
 ## Platform abstraction and portability
 
-**REQ-PAL-001** - The flight software shall reach the outside world - time, link, sensors - only through the platform abstraction layer, and shall contain no register or peripheral access.  
+**REQ-PAL-001** - The flight software shall reach active platform services - time and outbound link I/O - only through the platform abstraction layer, and shall contain no register or peripheral access. Inbound commands and sensor samples shall enter as cycle inputs assembled at the platform boundary.
 **Status**: in progress  
 **Verification**: inspection  
 **Artifact**: fsw/include/fsw/platform.hpp + host backend

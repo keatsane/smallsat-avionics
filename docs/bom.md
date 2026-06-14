@@ -1,6 +1,6 @@
-# Bill of Materials
+# Bill of materials
 
-The bench hardware in use right now. More sensors and actuator parts get added as each is brought up.
+Bench hardware that is actually in use. More sensors and actuator parts get added as they come up.
 
 | Item | Qty | Est. cost | Notes |
 | ---- | --- | --------- | ----- |
@@ -8,13 +8,13 @@ The bench hardware in use right now. More sensors and actuator parts get added a
 | Mini-USB cable, data capable | 1 | $8.99 | ST-Link programming and UART-over-USB. |
 | Breadboard | 1 | ~$5.00 | Bench wiring. |
 | Jumper wires | 1 set | ~$6.00 | Bench wiring. |
-| SparkFun ICM-20948 9-DoF IMU breakout | 1 | ~$17.00 | Accelerometer + gyro, read over SPI - both live on the bench. The package also carries a magnetometer, unused for now (it sits behind the chip's internal I2C master, not on the SPI bus). |
+| SparkFun ICM-20948 9-DoF IMU breakout | 1 | ~$17.00 | Accel/gyro over SPI, plus the AK09916 magnetometer through the chip's internal I2C master; all three streams are live on the bench. |
 
-The remaining sensors (voltage/current, temperature), the reaction-wheel parts, and the rest get added here as each is brought up on the bench.
+Voltage/current, temperature, reaction-wheel parts, and the rest get added here as each piece is brought up on the bench.
 
 ## Datasheets and references
 
-Vendored in `docs/datasheets/` and linked by relative path, so the references always open instead of force-downloading and never rot with the vendors' URLs. New devices get their own block here as they're added.
+Datasheets are vendored in `docs/datasheets/` and linked by relative path, so they keep opening even when vendor pages move around. New devices get their own block here as they are added.
 
 ### STM32 Nucleo-F446RE (STM32F446RE)
 

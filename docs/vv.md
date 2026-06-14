@@ -1,6 +1,6 @@
 # Verification and validation
 
-How this project proves its claims. The short version: requirements are written before the code that satisfies them, every requirement carries a status naming the strongest evidence checked into the repo, and nothing is described as working anywhere the repo can't show it.
+How the project keeps its claims tied to evidence. Requirements are written before the code that satisfies them, every requirement carries a status naming the strongest evidence checked into the repo, and nothing is described as working somewhere the repo cannot show it.
 
 ## The evidence ladder
 
@@ -8,26 +8,26 @@ A requirement's status in [requirements.md](requirements.md) names the highest l
 
 planned -> in progress -> unit-verified -> SIL-verified -> bench-verified -> HIL-verified
 
-Each level is a different kind of proof. Unit tests verify a component's logic in isolation (doctest, on the host). SIL verifies behavior end to end through the real executive against declared scenarios, still on the host. Bench and HIL verify the same claims on the physical STM32, with real timing, real links, and eventually real sensors driving real fault paths. A claim only climbs the ladder when the artifact for that level exists - the artifact is listed next to the status.
+Each level is a different kind of evidence. Unit tests check a component's logic in isolation (doctest, on the host). SIL checks behavior end to end through the real executive against declared scenarios, still on the host. Bench and HIL check the same claims on the physical STM32, with real timing, real links, and eventually real sensors driving real fault paths. A claim only climbs the ladder when the artifact for that level exists, and the artifact is listed next to the status.
 
 ## The SIL harness
 
-Two pieces, deliberately separated:
+Two pieces, kept separate:
 
-- **The shim** (`fsw/sil/sil_shim.cpp`) is the test fixture: a small host executable that links the unmodified flight-software library, reads a per-cycle timeline on stdin, runs `Executive::cycle()` with injected time, and reports everything observable as tagged text lines - mode/fault/command log events as they happen, every telemetry frame hex-encoded, and the final state. It renders no verdicts; an instrument that interprets its own readings stops being trustworthy.
+- **The shim** (`fsw/sil/sil_shim.cpp`) is the test fixture: a small host executable that links the unmodified flight-software library, reads a per-cycle timeline on stdin, runs `Executive::cycle()` with injected time, and reports everything observable as tagged text lines - mode/fault/command log events as they happen, every telemetry frame hex-encoded, and the final state. It does not grade anything.
 - **The runner** (`tools/sil_runner.py`) is the test conductor: it loads a scenario YAML, compiles the timeline, drives the shim over a pipe, CRC-checks and decodes the telemetry through the same codec the ground tools use (`tools/ground/frames.py`), grades observed against expected, and writes the report. It contains no flight logic and no scenario-specific code (REQ-VV-001).
 
 Time in SIL is injected, not real: a 2-second scenario runs in milliseconds and is exactly reproducible. That is the point of the platform-abstraction layer (REQ-PAL-001/002) - the same flight-software sources run here, in the unit tests, and later on the STM32, with only the platform backend swapped.
 
-What SIL deliberately cannot prove: real-time behavior, link timing, ISR interactions, and anything electrical. Those claims wait for the bench and HIL levels - the heartbeat requirements carried SIL evidence first and graduated to HIL when the harness below came up.
+What SIL cannot cover: real-time behavior, link timing, ISR interactions, and anything electrical. Those claims wait for the bench and HIL levels - the heartbeat requirements carried SIL evidence first and moved to HIL when the harness below came up.
 
 ## The HIL harness
 
 The HIL runner (`tools/hil_runner.py`) is the SIL runner's counterpart one level up the ladder, and everything that changes follows from one fact: the test article is the real STM32. The same flight-software library cross-compiles into the firmware image behind a third platform backend (`fsw/platform/stm32/` - REQ-PAL-002 made literal), beacons real telemetry over the UART downlink, and the harness consumes it from a serial port in real wall-clock time. There is no input timeline - stimuli are bench actions declared as operator instructions in the scenario - and there is no narration of the spacecraft's internals: the only observable is the telemetry stream, exactly the constraint a real ground station operates under.
 
-Inside the runner, the split mirrors SIL's shim-versus-runner separation. A pure link monitor owns every health decision - link up, loss against the heartbeat timeout (strict >, the satellite's own dead-man semantics pointed the other way), recovery, sequence gaps, timing statistics - and takes time only as an argument, so all of it is unit-tested with injected time. Around it sits a deliberately decision-free serial pump whose proof is the bench itself. Grading and reports run through the same shared core and exit-code contract as SIL; reports land in `docs/reports/hil/`.
+Inside the runner, the split mirrors SIL's shim-versus-runner separation. A pure link monitor owns every health decision - link up, loss against the heartbeat timeout (strict >, the satellite's own command-loss semantics point the other way), recovery, sequence gaps, timing statistics - and takes time only as an argument, so all of it is unit-tested with injected time. Around it sits a small serial pump that just moves bytes. Grading and reports run through the same shared core and exit-code contract as SIL; reports land in `docs/reports/hil/`.
 
-One kind of HIL evidence cannot be generated by the runner: oscilloscope captures of the physical wire. Those are taken at the bench (`just hil-scope`), filed under `docs/reports/hil/img/`, and written up in a hand-authored companion beside the generated report (for example `HIL-001-scope.md`) - beside, not inside, because the runner overwrites its report on every rerun and measured evidence must not be lost to a rerun.
+One kind of HIL evidence cannot be generated by the runner: oscilloscope captures of the physical wire. Those are taken at the bench (`just hil-scope`), filed under `docs/reports/hil/img/`, and written up in a hand-authored companion beside the generated report (for example `HIL-001-scope.md`). It lives beside the generated report because the runner overwrites its report on every rerun.
 
 ## Scenarios and reports
 
@@ -35,4 +35,4 @@ Scenarios live in `fsw/sil/scenarios/` and `fsw/hil/scenarios/` and are cataloge
 
 ## Traceability
 
-Requirement ids are carried through the whole chain: stated in [requirements.md](requirements.md), referenced in code where a design decision serves a requirement, named in unit-test cases (test suites mirror the requirements sections, one TEST_CASE per requirement id), declared by scenarios, stamped into the flight software's own mode-transition log rows, and recorded in the reports. Walking from a requirement to its proof - or from a log row back to the requirement it serves - never leaves the repo.
+Requirement ids are carried through the whole chain: stated in [requirements.md](requirements.md), referenced in code where a design decision serves a requirement, named in unit-test cases (test suites mirror the requirements sections, one TEST_CASE per requirement id), declared by scenarios, stamped into the flight software's own mode-transition log rows, and recorded in the reports. Walking from a requirement to its evidence - or from a log row back to the requirement it serves - stays inside the repo.
