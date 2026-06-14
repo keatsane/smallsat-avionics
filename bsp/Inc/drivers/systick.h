@@ -14,7 +14,6 @@ extern "C" {
 
 /**
  * @brief  start systick at 1 khz (1 ms tick)
- *
  * derives the reload from SystemCoreClock, so call SystemCoreClockUpdate()
  * after any clock-tree change before calling this
  */

@@ -91,6 +91,11 @@
 			<locationURI>PARENT-1-PROJECT_LOC/fsw/src/mode_manager.cpp</locationURI>
 		</link>
 		<link>
+			<name>Src/fsw/src/sensor_monitor.cpp</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/fsw/src/sensor_monitor.cpp</locationURI>
+		</link>
+		<link>
 			<name>Src/fsw/platform/stm32/platform_stm32.cpp</name>
 			<type>1</type>
 			<locationURI>PARENT-1-PROJECT_LOC/fsw/platform/stm32/platform_stm32.cpp</locationURI>

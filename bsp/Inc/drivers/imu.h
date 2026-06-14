@@ -14,11 +14,12 @@ extern "C" {
 #endif
 
 typedef struct {
-    int16_t accel[3];  // high/low bytes combined for raw: x, y, z
-    int16_t gyro[3];   // high/low bytes combined for raw: x, y, z
-    int16_t mag[3];    // high/low bytes combined for raw: x, y, z
-    uint32_t t_ms;     // acquisition time
-    bool valid;        // false until proven; never use invalid sample
+    uint32_t t_ms;          // acquisition time
+    int16_t accel[3];       // raw counts: x, y, z
+    int16_t gyro[3];        // raw counts: x, y, z
+    int16_t mag[3];         // raw counts: x, y, z
+    bool accel_gyro_valid;  // accel + gyro read ok (false = not responding, e.g. unplugged)
+    bool mag_valid;         // mag read ok (ak09916 reported fresh data with no overflow)
 } imu_sample_t;
 
 /**
@@ -28,10 +29,10 @@ typedef struct {
 bool imu_init(void);
 
 /**
- * @brief read imu sample (accel, gyro, mag), stamp time, validity
- * @param out  destination sample - filled with accel/gyro/mag counts, timestamp, validity
+ * @brief  read imu sample (accel, gyro, mag), stamp time, validity
+ * @return imu sample filled with accel/gyro/mag counts, timestamp, validity
  */
-void imu_read(imu_sample_t* out);
+imu_sample_t imu_read(void);
 
 #ifdef __cplusplus
 }

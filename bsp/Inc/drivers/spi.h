@@ -27,22 +27,22 @@ extern spi_t* const spi_imu;
 void spi_imu_init(uint32_t max_hz);
 
 /**
- * @brief    transfer a byte over spi
- * @param	 s	  spi peripheral to transfer with
- * @param    tx   byte to send
- * @return   byte received
+ * @brief  transfer a byte over spi
+ * @param  s   spi peripheral to transfer with
+ * @param  tx  byte to send
+ * @return byte received
  */
 uint8_t spi_transfer(spi_t* s, uint8_t tx);
 
 /**
- * @brief    pull cs down for desired device before starting a transfer
- * @param	 s	  spi peripheral
+ * @brief  pull cs down for the target device before a transfer
+ * @param  s  spi peripheral
  */
 void spi_select(spi_t* s);
 
 /**
- * @brief    raise cs after the last byte has fully left the wire (waits on busy)
- * @param	 s	  spi peripheral
+ * @brief  raise cs after the last byte has fully left the wire (waits on busy)
+ * @param  s  spi peripheral
  */
 void spi_deselect(spi_t* s);
 
