@@ -6,7 +6,10 @@
 #include "drivers/spi.h"
 
 #include "drivers/clock.h"
+#include "drivers/gpio.h"
 #include "stm32f446xx.h"
+
+#define SPI_IMU_MAX_HZ 7000000U  // 7 mhz ceiling for the ICM-20948 (next step down is 4 mhz)
 
 // per-instance state
 struct spi {
@@ -18,9 +21,9 @@ struct spi {
     spi_errors_t errors;  // bus error counts
 };
 
-static struct spi imu_inst = {.regs = SPI2, .cs_port = GPIOB, .cs_pin = 12U};
+static struct spi spi_imu_inst = {.regs = SPI2, .cs_port = GPIOB, .cs_pin = 12U};
 
-spi_t* const spi_imu = &imu_inst;
+spi_t* const spi_imu = &spi_imu_inst;
 
 // the part that's identical for every spi: max_hz, set master, enable spi
 static void spi_start(spi_t* s, uint32_t pclk_hz, uint32_t max_hz) {
@@ -37,29 +40,24 @@ static void spi_start(spi_t* s, uint32_t pclk_hz, uint32_t max_hz) {
     s->regs->CR1 |= SPI_CR1_SPE;
 }
 
-void spi_imu_init(uint32_t max_hz) {
+void spi_imu_init(void) {
     // spi2 on apb1, gpios: pb12(CS)/pb13(SCK)/pb14(MISO)/pb15(MOSI)
     RCC->APB1ENR |= RCC_APB1ENR_SPI2EN;
     (void)RCC->APB1ENR;
-    RCC->AHB1ENR |= RCC_AHB1ENR_GPIOBEN;
-    (void)RCC->AHB1ENR;
+    gpio_enable_port(GPIOB);
 
     GPIOB->BSRR = GPIO_BSRR_BS12;  // cs idles high - latch it before pb12 becomes an output
+    GPIOB->MODER &= ~GPIO_MODER_MODE12_Msk;
+    GPIOB->MODER |= GPIO_MODER_MODE12_0;  // pb12 output (cs)
 
-    GPIOB->MODER &= ~(GPIO_MODER_MODE12_Msk | GPIO_MODER_MODE13_Msk | GPIO_MODER_MODE14_Msk |
-                      GPIO_MODER_MODE15_Msk);
-    GPIOB->MODER |= (GPIO_MODER_MODE12_0 | GPIO_MODER_MODE13_1 | GPIO_MODER_MODE14_1 |
-                     GPIO_MODER_MODE15_1);  // 12 output, 13/14/15 alternate function
-    GPIOB->OSPEEDR |=
-        (GPIO_OSPEEDR_OSPEED13_0 | GPIO_OSPEEDR_OSPEED15_0);  // medium speed for sck/mosi
-    GPIOB->AFR[1] &= ~(GPIO_AFRH_AFSEL13_Msk | GPIO_AFRH_AFSEL14_Msk | GPIO_AFRH_AFSEL15_Msk);
-    GPIOB->AFR[1] |= (0x5UL << GPIO_AFRH_AFSEL13_Pos) | (0x5UL << GPIO_AFRH_AFSEL14_Pos) |
-                     (0x5UL << GPIO_AFRH_AFSEL15_Pos);
+    gpio_config_af(GPIOB, 13U, 5U, GPIO_PUSH_PULL, GPIO_SPEED_MEDIUM);  // sck
+    gpio_config_af(GPIOB, 14U, 5U, GPIO_PUSH_PULL, GPIO_SPEED_LOW);     // miso
+    gpio_config_af(GPIOB, 15U, 5U, GPIO_PUSH_PULL, GPIO_SPEED_MEDIUM);  // mosi
 
-    spi_start(spi_imu, clock_pclk1_hz(), max_hz);
+    spi_start(spi_imu, clock_pclk1_hz(), SPI_IMU_MAX_HZ);
 }
 
-uint8_t spi_transfer(spi_t* s, uint8_t tx) {
+uint8_t spi_transfer_byte(spi_t* s, uint8_t tx) {
     while (!(s->regs->SR & SPI_SR_TXE)) {
     }  // room in the waiting room?
     s->regs->DR = tx;  // drop the byte in - this starts the clock
@@ -81,6 +79,15 @@ uint8_t spi_transfer(spi_t* s, uint8_t tx) {
     return rx;
 }
 
+void spi_transfer_buf(spi_t* s, const uint8_t* tx, uint8_t* rx, size_t n) {
+    for (size_t i = 0U; i < n; i++) {
+        uint8_t in = spi_transfer_byte(s, tx != NULL ? tx[i] : 0xFFU);
+        if (rx != NULL) {
+            rx[i] = in;
+        }
+    }
+}
+
 void spi_select(spi_t* s) { s->cs_port->BSRR = (1U << (s->cs_pin + 16U)); }
 
 void spi_deselect(spi_t* s) {
@@ -89,4 +96,4 @@ void spi_deselect(spi_t* s) {
     s->cs_port->BSRR = (1U << s->cs_pin);
 }
 
-void spi_get_errors(spi_t* s, spi_errors_t* out) { *out = s->errors; }
+spi_errors_t spi_get_errors(spi_t* s) { return s->errors; }
