@@ -41,7 +41,7 @@ Command validation observed from the outside: `CAPTURE_IMAGE` is legal only in P
 
 #### SIL-003 - degraded fault latches without entering safe mode
 
-ACCEL_GYRO_DROPOUT is Degraded, so three bad samples latch it and it shows up in the fault bitmask, but the spacecraft stays in STANDBY. Safing on a non-critical fault fails this scenario. This pins the no-SAFE half of REQ-FAULT-005; the active POINTING/DETUMBLE -> STANDBY retreat is a separate scenario still to add.
+ACCEL_GYRO_DROPOUT is Degraded, so three bad samples latch it and it shows up in the fault bitmask, but the spacecraft stays in STANDBY. Safing on a non-critical fault fails this scenario. This pins the no-SAFE half of REQ-FAULT-005.
 
 #### SIL-004 - transient bad samples are debounced away
 

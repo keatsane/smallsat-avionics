@@ -103,13 +103,13 @@ The fault catalog (13 faults: undervoltage, overcurrent, accel/gyro-dropout, mag
 **Artifact**: fsw/test/test_fault_manager.cpp, docs/reports/sil/SIL-004.md
 
 **REQ-FAULT-005** - A fault of Warning or Degraded severity shall not by itself command SAFE; a Degraded fault shall switch to its documented fallback behavior (see Degraded fallback behaviors below), and every such fault shall be latched and reported in telemetry.
-**Status**: in progress (no-SAFE, latch, and report are SIL-verified; the ACCEL_GYRO_DROPOUT -> STANDBY retreat is implemented in the executive, but the POINTING/DETUMBLE scenario for that retreat is still owed)
+**Status**: in progress (no-SAFE, latch, and report are SIL-verified; the ACCEL_GYRO_DROPOUT -> STANDBY retreat is implemented, but its POINTING/DETUMBLE scenario is still owed)
 **Verification**: unit test and SIL  
 **Artifact**: fsw/src/executive.cpp, fsw/src/sensor_monitor.cpp, fsw/test/test_fault_manager.cpp, docs/reports/sil/SIL-003.md
 
 ### Degraded fallback behaviors
 
-REQ-FAULT-005 requires every Degraded fault to switch to a *documented* fallback rather than safing. The current Degraded fault is defined here; it keeps the spacecraft operating with reduced capability, chosen so the loss of body-rate feedback is contained. Warning faults, including `MAG_DROPOUT`, latch and report without changing mode.
+REQ-FAULT-005 requires a Degraded fault to switch to its documented fallback - listed below - rather than forcing SAFE. A Warning fault such as `MAG_DROPOUT` latches and reports without changing mode.
 
 | Fault | Fallback when latched |
 | ----- | --------------------- |
@@ -191,7 +191,7 @@ The active retreat (POINTING/DETUMBLE -> STANDBY on ACCEL_GYRO_DROPOUT) runs in 
 **Verification**: unit test; demonstration (scope/host decode)  
 **Artifact**: fsw/test/test_comms.cpp, docs/reports/hil/HIL-001.md, docs/reports/hil/HIL-002.md
 
-**REQ-TLM-004** - The telemetry transport shall be swappable behind the frame format - UART now, radio later - with no change to the wire format.  
+**REQ-TLM-004** - The telemetry transport shall be swappable behind the frame format - UART first, radio later - with no change to the wire format.  
 **Status**: in progress  
 **Verification**: inspection and HIL  
 **Artifact**: dual UART (USART2 console, USART6 downlink); LoRa transport (phase 8)
