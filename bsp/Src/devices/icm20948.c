@@ -1,17 +1,16 @@
 /**
- * @file   imu.c
- * @brief  imu driver - accessing accelerometer, gyroscope, and magnetometer on ICM-20948
+ * @file   icm20948.c
+ * @brief  icm-20948 driver - 9-dof accel/gyro/mag over spi
  */
 
-#include "drivers/imu.h"
+#include "devices/icm20948.h"
 
 #include <stddef.h>
 
 #include "drivers/spi.h"
 #include "drivers/systick.h"
 
-#define SPI_HZ   7000000U  // 7 mhz max for ICM-20948 (will go to 4mhz as next lowest from 8mhz)
-#define WHO_AM_I 0xEAU     // confirm communication
+#define WHO_AM_I 0xEAU  // confirm communication
 
 #define GYRO_CAL_SAMPLES 64U  // still-burst length for the boot gyro bias measurement
 
@@ -19,7 +18,7 @@
 #define USER_CTRL            0x03U  // select communication protocol
 #define PWR_MGMT_1           0x06U  // raise from sleep, enable clock
 #define REG_BANK_SEL         0x7FU  // swapping user bank registers
-#define ACCEL_XOUT_H         0x2DU  // start point for accel and gyro readsa
+#define ACCEL_XOUT_H         0x2DU  // start point for accel and gyro reads
 #define EXT_SLV_SENS_DATA_00 0x3BU  // where internal I2C engine copies mag data
 
 // user bank 2
@@ -39,18 +38,18 @@
 
 static int16_t gyro_bias[3];  // gyro zero-rate offset measured at boot, removed on every read
 
-static uint8_t imu_read_reg(uint8_t reg) {
+static uint8_t reg_read(uint8_t reg) {
     spi_select(spi_imu);
-    (void)spi_transfer(spi_imu, reg | 0x80U);  // bit 7 set = read
-    uint8_t v = spi_transfer(spi_imu, 0xFFU);
+    (void)spi_transfer_byte(spi_imu, reg | 0x80U);  // bit 7 set = read
+    uint8_t v = spi_transfer_byte(spi_imu, 0xFFU);
     spi_deselect(spi_imu);
     return v;
 }
 
-static void imu_write_reg(uint8_t reg, uint8_t val) {
+static void reg_write(uint8_t reg, uint8_t val) {
     spi_select(spi_imu);
-    (void)spi_transfer(spi_imu, reg);  // bit 7 clear = write
-    (void)spi_transfer(spi_imu, val);
+    (void)spi_transfer_byte(spi_imu, reg);  // bit 7 clear = write
+    (void)spi_transfer_byte(spi_imu, val);
     spi_deselect(spi_imu);
 }
 
@@ -65,54 +64,54 @@ static int16_t clamp_i16(int32_t v) {
     return (int16_t)v;
 }
 
-bool imu_init(void) {
-    spi_imu_init(SPI_HZ);
+bool icm20948_init(void) {
+    spi_imu_init();
 
-    imu_write_reg(REG_BANK_SEL, 0x00U);  // bank 0 - chip may have rebooted elsewhere
-    if (imu_read_reg(0x00U) != WHO_AM_I) {
+    reg_write(REG_BANK_SEL, 0x00U);  // bank 0 - chip may have rebooted elsewhere
+    if (reg_read(0x00U) != WHO_AM_I) {
         return false;
     }
 
-    imu_write_reg(PWR_MGMT_1, 0x80U);  // reset device
+    reg_write(PWR_MGMT_1, 0x80U);  // reset device
     delay_ms(10U);
 
-    imu_write_reg(USER_CTRL, 0x10U);   // disable primary I2C slave
-    imu_write_reg(PWR_MGMT_1, 0x01U);  // sleep off, auto clock
+    reg_write(USER_CTRL, 0x10U);   // disable primary I2C slave
+    reg_write(PWR_MGMT_1, 0x01U);  // sleep off, auto clock
     delay_ms(10U);
 
-    imu_write_reg(USER_CTRL, 0x30U);  // enable I2C master I/F (keep I2C_IF_DIS)
+    reg_write(USER_CTRL, 0x30U);  // enable I2C master I/F (keep I2C_IF_DIS)
 
     // bank 2 - accel/gyro output rate, full scale, and anti-alias dlpf
-    imu_write_reg(REG_BANK_SEL, 0x20U);        // swap to user bank 2
-    imu_write_reg(GYRO_SMPLRT_DIV, 0x0BU);     // gyro odr 1125/12 = 93.75hz
-    imu_write_reg(GYRO_CONFIG_1, 0x35U);       // +-1000 dps + 5.7hz dlpf
-    imu_write_reg(ACCEL_SMPLRT_DIV_1, 0x00U);  // accel rate divider [11:8]
-    imu_write_reg(ACCEL_SMPLRT_DIV_2, 0x0BU);  // accel odr 1125/12 = 93.75hz
-    imu_write_reg(ACCEL_CONFIG, 0x31U);        // +-2g + 5.7hz dlpf
+    reg_write(REG_BANK_SEL, 0x20U);        // swap to user bank 2
+    reg_write(GYRO_SMPLRT_DIV, 0x0BU);     // gyro odr 1125/12 = 93.75hz
+    reg_write(GYRO_CONFIG_1, 0x35U);       // +-1000 dps + 5.7hz dlpf
+    reg_write(ACCEL_SMPLRT_DIV_1, 0x00U);  // accel rate divider [11:8]
+    reg_write(ACCEL_SMPLRT_DIV_2, 0x0BU);  // accel odr 1125/12 = 93.75hz
+    reg_write(ACCEL_CONFIG, 0x31U);        // +-2g + 5.7hz dlpf
 
     // bank 3 - internal I2C master driving the ak09916 magnetometer
-    imu_write_reg(REG_BANK_SEL, 0x30U);   // swap to user bank 3
-    imu_write_reg(I2C_MST_CTRL, 0x07U);   // set clock to recommended for 400kHz max
-    imu_write_reg(I2C_SLV0_ADDR, 0x0CU);  // msb 0 for write, 0x0C = mag slave addr
-    imu_write_reg(I2C_SLV0_REG, 0x31U);   // mag CNTL2 register
-    imu_write_reg(I2C_SLV0_DO, 0x08U);    // CNTL2 MODE4 (100Hz continuous)
-    imu_write_reg(I2C_SLV0_CTRL, 0x81U);  // enable read/write and set len to 1 byte
+    reg_write(REG_BANK_SEL, 0x30U);   // swap to user bank 3
+    reg_write(I2C_MST_CTRL, 0x07U);   // set clock to recommended for 400kHz max
+    reg_write(I2C_SLV0_ADDR, 0x0CU);  // msb 0 for write, 0x0C = mag slave addr
+    reg_write(I2C_SLV0_REG, 0x31U);   // mag CNTL2 register
+    reg_write(I2C_SLV0_DO, 0x08U);    // CNTL2 MODE4 (100Hz continuous)
+    reg_write(I2C_SLV0_CTRL, 0x81U);  // enable read/write and set len to 1 byte
     delay_ms(10U);
 
-    imu_write_reg(I2C_SLV0_ADDR, 0x8CU);  // msb 1 for read, 0x0C = mag slave addr
-    imu_write_reg(I2C_SLV0_REG, 0x10U);   // start at ST1 addr
-    imu_write_reg(I2C_SLV0_CTRL, 0x89U);  // EN (0x80) | Length 9 bytes (0x09)
+    reg_write(I2C_SLV0_ADDR, 0x8CU);  // msb 1 for read, 0x0C = mag slave addr
+    reg_write(I2C_SLV0_REG, 0x10U);   // start at ST1 addr
+    reg_write(I2C_SLV0_CTRL, 0x89U);  // EN (0x80) | Length 9 bytes (0x09)
     // the duty-cycled master polls the mag at this odr: 1100/2^4 = 68.75hz, just under the mag's
     // 100hz so drdy reads fresh every time. set last, so the CNTL2 write above ran at full speed
-    imu_write_reg(I2C_MST_ODR_CONFIG, 0x04U);
+    reg_write(I2C_MST_ODR_CONFIG, 0x04U);
 
-    imu_write_reg(REG_BANK_SEL, 0x00U);  // return to bank 0 for data reading
+    reg_write(REG_BANK_SEL, 0x00U);  // return to bank 0 for data reading
 
     // gyro zero-rate calibration - average a still burst and subtract it on every read.
     // the board must be stationary at boot for this to mean anything
     int32_t bias_sum[3] = {0, 0, 0};
     for (uint16_t n = 0U; n < GYRO_CAL_SAMPLES; n++) {
-        imu_sample_t s = imu_read();
+        icm20948_sample_t s = icm20948_read();
         for (size_t i = 0U; i < 3U; i++) {
             bias_sum[i] += s.gyro[i];
         }
@@ -125,8 +124,8 @@ bool imu_init(void) {
     return true;
 }
 
-imu_sample_t imu_read(void) {
-    imu_sample_t sample;
+icm20948_sample_t icm20948_read(void) {
+    icm20948_sample_t sample;
 
     struct __attribute__((packed)) {
         uint8_t accel[6];     // 0x2D-0x32 icm-20948 accel x/y/z, big endian
@@ -139,10 +138,8 @@ imu_sample_t imu_read(void) {
     } raw;
 
     spi_select(spi_imu);
-    (void)spi_transfer(spi_imu, ACCEL_XOUT_H | 0x80U);  // start burst, address auto-increments
-    for (size_t i = 0U; i < sizeof(raw); i++) {
-        ((uint8_t*)&raw)[i] = spi_transfer(spi_imu, 0xFFU);
-    }
+    (void)spi_transfer_byte(spi_imu, ACCEL_XOUT_H | 0x80U);  // start burst, address auto-increments
+    spi_transfer_buf(spi_imu, NULL, (uint8_t*)&raw, sizeof(raw));
     spi_deselect(spi_imu);
 
     // parse accel and gyro (big Endian)

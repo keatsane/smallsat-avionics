@@ -1,10 +1,10 @@
 /**
- * @file   imu.h
- * @brief  imu driver - accessing accelerometer, gyroscope, and magnetometer on ICM-20948
+ * @file   icm20948.h
+ * @brief  icm-20948 driver - 9-dof accel/gyro/mag over spi
  */
 
-#ifndef IMU_H
-#define IMU_H
+#ifndef ICM20948_H
+#define ICM20948_H
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -20,22 +20,22 @@ typedef struct {
     int16_t mag[3];         // raw counts: x, y, z
     bool accel_gyro_valid;  // accel + gyro read ok (false = not responding, e.g. unplugged)
     bool mag_valid;         // mag read ok (ak09916 reported fresh data with no overflow)
-} imu_sample_t;
+} icm20948_sample_t;
 
 /**
  * @brief  wake and configure the imu
  * @return true if who_am_i read, false otherwise
  */
-bool imu_init(void);
+bool icm20948_init(void);
 
 /**
  * @brief  read imu sample (accel, gyro, mag), stamp time, validity
  * @return imu sample filled with accel/gyro/mag counts, timestamp, validity
  */
-imu_sample_t imu_read(void);
+icm20948_sample_t icm20948_read(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif  // IMU_H
+#endif  // ICM20948_H
