@@ -6,10 +6,13 @@
 #include "drivers/uart.h"
 
 #include "drivers/clock.h"
+#include "drivers/gpio.h"
 #include "stm32f446xx.h"
 
 #define BUF_SIZE 256U  // power of 2 - the wrap masks below depend on it
 _Static_assert((BUF_SIZE & (BUF_SIZE - 1U)) == 0U, "BUF_SIZE must be a power of 2");
+
+#define UART_BAUD 115200U  // console + downlink run the same rate
 
 // per-instance state: the register block plus this uart's own ring buffers
 struct uart {
@@ -26,11 +29,11 @@ struct uart {
     volatile uart_errors_t errors;  // receive-line error counts
 };
 
-static struct uart console_inst = {.regs = USART2};
-static struct uart downlink_inst = {.regs = USART6};
+static struct uart uart_console_inst = {.regs = USART2};
+static struct uart uart_downlink_inst = {.regs = USART6};
 
-uart_t* const uart_console = &console_inst;
-uart_t* const uart_downlink = &downlink_inst;
+uart_t* const uart_console = &uart_console_inst;
+uart_t* const uart_downlink = &uart_downlink_inst;
 
 // the part that's identical for every usart: baud, enable tx/rx, arm rx interrupt
 static void uart_start(uart_t* u, uint32_t pclk_hz, IRQn_Type irqn, uint32_t baud) {
@@ -41,34 +44,28 @@ static void uart_start(uart_t* u, uint32_t pclk_hz, IRQn_Type irqn, uint32_t bau
     NVIC_EnableIRQ(irqn);
 }
 
-void uart_console_init(uint32_t baud) {
+void uart_console_init(void) {
     // usart2 on apb1, pins pa2/pa3 = af7
     RCC->APB1ENR |= RCC_APB1ENR_USART2EN;
     (void)RCC->APB1ENR;
-    RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
-    (void)RCC->AHB1ENR;
+    gpio_enable_port(GPIOA);
 
-    GPIOA->MODER &= ~(GPIO_MODER_MODE2_Msk | GPIO_MODER_MODE3_Msk);
-    GPIOA->MODER |= (GPIO_MODER_MODE2_1 | GPIO_MODER_MODE3_1);  // alternate function
-    GPIOA->AFR[0] &= ~(GPIO_AFRL_AFSEL2_Msk | GPIO_AFRL_AFSEL3_Msk);
-    GPIOA->AFR[0] |= (0x7UL << GPIO_AFRL_AFSEL2_Pos) | (0x7UL << GPIO_AFRL_AFSEL3_Pos);
+    gpio_config_af(GPIOA, 2U, 7U, GPIO_PUSH_PULL, GPIO_SPEED_LOW);  // tx
+    gpio_config_af(GPIOA, 3U, 7U, GPIO_PUSH_PULL, GPIO_SPEED_LOW);  // rx
 
-    uart_start(uart_console, clock_pclk1_hz(), USART2_IRQn, baud);
+    uart_start(uart_console, clock_pclk1_hz(), USART2_IRQn, UART_BAUD);
 }
 
-void uart_downlink_init(uint32_t baud) {
+void uart_downlink_init(void) {
     // usart6 on apb2, pins pc6/pc7 = af8
     RCC->APB2ENR |= RCC_APB2ENR_USART6EN;
     (void)RCC->APB2ENR;
-    RCC->AHB1ENR |= RCC_AHB1ENR_GPIOCEN;
-    (void)RCC->AHB1ENR;
+    gpio_enable_port(GPIOC);
 
-    GPIOC->MODER &= ~(GPIO_MODER_MODE6_Msk | GPIO_MODER_MODE7_Msk);
-    GPIOC->MODER |= (GPIO_MODER_MODE6_1 | GPIO_MODER_MODE7_1);  // alternate function
-    GPIOC->AFR[0] &= ~(GPIO_AFRL_AFSEL6_Msk | GPIO_AFRL_AFSEL7_Msk);
-    GPIOC->AFR[0] |= (0x8UL << GPIO_AFRL_AFSEL6_Pos) | (0x8UL << GPIO_AFRL_AFSEL7_Pos);
+    gpio_config_af(GPIOC, 6U, 8U, GPIO_PUSH_PULL, GPIO_SPEED_LOW);  // tx
+    gpio_config_af(GPIOC, 7U, 8U, GPIO_PUSH_PULL, GPIO_SPEED_LOW);  // rx
 
-    uart_start(uart_downlink, clock_pclk2_hz(), USART6_IRQn, baud);
+    uart_start(uart_downlink, clock_pclk2_hz(), USART6_IRQn, UART_BAUD);
 }
 
 void uart_write(uart_t* u, const uint8_t* data, size_t len) {
@@ -103,11 +100,13 @@ size_t uart_rx_available(uart_t* u) {
     return (size_t)((u->rx_head - u->rx_tail) & (BUF_SIZE - 1U));
 }
 
-void uart_get_errors(uart_t* u, uart_errors_t* out) {
-    out->overrun = u->errors.overrun;
-    out->framing = u->errors.framing;
-    out->noise = u->errors.noise;
-    out->dropped = u->errors.dropped;
+uart_errors_t uart_get_errors(uart_t* u) {
+    uart_errors_t e;
+    e.overrun = u->errors.overrun;
+    e.framing = u->errors.framing;
+    e.noise = u->errors.noise;
+    e.dropped = u->errors.dropped;
+    return e;
 }
 
 // shared isr body - same logic for any instance, dispatched by the vectors below

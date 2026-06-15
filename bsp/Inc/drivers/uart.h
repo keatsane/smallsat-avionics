@@ -22,17 +22,23 @@ extern uart_t* const uart_console;
 // usart6 -> pc6/pc7 header: the telemetry downlink (scope/logic-analyzer now, lora later)
 extern uart_t* const uart_downlink;
 
-/**
- * @brief  bring up the console uart (usart2, pa2/pa3, af7) at the given baud, 8n1
- * @param  baud  baud rate in bits per second
- */
-void uart_console_init(uint32_t baud);
+// receive-line error counts since boot
+typedef struct {
+    uint32_t overrun;  // hardware lost a byte before the isr read it (ore)
+    uint32_t framing;  // a stop bit was missing (baud mismatch, glitch, break)
+    uint32_t noise;    // oversampling detected noise on a bit
+    uint32_t dropped;  // the isr read a byte but the rx buffer was full
+} uart_errors_t;
 
 /**
- * @brief  bring up the downlink uart (usart6, pc6/pc7, af8) at the given baud, 8n1
- * @param  baud  baud rate in bits per second
+ * @brief  bring up the console uart (usart2, pa2/pa3, af7) at 115200 8n1
  */
-void uart_downlink_init(uint32_t baud);
+void uart_console_init(void);
+
+/**
+ * @brief  bring up the downlink uart (usart6, pc6/pc7, af8) at 115200 8n1
+ */
+void uart_downlink_init(void);
 
 /**
  * @brief  transmit a block of bytes
@@ -70,20 +76,12 @@ bool uart_read_byte(uart_t* u, uint8_t* out);
  */
 size_t uart_rx_available(uart_t* u);
 
-// receive-line error counts since boot
-typedef struct {
-    uint32_t overrun;  // hardware lost a byte before the isr read it (ore)
-    uint32_t framing;  // a stop bit was missing (baud mismatch, glitch, break)
-    uint32_t noise;    // oversampling detected noise on a bit
-    uint32_t dropped;  // the isr read a byte but the rx buffer was full
-} uart_errors_t;
-
 /**
- * @brief  copy the current receive-line error counts
- * @param  u    target uart handle
- * @param  out  destination for the counts
+ * @brief  snapshot the current receive-line error counts
+ * @param  u  target uart handle
+ * @return the error counts
  */
-void uart_get_errors(uart_t* u, uart_errors_t* out);
+uart_errors_t uart_get_errors(uart_t* u);
 
 #ifdef __cplusplus
 }
