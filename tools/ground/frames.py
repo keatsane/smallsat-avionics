@@ -19,7 +19,7 @@ MSG_UART_STATUS = 0x04
 # LoraStatus = 0x05,
 # Nrf24Status = 0x06,
 MSG_IMU_DATA = 0x07
-# PowerData = 0x08,
+MSG_POWER_DATA = 0x08
 # TempData = 0x09,
 # PayloadData = 0x10,
 
@@ -97,7 +97,7 @@ def reject_name(reason: int) -> str:
 
 def decode_command_ack(payload: bytes) -> dict:
     """Unpack a command_ack_t payload (msg.hpp) into a dict."""
-    cmd_id, seq, accepted, reason = struct.unpack("<BHBB", payload)
+    cmd_id, seq, accepted, reason = struct.unpack("<BH2B", payload)
     return {
         "cmd_id": cmd_id,
         "seq": seq,
@@ -126,7 +126,7 @@ def decode_heartbeat(payload: bytes) -> dict:
     }
 
 
-def decode_imu(payload: bytes) -> dict:
+def decode_imu_data(payload: bytes) -> dict:
     """Unpack a imu_data_t payload (msg.hpp) into a dict."""
     t_ms, ax, ay, az, gx, gy, gz, mx, my, mz, flags = struct.unpack("<I9hB", payload)
     return {
@@ -134,6 +134,19 @@ def decode_imu(payload: bytes) -> dict:
         "accel": (ax, ay, az),
         "gyro": (gx, gy, gz),
         "mag": (mx, my, mz),
+        "flags": flags,
+    }
+
+
+def decode_power_data(payload: bytes) -> dict:
+    """Unpack a power_data_t payload (msg.hpp) into a dict."""
+    t_ms, bus_mv, current_ma, power_mw, dietemp_cc, flags = struct.unpack("<2IiIhB", payload)
+    return {
+        "t_ms": t_ms,
+        "bus_mv": bus_mv,
+        "current_ma": current_ma,
+        "power_mw": power_mw,
+        "dietemp_cc": dietemp_cc,
         "flags": flags,
     }
 
@@ -156,9 +169,15 @@ def format_frame(msg_id: int, payload: bytes) -> str:
             f"UART_STATUS  overrun={overrun}  framing={framing}  noise={noise}  dropped={dropped}"
         )
     if msg_id == MSG_IMU_DATA and len(payload) == 23:
-        d = decode_imu(payload)
+        d = decode_imu_data(payload)
         return (
             f"IMU_DATA     t={d['t_ms']} ms  accel={d['accel']}  "
             f"gyro={d['gyro']}  mag={d['mag']}  flags=0x{d['flags']:02X}"
+        )
+    if msg_id == MSG_POWER_DATA and len(payload) == 19:
+        d = decode_power_data(payload)
+        return (
+            f"POWER_DATA     t={d['t_ms']} ms  bus_mv={d['bus_mv']}  "
+            f"current_ma={d['current_ma']}  power_mw={d['power_mw']}  dietemp_cc={d['dietemp_cc']}  flags=0x{d['flags']:02X}"
         )
     return f"msg 0x{msg_id:02X}  len={len(payload)}  payload={payload.hex()}"

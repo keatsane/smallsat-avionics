@@ -26,6 +26,7 @@ struct Inputs {
     etl::vector<FaultReport, kFaultCount> fault_updates;  // fault samples since last cycle
     std::optional<command_t> command;                     // incoming command (optional)
     std::optional<imu_data_t> imu;                        // incoming imu sample (optional)
+    std::optional<power_data_t> power;                    // incoming power sample (optional)
 };
 
 }  // namespace fsw

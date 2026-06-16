@@ -15,9 +15,9 @@
 namespace {
 
 fsw::Executive exec;
-bool imu_ok = false;  // did the imu answer at init - gates reads below
-bool pm_ok = false;   // power monitor
-// bool tmp_ok = false; // temperature sensor
+bool imu_ok = false;    // did the imu answer at init - gates reads below
+bool power_ok = false;  // power monitor
+// bool temp_ok = false; // temperature sensor
 
 }  // namespace
 
@@ -32,15 +32,15 @@ static void init(void) {
     imu_ok = icm20948_init();
 
     i2c_sensors_init();
-    pm_ok = ina228_init();
-    // tmp_ok = tmp117_init();
+    power_ok = ina228_init();
+    // temp_ok = tmp117_init();
 
     if (!imu_ok) {
         uart_write(uart_console, reinterpret_cast<const uint8_t*>("IMU INIT FAIL\r\n"), 15U);
     }
 
-    if (!pm_ok) {
-        uart_write(uart_console, reinterpret_cast<const uint8_t*>("PM INIT FAIL\r\n"), 15U);
+    if (!power_ok) {
+        uart_write(uart_console, reinterpret_cast<const uint8_t*>("POWER INIT FAIL\r\n"), 17U);
     }
 }
 
@@ -58,12 +58,24 @@ static fsw::imu_data_t to_imu_data(const icm20948_sample_t& s) {
     return d;
 }
 
+static fsw::power_data_t to_power_data(const ina228_sample_t& s) {
+    fsw::power_data_t d{};
+    d.t_ms = s.t_ms;
+    d.bus_mv = s.bus_mv;
+    d.current_ma = s.current_ma;
+    d.power_mw = s.power_mw;
+    d.dietemp_cc = s.dietemp_cc;
+    d.flags = static_cast<uint8_t>(s.valid ? fsw::kPowerFlagValid : 0U);
+    return d;
+}
+
 // read every available sensor into this cycle's inputs
 static void read_sensors(fsw::Inputs& inputs) {
     // always hand the fsw a sample so the sensor monitor can judge it, defaults to empty (invalid)
     inputs.imu = imu_ok ? to_imu_data(icm20948_read()) : fsw::imu_data_t{};
+    inputs.power = power_ok ? to_power_data(ina228_read()) : fsw::power_data_t{};
 
-    // power, temp, ...
+    // temp, ...
 }
 
 int main(void) {

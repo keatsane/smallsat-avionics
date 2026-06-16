@@ -70,6 +70,11 @@ void Executive::cycle(const Inputs& inputs, uint32_t t_ms) {
     if (inputs.imu) {
         send(MsgId::ImuData, *inputs.imu);
     }
+
+    // power data
+    if (inputs.power) {
+        send(MsgId::PowerData, *inputs.power);
+    }
 }
 
 }  // namespace fsw

@@ -12,6 +12,14 @@ namespace {
 // imu-specific - a slow source (temperature) would want a much longer window
 constexpr uint32_t kImuStaleWindowMs = 500;
 
+// power thresholds - the ina228 watches the 5 V logic rail today (~150 mA avionics draw). planned:
+// move it to the battery feed at phase 8 for state-of-charge, which shifts these to the lipo range
+constexpr uint32_t kBusUnderMv = 4500;      // 4.5 V (-10%)
+constexpr uint32_t kBusOverMv = 5500;       // 5.5 V (+10%)
+constexpr int32_t kBusOverCurrentMa = 300;  // above the idle draw, tune to ~2x measured baseline
+constexpr int16_t kDieOverTempCc = 8000;    // 80 degC
+constexpr int16_t kDieUnderTempCc = -2000;  // -20 degC
+
 // true if cur has not differed from prev for longer than the stale window; remembers the latest
 // reading and the time it last changed as a side effect
 bool source_stale(const int16_t cur[3], int16_t prev[3], uint32_t& changed_ms, uint32_t t_ms) {
@@ -28,13 +36,14 @@ bool source_stale(const int16_t cur[3], int16_t prev[3], uint32_t& changed_ms, u
 
 void SensorMonitor::evaluate(const Inputs& inputs, FaultManager& fm, uint32_t t_ms) {
     evaluate_imu(inputs.imu, fm, t_ms);
-    // evaluate_power(inputs.power, ...), evaluate_temp(inputs.temp, ...) join here as sensors land
+    evaluate_power(inputs.power, fm, t_ms);
+    // evaluate_temp(inputs.temp, ...) joins here as the tmp117 lands
 }
 
 void SensorMonitor::evaluate_imu(const std::optional<imu_data_t>& imu, FaultManager& fm,
                                  uint32_t t_ms) {
     if (!imu.has_value()) {
-        return;  // no imu offered this cycle (e.g. a SIL scenario not exercising the imu)
+        return;  // no imu offered this cycle
     }
 
     const bool accel_gyro_ok = (imu->flags & kImuFlagAccelGyroValid) != 0U;
@@ -64,6 +73,23 @@ void SensorMonitor::evaluate_imu(const std::optional<imu_data_t>& imu, FaultMana
     // raises that half's dropout (REQ-SNS-002)
     fm.update(Fault::ACCEL_GYRO_DROPOUT, !accel_gyro_ok || accel_gyro_stale, t_ms);
     fm.update(Fault::MAG_DROPOUT, !mag_ok || mag_frozen, t_ms);
+}
+
+void SensorMonitor::evaluate_power(const std::optional<power_data_t>& power, FaultManager& fm,
+                                   uint32_t t_ms) {
+    if (!power.has_value()) {
+        return;  // no power sample this cycle
+    }
+    if ((power->flags & kPowerFlagValid) == 0U) {
+        return;  // bad read - no opinion, like an unsampled sensor (REQ-SNS-002)
+    }
+
+    // value-based faults straight off the sample
+    fm.update(Fault::UNDERVOLTAGE, power->bus_mv < kBusUnderMv, t_ms);
+    fm.update(Fault::OVERVOLTAGE, power->bus_mv > kBusOverMv, t_ms);
+    fm.update(Fault::OVERCURRENT, power->current_ma > kBusOverCurrentMa, t_ms);
+    fm.update(Fault::OVERTEMPERATURE, power->dietemp_cc > kDieOverTempCc, t_ms);
+    fm.update(Fault::UNDERTEMPERATURE, power->dietemp_cc < kDieUnderTempCc, t_ms);
 }
 
 }  // namespace fsw

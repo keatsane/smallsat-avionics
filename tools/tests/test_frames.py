@@ -11,12 +11,14 @@ from ground.frames import (
     MSG_COMMAND_ACK,
     MSG_HEARTBEAT,
     MSG_IMU_DATA,
+    MSG_POWER_DATA,
     MSG_UART_STATUS,
     REJECT_REASONS,
     FrameDecoder,
     crc16,
     decode_heartbeat,
-    decode_imu,
+    decode_imu_data,
+    decode_power_data,
     encode,
     format_frame,
     mode_name,
@@ -76,7 +78,7 @@ def test_format_heartbeat():
 
 
 def test_format_command_ack():
-    text = format_frame(MSG_COMMAND_ACK, struct.pack("<BHBB", 1, 7, 0, 2))
+    text = format_frame(MSG_COMMAND_ACK, struct.pack("<BH2B", 1, 7, 0, 2))
     assert "COMMAND_ACK" in text
     assert "rejected" in text
 
@@ -91,15 +93,15 @@ def test_mode_name_out_of_range():
     assert mode_name(200) == "UNKNOWN"
 
 
-def test_imu_roundtrip():
+def test_imu_data_roundtrip():
     payload = struct.pack("<I9hB", 1000, 16380, -8, 4, 1, -1, 0, 445, 190, 199, 0x03)
     assert _decode_all(encode(MSG_IMU_DATA, payload)) == (MSG_IMU_DATA, payload)
 
 
-def test_decode_imu_fields():
+def test_decode_imu_data_fields():
     # all-0xff is the unplugged signature - the signed decode must surface -1, not 65535
     payload = struct.pack("<I9hB", 50, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0x00)
-    assert decode_imu(payload) == {
+    assert decode_imu_data(payload) == {
         "t_ms": 50,
         "accel": (-1, -1, -1),
         "gyro": (-1, -1, -1),
@@ -108,11 +110,40 @@ def test_decode_imu_fields():
     }
 
 
-def test_format_imu():
+def test_format_imu_data():
     text = format_frame(MSG_IMU_DATA, struct.pack("<I9hB", 5000, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0x03))
     assert "IMU_DATA" in text
     assert "accel=(1, 2, 3)" in text
     assert "flags=0x03" in text
+
+
+def test_power_data_roundtrip():
+    # bus_mv and power_mw are unsigned; current_ma and dietemp_cc are signed
+    payload = struct.pack("<2IiIhB", 50, 5000, -250, 1250, -1500, 0x01)
+    assert _decode_all(encode(MSG_POWER_DATA, payload)) == (MSG_POWER_DATA, payload)
+
+
+def test_decode_power_data_fields():
+    # the signed fields (current_ma, dietemp_cc) must surface negatives, not wrap to unsigned
+    payload = struct.pack("<2IiIhB", 50, 5000, -250, 1250, -1500, 0x01)
+    assert decode_power_data(payload) == {
+        "t_ms": 50,
+        "bus_mv": 5000,
+        "current_ma": -250,
+        "power_mw": 1250,
+        "dietemp_cc": -1500,
+        "flags": 0x01,
+    }
+
+
+def test_format_power_data():
+    text = format_frame(MSG_POWER_DATA, struct.pack("<2IiIhB", 5000, 1, 2, 3, 4, 0x01))
+    assert "POWER_DATA" in text
+    assert "bus_mv=1" in text
+    assert "current_ma=2" in text
+    assert "power_mw=3" in text
+    assert "dietemp_cc=4" in text
+    assert "flags=0x01" in text
 
 
 # --- mirror drift tests ---

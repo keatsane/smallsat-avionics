@@ -23,8 +23,8 @@ enum class MsgId : uint8_t {
     // Nrf24Status = 0x06,  // reserved - nrf24 radio health (nrf24l01+): retransmits, lost packets
 
     // sensor telemetry
-    ImuData = 0x07,  // icm-20948 accel/gyro/mag
-    // PowerData = 0x08,  // reserved - ina228 bus v/i + die temp
+    ImuData = 0x07,    // icm-20948 accel/gyro/mag
+    PowerData = 0x08,  //  ina228 bus v/i/w + die temp
     // TempData = 0x09,   // reserved - tmp117 structural temp
 
     // payload - bulk data, downlink mode only (0x10 block leaves room for the category)
@@ -84,7 +84,19 @@ struct __attribute__((packed)) imu_data_t {
     uint8_t flags;     // kImuFlag* bits - bit 0 accel/gyro valid, bit 1 mag valid
 };
 
-// power_data_t - reserved (ina228 bus v/i + die temp)
+// power_data_t.flags bit
+inline constexpr uint8_t kPowerFlagValid = 0x01;
+
+// MsgId::PowerData - one ina228 sample (bus v/i/w + dietemp)
+struct __attribute__((packed)) power_data_t {
+    uint32_t t_ms;       // acquisition time
+    uint32_t bus_mv;     // bus voltage (millivolts)
+    int32_t current_ma;  // current (milliamps)
+    uint32_t power_mw;   // power (milliwatts)
+    int16_t dietemp_cc;  // die temperature (centi degree celsius)
+    uint8_t flags;       // kPowerFlag* bits - bit 0 validity, + tbd
+};
+
 // temp_data_t  - reserved (tmp117 structural temp)
 
 // ------- payload -------
@@ -100,7 +112,7 @@ static_assert(sizeof(uart_status_t) == 16, "uart_status_t wire layout changed");
 // static_assert(sizeof(lora_status_t) == ?, "lora_status_t wire layout changed");
 // static_assert(sizeof(nrf24_status_t) == ?, "nrf24_status_t wire layout changed");
 static_assert(sizeof(imu_data_t) == 23, "imu_data_t wire layout changed");
-// static_assert(sizeof(power_data_t) == ?, "power_data_t wire layout changed");
+static_assert(sizeof(power_data_t) == 19, "power_data_t wire layout changed");
 // static_assert(sizeof(temp_data_t) == ?, "temp_data_t wire layout changed");
 
 }  // namespace fsw

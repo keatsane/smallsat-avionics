@@ -9,8 +9,9 @@ Bench hardware that is actually in use. More sensors and actuator parts get adde
 | Breadboard | 1 | ~$5.00 | Bench wiring. |
 | Jumper wires | 1 set | ~$6.00 | Bench wiring. |
 | SparkFun ICM-20948 9-DoF IMU breakout | 1 | ~$17.00 | Accel/gyro over SPI, plus the AK09916 magnetometer through the chip's internal I2C master; all three streams are live on the bench. |
+| Adafruit INA228 power monitor breakout (#5832) | 1 | $14.95 | Bus voltage/current/power and a die-temperature channel over I2C (20-bit, 85 V); driver and fault path in place, bench bring-up pending. |
 
-Voltage/current, temperature, reaction-wheel parts, and the rest get added here as each piece is brought up on the bench.
+Temperature, reaction-wheel parts, and the rest get added here as each piece is brought up on the bench.
 
 ## Datasheets and references
 
@@ -29,4 +30,8 @@ Datasheets are vendored in `docs/datasheets/` and linked by relative path, so th
 
 - [ICM-20948 datasheet (DS-000189)](datasheets/icm-20948-datasheet.pdf) - register map (four banks), SPI/I2C interface formats, electrical specs
 - [Product page (invensense.tdk.com)](https://invensense.tdk.com/en-us/products/9-axis/icm-20948) - latest datasheet revisions and app notes
-- [Hookup guide (learn.sparkfun.com)](https://learn.sparkfun.com/tutorials/sparkfun-9dof-imu-icm-20948-breakout-hookup-guide) - breakout pinout, onboard 1.8 V regulation + level shifting, jumper notes
+
+### INA228 power monitor (Adafruit #5832)
+
+- [INA228 datasheet (SLYS021)](datasheets/ina228-datasheet.pdf) - register map, the SHUNT_CAL / current equations, ADC and conversion config, electrical specs
+- [Product page (adafruit.com)](https://www.adafruit.com/product/5832) - the breakout: onboard 15 mohm shunt, STEMMA QT, address jumpers, schematic
