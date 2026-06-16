@@ -11,9 +11,6 @@
 
 namespace fsw::platform {
 
-// milliseconds since boot (steady_clock on the host, SysTick on the target)
-uint32_t now_ms();
-
 /**
  * @brief  hand a framed telemetry message to the link
  * @param  frame the frame to hand over
