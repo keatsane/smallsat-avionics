@@ -113,7 +113,9 @@ def _ev(name, t=0.0, **extra):
     return {"event": name, "t": t, **extra}
 
 
-def _stats(count=10, mn=0.95, mean=1.02, mx=1.12, crc=0):
+def _stats(
+    count=10, mn: float | None = 0.95, mean: float | None = 1.02, mx: float | None = 1.12, crc=0
+):
     return {"count": count, "min": mn, "mean": mean, "max": mx, "crc_rejects": crc}
 
 
