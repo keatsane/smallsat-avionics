@@ -5,6 +5,7 @@
 
 #include "drivers/uart.h"
 
+#include "board.h"
 #include "drivers/clock.h"
 #include "drivers/gpio.h"
 #include "stm32f446xx.h"
@@ -29,8 +30,8 @@ struct uart {
     volatile uart_errors_t errors;  // receive-line error counts
 };
 
-static struct uart uart_console_inst = {.regs = USART2};
-static struct uart uart_downlink_inst = {.regs = USART6};
+static struct uart uart_console_inst = {.regs = CONSOLE_UART};
+static struct uart uart_downlink_inst = {.regs = DOWNLINK_UART};
 
 uart_t* const uart_console = &uart_console_inst;
 uart_t* const uart_downlink = &uart_downlink_inst;
@@ -45,27 +46,27 @@ static void uart_start(uart_t* u, uint32_t pclk_hz, IRQn_Type irqn, uint32_t bau
 }
 
 void uart_console_init(void) {
-    // usart2 on apb1, pins pa2/pa3 = af7
+    // usart2 on apb1 -> st-link vcp; pin map in board.h
     RCC->APB1ENR |= RCC_APB1ENR_USART2EN;
     (void)RCC->APB1ENR;
-    gpio_enable_port(GPIOA);
+    gpio_enable_port(CONSOLE_PORT);
 
-    gpio_config_af(GPIOA, 2U, 7U, GPIO_PUSH_PULL, GPIO_SPEED_LOW);  // tx
-    gpio_config_af(GPIOA, 3U, 7U, GPIO_PUSH_PULL, GPIO_SPEED_LOW);  // rx
+    gpio_config_af(CONSOLE_PORT, CONSOLE_TX_PIN, CONSOLE_AF, GPIO_PUSH_PULL, GPIO_SPEED_LOW);
+    gpio_config_af(CONSOLE_PORT, CONSOLE_RX_PIN, CONSOLE_AF, GPIO_PUSH_PULL, GPIO_SPEED_LOW);
 
-    uart_start(uart_console, clock_pclk1_hz(), USART2_IRQn, UART_BAUD);
+    uart_start(uart_console, clock_pclk1_hz(), CONSOLE_IRQ, UART_BAUD);
 }
 
 void uart_downlink_init(void) {
-    // usart6 on apb2, pins pc6/pc7 = af8
+    // usart6 on apb2 -> header link; pin map in board.h
     RCC->APB2ENR |= RCC_APB2ENR_USART6EN;
     (void)RCC->APB2ENR;
-    gpio_enable_port(GPIOC);
+    gpio_enable_port(DOWNLINK_PORT);
 
-    gpio_config_af(GPIOC, 6U, 8U, GPIO_PUSH_PULL, GPIO_SPEED_LOW);  // tx
-    gpio_config_af(GPIOC, 7U, 8U, GPIO_PUSH_PULL, GPIO_SPEED_LOW);  // rx
+    gpio_config_af(DOWNLINK_PORT, DOWNLINK_TX_PIN, DOWNLINK_AF, GPIO_PUSH_PULL, GPIO_SPEED_LOW);
+    gpio_config_af(DOWNLINK_PORT, DOWNLINK_RX_PIN, DOWNLINK_AF, GPIO_PUSH_PULL, GPIO_SPEED_LOW);
 
-    uart_start(uart_downlink, clock_pclk2_hz(), USART6_IRQn, UART_BAUD);
+    uart_start(uart_downlink, clock_pclk2_hz(), DOWNLINK_IRQ, UART_BAUD);
 }
 
 void uart_write(uart_t* u, const uint8_t* data, size_t len) {

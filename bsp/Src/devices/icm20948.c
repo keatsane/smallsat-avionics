@@ -14,6 +14,7 @@
 
 #define GYRO_CAL_SAMPLES 64U  // still-burst length for the boot gyro bias measurement
 
+// registers
 // user bank 0
 #define USER_CTRL            0x03U  // select communication protocol
 #define PWR_MGMT_1           0x06U  // raise from sleep, enable clock

@@ -5,6 +5,7 @@
 
 #include "drivers/spi.h"
 
+#include "board.h"
 #include "drivers/clock.h"
 #include "drivers/gpio.h"
 #include "stm32f446xx.h"
@@ -21,7 +22,7 @@ struct spi {
     spi_errors_t errors;  // bus error counts
 };
 
-static struct spi spi_imu_inst = {.regs = SPI2, .cs_port = GPIOB, .cs_pin = 12U};
+static struct spi spi_imu_inst = {.regs = IMU_SPI, .cs_port = IMU_CS_PORT, .cs_pin = IMU_CS_PIN};
 
 spi_t* const spi_imu = &spi_imu_inst;
 
@@ -41,18 +42,19 @@ static void spi_start(spi_t* s, uint32_t pclk_hz, uint32_t max_hz) {
 }
 
 void spi_imu_init(void) {
-    // spi2 on apb1, gpios: pb12(CS)/pb13(SCK)/pb14(MISO)/pb15(MOSI)
+    // spi2 on apb1; pin map in board.h
     RCC->APB1ENR |= RCC_APB1ENR_SPI2EN;
     (void)RCC->APB1ENR;
-    gpio_enable_port(GPIOB);
+    gpio_enable_port(IMU_SPI_PORT);
 
-    GPIOB->BSRR = GPIO_BSRR_BS12;  // cs idles high - latch it before pb12 becomes an output
-    GPIOB->MODER &= ~GPIO_MODER_MODE12_Msk;
-    GPIOB->MODER |= GPIO_MODER_MODE12_0;  // pb12 output (cs)
+    // cs idles high - latch it before the pin becomes an output
+    IMU_CS_PORT->BSRR = (1U << IMU_CS_PIN);
+    IMU_CS_PORT->MODER &= ~(0x3UL << (IMU_CS_PIN * 2U));
+    IMU_CS_PORT->MODER |= (0x1UL << (IMU_CS_PIN * 2U));  // output (cs)
 
-    gpio_config_af(GPIOB, 13U, 5U, GPIO_PUSH_PULL, GPIO_SPEED_MEDIUM);  // sck
-    gpio_config_af(GPIOB, 14U, 5U, GPIO_PUSH_PULL, GPIO_SPEED_LOW);     // miso
-    gpio_config_af(GPIOB, 15U, 5U, GPIO_PUSH_PULL, GPIO_SPEED_MEDIUM);  // mosi
+    gpio_config_af(IMU_SPI_PORT, IMU_SCK_PIN, IMU_SPI_AF, GPIO_PUSH_PULL, GPIO_SPEED_MEDIUM);
+    gpio_config_af(IMU_SPI_PORT, IMU_MISO_PIN, IMU_SPI_AF, GPIO_PUSH_PULL, GPIO_SPEED_LOW);
+    gpio_config_af(IMU_SPI_PORT, IMU_MOSI_PIN, IMU_SPI_AF, GPIO_PUSH_PULL, GPIO_SPEED_MEDIUM);
 
     spi_start(spi_imu, clock_pclk1_hz(), SPI_IMU_MAX_HZ);
 }

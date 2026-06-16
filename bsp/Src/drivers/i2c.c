@@ -5,6 +5,7 @@
 
 #include "drivers/i2c.h"
 
+#include "board.h"
 #include "drivers/clock.h"
 #include "drivers/gpio.h"
 #include "drivers/systick.h"
@@ -18,7 +19,7 @@ struct i2c {
     I2C_TypeDef* regs;
 };
 
-static struct i2c i2c_sensors_inst = {.regs = I2C1};
+static struct i2c i2c_sensors_inst = {.regs = SENSOR_I2C};
 
 i2c_t* const i2c_sensors = &i2c_sensors_inst;
 
@@ -41,13 +42,13 @@ static void i2c_start(i2c_t* i) {
 }
 
 void i2c_sensors_init(void) {
-    // enable the i2c peripheral and its gpio port; pins pb8(SCL)/pb9(SDA)
+    // i2c1 on apb1; pin map in board.h
     RCC->APB1ENR |= RCC_APB1ENR_I2C1EN;
     (void)RCC->APB1ENR;
-    gpio_enable_port(GPIOB);
+    gpio_enable_port(SENSOR_I2C_PORT);
 
-    gpio_config_af(GPIOB, 8U, 4U, GPIO_OPEN_DRAIN, GPIO_SPEED_MEDIUM);  // scl
-    gpio_config_af(GPIOB, 9U, 4U, GPIO_OPEN_DRAIN, GPIO_SPEED_MEDIUM);  // sda
+    gpio_config_af(SENSOR_I2C_PORT, I2C_SCL_PIN, I2C_AF, GPIO_OPEN_DRAIN, GPIO_SPEED_MEDIUM);
+    gpio_config_af(SENSOR_I2C_PORT, I2C_SDA_PIN, I2C_AF, GPIO_OPEN_DRAIN, GPIO_SPEED_MEDIUM);
 
     i2c_start(i2c_sensors);
 }

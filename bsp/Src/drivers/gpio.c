@@ -5,24 +5,25 @@
 
 #include "drivers/gpio.h"
 
+#include "board.h"
 #include "stm32f446xx.h"
 
 void led_init(void) {
-    // ld2 on port A
-    gpio_enable_port(GPIOA);
+    // ld2
+    gpio_enable_port(LED_PORT);
 
-    // set mode to output for pa5
-    GPIOA->MODER &= ~GPIO_MODER_MODE5_Msk;
-    GPIOA->MODER |= GPIO_MODER_MODE5_0;
+    // led pin as output
+    LED_PORT->MODER &= ~(0x3UL << (LED_PIN * 2U));
+    LED_PORT->MODER |= (0x1UL << (LED_PIN * 2U));
 }
 
 void led_toggle(void) {
     // drive via bsrr (low half sets, high half resets) - the write is atomic, so an isr
     // touching another port-a pin can't clobber a read-modify-write on the whole odr
-    if (GPIOA->ODR & GPIO_ODR_ODR_5) {
-        GPIOA->BSRR = (1U << (5U + 16U));  // currently high -> reset pa5
+    if (LED_PORT->ODR & (1U << LED_PIN)) {
+        LED_PORT->BSRR = (1U << (LED_PIN + 16U));  // currently high -> reset
     } else {
-        GPIOA->BSRR = (1U << 5U);  // currently low -> set pa5
+        LED_PORT->BSRR = (1U << LED_PIN);  // currently low -> set
     }
 }
 
