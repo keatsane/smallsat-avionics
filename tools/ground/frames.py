@@ -115,6 +115,29 @@ def mode_name(mode: int) -> str:
     return MODES[mode] if 0 <= mode < len(MODES) else "UNKNOWN"
 
 
+# faults - mirror FSW_FAULT_LIST in common/protocol/state.hpp (drift-checked by test_frames).
+# a fault's index here is its bit position in the heartbeat fault bitmask
+FAULTS = [
+    "COMMAND_LINK_LOSS",
+    "ACCEL_GYRO_DROPOUT",
+    "MAG_DROPOUT",
+    "POWER_DROPOUT",
+    "UNDERVOLTAGE",
+    "OVERVOLTAGE",
+    "OVERCURRENT",
+]
+
+
+def fault_names(faults: int) -> str:
+    """Readable set of the latched faults in a fault bitmask, e.g. '{UNDERVOLTAGE}' or '{}'."""
+    names = (
+        FAULTS[bit] if bit < len(FAULTS) else f"bit{bit}"
+        for bit in range(faults.bit_length())
+        if faults & (1 << bit)
+    )
+    return "{" + ", ".join(names) + "}"
+
+
 def decode_heartbeat(payload: bytes) -> dict:
     """Unpack a heartbeat_t payload (msg.hpp) into a dict."""
     uptime_ms, mode, faults, seq = struct.unpack("<IBIH", payload)
@@ -140,13 +163,12 @@ def decode_imu_data(payload: bytes) -> dict:
 
 def decode_power_data(payload: bytes) -> dict:
     """Unpack a power_data_t payload (msg.hpp) into a dict."""
-    t_ms, bus_mv, current_ma, power_mw, dietemp_cc, flags = struct.unpack("<2IiIhB", payload)
+    t_ms, bus_mv, current_ma, power_mw, flags = struct.unpack("<2IiIB", payload)
     return {
         "t_ms": t_ms,
         "bus_mv": bus_mv,
         "current_ma": current_ma,
         "power_mw": power_mw,
-        "dietemp_cc": dietemp_cc,
         "flags": flags,
     }
 
@@ -162,7 +184,7 @@ def format_frame(msg_id: int, payload: bytes) -> str:
         return f"COMMAND_ACK  cmd={d['cmd_id']}  seq={d['seq']}  {verdict}"
     if msg_id == MSG_HEARTBEAT and len(payload) == 11:
         d = decode_heartbeat(payload)
-        return f"HEARTBEAT    uptime={d['uptime_ms']} ms  mode={d['mode']}  faults=0x{d['faults']:08X}  seq={d['seq']}"
+        return f"HEARTBEAT    uptime={d['uptime_ms']} ms  mode={d['mode']}  faults={fault_names(d['faults'])}  seq={d['seq']}"
     if msg_id == MSG_UART_STATUS and len(payload) == 16:
         overrun, framing, noise, dropped = struct.unpack("<IIII", payload)
         return (
@@ -174,10 +196,10 @@ def format_frame(msg_id: int, payload: bytes) -> str:
             f"IMU_DATA     t={d['t_ms']} ms  accel={d['accel']}  "
             f"gyro={d['gyro']}  mag={d['mag']}  flags=0x{d['flags']:02X}"
         )
-    if msg_id == MSG_POWER_DATA and len(payload) == 19:
+    if msg_id == MSG_POWER_DATA and len(payload) == 17:
         d = decode_power_data(payload)
         return (
             f"POWER_DATA     t={d['t_ms']} ms  bus_mv={d['bus_mv']}  "
-            f"current_ma={d['current_ma']}  power_mw={d['power_mw']}  dietemp_cc={d['dietemp_cc']}  flags=0x{d['flags']:02X}"
+            f"current_ma={d['current_ma']}  power_mw={d['power_mw']}  flags=0x{d['flags']:02X}"
         )
     return f"msg 0x{msg_id:02X}  len={len(payload)}  payload={payload.hex()}"

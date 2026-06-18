@@ -6,6 +6,7 @@ from pathlib import Path
 
 from ground import frames
 from ground.frames import (
+    FAULTS,
     MODES,
     MSG_COMMAND,
     MSG_COMMAND_ACK,
@@ -20,6 +21,7 @@ from ground.frames import (
     decode_imu_data,
     decode_power_data,
     encode,
+    fault_names,
     format_frame,
     mode_name,
 )
@@ -93,6 +95,22 @@ def test_mode_name_out_of_range():
     assert mode_name(200) == "UNKNOWN"
 
 
+def test_fault_names_decodes_bits():
+    assert fault_names(0) == "{}"
+    # bit 0 (COMMAND_LINK_LOSS) + bit 4 (UNDERVOLTAGE) = 0x11
+    assert fault_names(0x11) == "{COMMAND_LINK_LOSS, UNDERVOLTAGE}"
+
+
+def test_fault_names_unknown_bit():
+    assert fault_names(1 << 20) == "{bit20}"
+
+
+def test_format_heartbeat_decodes_faults():
+    text = format_frame(MSG_HEARTBEAT, struct.pack("<IBIH", 5000, 5, 0x11, 4))
+    assert "mode=SAFE" in text
+    assert "faults={COMMAND_LINK_LOSS, UNDERVOLTAGE}" in text
+
+
 def test_imu_data_roundtrip():
     payload = struct.pack("<I9hB", 1000, 16380, -8, 4, 1, -1, 0, 445, 190, 199, 0x03)
     assert _decode_all(encode(MSG_IMU_DATA, payload)) == (MSG_IMU_DATA, payload)
@@ -118,31 +136,29 @@ def test_format_imu_data():
 
 
 def test_power_data_roundtrip():
-    # bus_mv and power_mw are unsigned; current_ma and dietemp_cc are signed
-    payload = struct.pack("<2IiIhB", 50, 5000, -250, 1250, -1500, 0x01)
+    # bus_mv and power_mw are unsigned; current_ma is signed
+    payload = struct.pack("<2IiIB", 50, 5000, -250, 1250, 0x01)
     assert _decode_all(encode(MSG_POWER_DATA, payload)) == (MSG_POWER_DATA, payload)
 
 
 def test_decode_power_data_fields():
-    # the signed fields (current_ma, dietemp_cc) must surface negatives, not wrap to unsigned
-    payload = struct.pack("<2IiIhB", 50, 5000, -250, 1250, -1500, 0x01)
+    # current_ma must surface negatives, not wrap to unsigned
+    payload = struct.pack("<2IiIB", 50, 5000, -250, 1250, 0x01)
     assert decode_power_data(payload) == {
         "t_ms": 50,
         "bus_mv": 5000,
         "current_ma": -250,
         "power_mw": 1250,
-        "dietemp_cc": -1500,
         "flags": 0x01,
     }
 
 
 def test_format_power_data():
-    text = format_frame(MSG_POWER_DATA, struct.pack("<2IiIhB", 5000, 1, 2, 3, 4, 0x01))
+    text = format_frame(MSG_POWER_DATA, struct.pack("<2IiIB", 5000, 1, 2, 3, 0x01))
     assert "POWER_DATA" in text
     assert "bus_mv=1" in text
     assert "current_ma=2" in text
     assert "power_mw=3" in text
-    assert "dietemp_cc=4" in text
     assert "flags=0x01" in text
 
 
@@ -163,6 +179,11 @@ def _xmacro_names(header: Path, macro: str) -> list:
 def test_modes_mirror_state_hpp():
     header = REPO_ROOT / "common" / "protocol" / "state.hpp"
     assert MODES == _xmacro_names(header, "FSW_MODE_LIST")
+
+
+def test_faults_mirror_state_hpp():
+    header = REPO_ROOT / "common" / "protocol" / "state.hpp"
+    assert FAULTS == _xmacro_names(header, "FSW_FAULT_LIST")
 
 
 def test_reject_reasons_mirror_command_handler_hpp():
