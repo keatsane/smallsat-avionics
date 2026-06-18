@@ -32,6 +32,8 @@ CA 22        crc16
 
 The frame is self-consistent: seq equals uptime/1000 (1 Hz, monotonic), and the latched COMMAND_LINK_LOSS with mode SAFE is the documented expected state of a board with no uplink decode yet - the dead man fired at t=5 s after boot, exactly as REQ-CMD-002 requires.
 
+Note: this capture predates the reduced live fault catalog. At capture time `COMMAND_LINK_LOSS` occupied bit 4; in current firmware it is bit 0.
+
 ## Inter-byte gap
 
 ![inter-byte gap](img/HIL-001-interbyte.png)

@@ -18,7 +18,6 @@ typedef struct {
     uint32_t bus_mv;     // bus voltage (millivolts)
     int32_t current_ma;  // current (milliamps)
     uint32_t power_mw;   // power (milliwatts)
-    int16_t dietemp_cc;  // die temperature (centi degree celcius)
     bool valid;
 } ina228_sample_t;
 
@@ -29,8 +28,8 @@ typedef struct {
 bool ina228_init(void);
 
 /**
- * @brief  read a power sample (bus voltage, current, power, die temp), stamp time and validity
- * @return sample with bus_mv/current_ma/power_mw/dietemp_cc, a timestamp, and a validity flag
+ * @brief  read a power sample (bus voltage, current, power), stamp time and validity
+ * @return sample with bus_mv/current_ma/power_mw, a timestamp, and a validity flag
  */
 ina228_sample_t ina228_read(void);
 

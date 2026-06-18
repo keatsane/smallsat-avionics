@@ -12,19 +12,13 @@ namespace {
 // rows are positional - this MUST stay in the same order as FSW_FAULT_LIST in state.hpp
 // (kFaultTable[(size_t)fault]); the static_assert below only catches a count mismatch, not order
 constexpr FaultSpec kFaultTable[] = {
-    /* SENSOR_DISAGREEMENT */ {Severity::Warning, 3, "REQ-FAULT-001"},
-    /* ACTUATOR_SATURATION */ {Severity::Warning, 5, "REQ-FAULT-001"},
-    /* UNDERTEMPERATURE    */ {Severity::Warning, 5, "REQ-FAULT-001"},
-    /* GYRO_BIAS_DRIFT     */ {Severity::Warning, 10, "REQ-FAULT-001"},
     /* COMMAND_LINK_LOSS   */ {Severity::Critical, 1, "REQ-CMD-002"},
     /* ACCEL_GYRO_DROPOUT  */ {Severity::Degraded, 3, "REQ-FAULT-005"},
     /* MAG_DROPOUT         */ {Severity::Warning, 3, "REQ-FAULT-001"},
-    /* WATCHDOG_TIMEOUT    */ {Severity::Critical, 1, "REQ-FAULT-002"},
-    /* BUS_FAULT           */ {Severity::Critical, 1, "REQ-FAULT-002"},
+    /* POWER_DROPOUT       */ {Severity::Degraded, 3, "REQ-FAULT-005"},
     /* UNDERVOLTAGE        */ {Severity::Critical, 3, "REQ-FAULT-002"},
     /* OVERVOLTAGE         */ {Severity::Critical, 3, "REQ-FAULT-002"},
     /* OVERCURRENT         */ {Severity::Critical, 3, "REQ-FAULT-002"},
-    /* OVERTEMPERATURE     */ {Severity::Critical, 5, "REQ-FAULT-002"},
 };
 static_assert(sizeof(kFaultTable) / sizeof(kFaultTable[0]) == kFaultCount,
               "fault table is out of sync with FSW_FAULT_LIST in state.hpp");

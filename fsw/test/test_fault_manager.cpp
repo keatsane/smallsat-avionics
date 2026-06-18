@@ -63,7 +63,10 @@ TEST_SUITE("FAULT MANAGEMENT REQUIREMENTS") {
             Executive exec;
             Inputs inputs;
 
-            inputs.fault_updates.push_back({Fault::WATCHDOG_TIMEOUT, true});
+            // three bad samples in one cycle clear UNDERVOLTAGE's debounce (3) -> latch -> SAFE
+            inputs.fault_updates.push_back({Fault::UNDERVOLTAGE, true});
+            inputs.fault_updates.push_back({Fault::UNDERVOLTAGE, true});
+            inputs.fault_updates.push_back({Fault::UNDERVOLTAGE, true});
 
             exec.cycle(inputs, 10);
             CHECK(exec.modes().mode() == Mode::SAFE);
@@ -135,9 +138,9 @@ TEST_SUITE("FAULT MANAGEMENT REQUIREMENTS") {
     TEST_CASE("REQ-FAULT-005") {
         FaultManager fm;
 
-        fm.set(Fault::SENSOR_DISAGREEMENT, 0);  // warning
+        fm.set(Fault::MAG_DROPOUT, 0);  // warning
 
-        CHECK(fm.is_active(Fault::SENSOR_DISAGREEMENT));
+        CHECK(fm.is_active(Fault::MAG_DROPOUT));
         CHECK_FALSE(fm.should_enter_safe());
 
         fm.set(Fault::ACCEL_GYRO_DROPOUT, 0);  // degraded
@@ -170,7 +173,10 @@ TEST_SUITE("FAULT MANAGEMENT REQUIREMENTS") {
 
             {
                 Inputs inputs;
-                inputs.fault_updates.push_back({Fault::WATCHDOG_TIMEOUT, true});
+                // three bad samples clear UNDERVOLTAGE's debounce (3) -> latch -> SAFE
+                inputs.fault_updates.push_back({Fault::UNDERVOLTAGE, true});
+                inputs.fault_updates.push_back({Fault::UNDERVOLTAGE, true});
+                inputs.fault_updates.push_back({Fault::UNDERVOLTAGE, true});
 
                 exec.cycle(inputs, 10);
             }
@@ -181,8 +187,8 @@ TEST_SUITE("FAULT MANAGEMENT REQUIREMENTS") {
 
             {
                 Inputs inputs;
-                inputs.fault_updates.push_back({Fault::WATCHDOG_TIMEOUT, true});
-                inputs.fault_updates.push_back({Fault::WATCHDOG_TIMEOUT, true});
+                inputs.fault_updates.push_back({Fault::UNDERVOLTAGE, true});
+                inputs.fault_updates.push_back({Fault::UNDERVOLTAGE, true});
 
                 exec.cycle(inputs, 20);
             }
@@ -195,13 +201,13 @@ TEST_SUITE("FAULT MANAGEMENT REQUIREMENTS") {
     TEST_CASE("REQ-FAULT-008") {
         FaultManager fm;
 
-        fm.set(Fault::ACTUATOR_SATURATION, 0);
+        fm.set(Fault::POWER_DROPOUT, 0);
         fm.set(Fault::ACCEL_GYRO_DROPOUT, 0);
         fm.set(Fault::UNDERVOLTAGE, 0);
 
         // check against expected bitmask
         CHECK(fm.active() ==
-              (fault_bit(Fault::ACTUATOR_SATURATION) | fault_bit(Fault::ACCEL_GYRO_DROPOUT) |
+              (fault_bit(Fault::POWER_DROPOUT) | fault_bit(Fault::ACCEL_GYRO_DROPOUT) |
                fault_bit(Fault::UNDERVOLTAGE)));
     }
 
@@ -247,12 +253,12 @@ TEST_SUITE("FAULT MANAGEMENT REQUIREMENTS") {
             CHECK(fm.log().back().latched == true);
             CHECK(fm.log().back().fault == Fault::UNDERVOLTAGE);
 
-            fm.set(Fault::BUS_FAULT, 10);
+            fm.set(Fault::POWER_DROPOUT, 10);
 
             REQUIRE(fm.log().size() == 2);
             CHECK(fm.log().back().t_ms == 10);
             CHECK(fm.log().back().latched == true);
-            CHECK(fm.log().back().fault == Fault::BUS_FAULT);
+            CHECK(fm.log().back().fault == Fault::POWER_DROPOUT);
 
             fm.clear(Fault::UNDERVOLTAGE, 20);
 
@@ -292,7 +298,7 @@ TEST_SUITE("FAULT MANAGEMENT REQUIREMENTS") {
 
             REQUIRE(fm.log().size() == 2);
 
-            fm.clear(Fault::BUS_FAULT, 4);  // never latched - no edge
+            fm.clear(Fault::POWER_DROPOUT, 4);  // never latched - no edge
 
             CHECK(fm.log().size() == 2);
         }

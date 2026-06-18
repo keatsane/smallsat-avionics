@@ -32,6 +32,7 @@ static void init(void) {
     imu_ok = icm20948_init();
 
     i2c_sensors_init();
+
     power_ok = ina228_init();
     // temp_ok = tmp117_init();
 
@@ -64,7 +65,6 @@ static fsw::power_data_t to_power_data(const ina228_sample_t& s) {
     d.bus_mv = s.bus_mv;
     d.current_ma = s.current_ma;
     d.power_mw = s.power_mw;
-    d.dietemp_cc = s.dietemp_cc;
     d.flags = static_cast<uint8_t>(s.valid ? fsw::kPowerFlagValid : 0U);
     return d;
 }

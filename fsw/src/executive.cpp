@@ -40,6 +40,15 @@ void Executive::cycle(const Inputs& inputs, uint32_t t_ms) {
                     fm_.fault_spec(Fault::ACCEL_GYRO_DROPOUT).req_id);
     }
 
+    // power-monitor degraded fallback: with power visibility lost, the high-power modes run blind
+    // to brownout/overcurrent, so retreat them to STANDBY - lower draw, less risk (REQ-FAULT-005)
+    if ((mm_.mode() == Mode::POINTING || mm_.mode() == Mode::DETUMBLE ||
+         mm_.mode() == Mode::DOWNLINK) &&
+        fm_.is_active(Fault::POWER_DROPOUT)) {
+        mm_.request(Mode::STANDBY, Trigger::FaultEntry, t_ms,
+                    fm_.fault_spec(Fault::POWER_DROPOUT).req_id);
+    }
+
     // dispatch accepted ground commands. acceptance only means the command passed validation
     if (inputs.command && ce.accepted) {
         const Command cmd = static_cast<Command>(ce.cmd_id);

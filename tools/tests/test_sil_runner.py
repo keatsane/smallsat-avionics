@@ -68,7 +68,7 @@ def _safe_entry_events():
                 "req": "REQ-FAULT-002",
             },
         ),
-        Event("END", "", {"t": "500", "mode": "SAFE", "faults": "0x00000200"}),
+        Event("END", "", {"t": "500", "mode": "SAFE", "faults": "0x00000010"}),
     ]
 
 

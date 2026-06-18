@@ -18,7 +18,6 @@
 
 // measurements / results
 #define VBUS    0x05
-#define DIETEMP 0x06
 #define CURRENT 0x07
 #define POWER   0x08
 
@@ -92,10 +91,9 @@ ina228_sample_t ina228_read(void) {
     ina228_sample_t sample;
     bool ok = true;
 
-    uint32_t vbus = read_be(VBUS, 3U, &ok);             // 24-bit, data in [23:4]
-    uint32_t curr = read_be(CURRENT, 3U, &ok);          // 24-bit signed, data in [23:4]
-    uint32_t pwr = read_be(POWER, 3U, &ok);             // 24-bit unsigned, full width
-    int16_t temp = (int16_t)read_be(DIETEMP, 2U, &ok);  // 16-bit signed
+    uint32_t vbus = read_be(VBUS, 3U, &ok);     // 24-bit, data in [23:4]
+    uint32_t curr = read_be(CURRENT, 3U, &ok);  // 24-bit signed, data in [23:4]
+    uint32_t pwr = read_be(POWER, 3U, &ok);     // 24-bit unsigned, full width
 
     // vbus: drop the 4 reserved low bits -> 20-bit unsigned. 195.3125 uV/LSB = 3125/16 uV -> mV
     sample.bus_mv = ((vbus >> 4) * 3125U) / 16000U;
@@ -106,9 +104,6 @@ ina228_sample_t ina228_read(void) {
 
     // power: full 24-bit. POWER_LSB = 3.2 * CURRENT_LSB = 32 uW -> mW
     sample.power_mw = (pwr * 32U) / 1000U;
-
-    // die temp: 7.8125 m-degC/LSB = 125/16 m-degC -> centi-degC
-    sample.dietemp_cc = (int16_t)(((int32_t)temp * 125) / 160);
 
     sample.t_ms = millis();
     sample.valid = ok;

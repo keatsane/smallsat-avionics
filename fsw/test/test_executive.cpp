@@ -20,9 +20,12 @@ TEST_SUITE("EXECUTIVE REQUIREMENTS") {
             Executive exec;
             Inputs inputs;
 
-            inputs.fault_updates.push_back({Fault::WATCHDOG_TIMEOUT, true});
+            // three bad samples clear UNDERVOLTAGE's debounce (3) -> latch -> SAFE
+            inputs.fault_updates.push_back({Fault::UNDERVOLTAGE, true});
+            inputs.fault_updates.push_back({Fault::UNDERVOLTAGE, true});
+            inputs.fault_updates.push_back({Fault::UNDERVOLTAGE, true});
             inputs.command = command_t{static_cast<uint8_t>(Command::CLEAR_FAULT),
-                                       static_cast<uint8_t>(Fault::WATCHDOG_TIMEOUT), 1};
+                                       static_cast<uint8_t>(Fault::UNDERVOLTAGE), 1};
 
             exec.cycle(inputs, 10);
 
@@ -34,14 +37,17 @@ TEST_SUITE("EXECUTIVE REQUIREMENTS") {
             CHECK(exec.modes().log().back().trigger == Trigger::FaultEntry);
 
             // CLEAR_FAULT was dispatched after SAFE entry.
-            CHECK_FALSE(exec.faults().is_active(Fault::WATCHDOG_TIMEOUT));
+            CHECK_FALSE(exec.faults().is_active(Fault::UNDERVOLTAGE));
         }
 
         SUBCASE("Same-cycle SET_MODE does not override the SAFE entry") {
             Executive exec;
 
             Inputs inputs;
-            inputs.fault_updates.push_back({Fault::WATCHDOG_TIMEOUT, true});
+            // three bad samples clear UNDERVOLTAGE's debounce (3) -> latch -> SAFE
+            inputs.fault_updates.push_back({Fault::UNDERVOLTAGE, true});
+            inputs.fault_updates.push_back({Fault::UNDERVOLTAGE, true});
+            inputs.fault_updates.push_back({Fault::UNDERVOLTAGE, true});
             inputs.command = command_t{static_cast<uint8_t>(Command::SET_MODE),
                                        static_cast<uint8_t>(Mode::STANDBY), 1};
 

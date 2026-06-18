@@ -19,20 +19,14 @@
     X(CAPTURE_IMAGE) /* take a photo with the payload camera */
 
 // fault ids - X(name). a fault's order here is its id and its bit in heartbeat_t.faults
-#define FSW_FAULT_LIST(X)                                         \
-    X(SENSOR_DISAGREEMENT) /* redundant sensors disagree */       \
-    X(ACTUATOR_SATURATION) /* a reaction wheel is maxed out */    \
-    X(UNDERTEMPERATURE)    /* a component below its min temp */   \
-    X(GYRO_BIAS_DRIFT)     /* gyro bias drifting out of spec */   \
-    X(COMMAND_LINK_LOSS)   /* command-loss timer expired */       \
-    X(ACCEL_GYRO_DROPOUT)  /* accel/gyro invalid or frozen */     \
-    X(MAG_DROPOUT)         /* magnetometer invalid or frozen */   \
-    X(WATCHDOG_TIMEOUT)    /* watchdog not kicked in time */      \
-    X(BUS_FAULT)           /* power or data bus fault */          \
-    X(UNDERVOLTAGE)        /* bus below the brownout threshold */ \
-    X(OVERVOLTAGE)         /* bus above its max */                \
-    X(OVERCURRENT)         /* current draw over the limit */      \
-    X(OVERTEMPERATURE)     /* a component over its max temp */
+#define FSW_FAULT_LIST(X)                                            \
+    X(COMMAND_LINK_LOSS)  /* command-loss timer expired */           \
+    X(ACCEL_GYRO_DROPOUT) /* accel/gyro invalid or frozen */         \
+    X(MAG_DROPOUT)        /* magnetometer invalid or frozen */       \
+    X(POWER_DROPOUT)      /* ina228 power monitor invalid/missing */ \
+    X(UNDERVOLTAGE)       /* bus below the brownout threshold */     \
+    X(OVERVOLTAGE)        /* bus above its max */                    \
+    X(OVERCURRENT)        /* current draw over the limit */
 
 // operating modes - X(name). a mode's order here is its id, carried in heartbeat_t.mode
 #define FSW_MODE_LIST(X)                                      \

@@ -21,13 +21,12 @@ Inputs imu_reading(int16_t v, uint8_t flags) {
 constexpr uint8_t kBothValid = kImuFlagAccelGyroValid | kImuFlagMagValid;
 
 // inputs carrying one power sample; defaults are a healthy 5 V rail - override one field per test
-Inputs power_reading(uint32_t bus_mv = 5000, int32_t current_ma = 150, int16_t dietemp_cc = 2500,
+Inputs power_reading(uint32_t bus_mv = 5000, int32_t current_ma = 150,
                      uint8_t flags = kPowerFlagValid) {
     Inputs inputs;
     power_data_t s{};
     s.bus_mv = bus_mv;
     s.current_ma = current_ma;
-    s.dietemp_cc = dietemp_cc;
     s.flags = flags;
     inputs.power = s;
     return inputs;
@@ -158,8 +157,7 @@ TEST_SUITE("SENSOR MONITOR REQUIREMENTS") {
             CHECK_FALSE(fm.is_active(Fault::UNDERVOLTAGE));
             CHECK_FALSE(fm.is_active(Fault::OVERVOLTAGE));
             CHECK_FALSE(fm.is_active(Fault::OVERCURRENT));
-            CHECK_FALSE(fm.is_active(Fault::OVERTEMPERATURE));
-            CHECK_FALSE(fm.is_active(Fault::UNDERTEMPERATURE));
+            CHECK_FALSE(fm.is_active(Fault::POWER_DROPOUT));
         }
 
         SUBCASE("Undervoltage latches after the debounce threshold") {
@@ -192,40 +190,18 @@ TEST_SUITE("SENSOR MONITOR REQUIREMENTS") {
             CHECK(fm.is_active(Fault::OVERCURRENT));
         }
 
-        SUBCASE("Overtemperature latches after its longer debounce") {
-            SensorMonitor sm;
-            FaultManager fm;
-            const Inputs hot = power_reading(5000, 150, 9000);  // above 80 degC
-
-            for (uint32_t t = 0; t < 4; ++t) {
-                sm.evaluate(hot, fm, t);
-            }
-            CHECK_FALSE(fm.is_active(Fault::OVERTEMPERATURE));  // below the debounce threshold (5)
-            sm.evaluate(hot, fm, 4);
-            CHECK(fm.is_active(Fault::OVERTEMPERATURE));
-        }
-
-        SUBCASE("Undertemperature latches") {
-            SensorMonitor sm;
-            FaultManager fm;
-            const Inputs cold = power_reading(5000, 150, -3000);  // below -20 degC
-            for (uint32_t t = 0; t < 5; ++t) {
-                sm.evaluate(cold, fm, t);
-            }
-            CHECK(fm.is_active(Fault::UNDERTEMPERATURE));
-        }
-
-        SUBCASE("An invalid sample is no opinion - out-of-range values never latch") {
+        SUBCASE("An invalid sample latches POWER_DROPOUT after debounce") {
             SensorMonitor sm;
             FaultManager fm;
             const Inputs invalid =
-                power_reading(4000, 500, -3000, 0);  // every value bad, but flag clear
-            for (uint32_t t = 0; t < 10; ++t) {
-                sm.evaluate(invalid, fm, t);
-            }
-            CHECK_FALSE(fm.is_active(Fault::UNDERVOLTAGE));
+                power_reading(4000, 500, 0);  // flags=0 -> invalid; values ignored
+            sm.evaluate(invalid, fm, 0);
+            sm.evaluate(invalid, fm, 1);
+            CHECK_FALSE(fm.is_active(Fault::POWER_DROPOUT));  // below the debounce threshold (3)
+            sm.evaluate(invalid, fm, 2);
+            CHECK(fm.is_active(Fault::POWER_DROPOUT));
+            CHECK_FALSE(fm.is_active(Fault::UNDERVOLTAGE));  // value faults skipped while invalid
             CHECK_FALSE(fm.is_active(Fault::OVERCURRENT));
-            CHECK_FALSE(fm.is_active(Fault::UNDERTEMPERATURE));
         }
 
         SUBCASE("No sample is no opinion") {

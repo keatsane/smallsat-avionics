@@ -17,8 +17,6 @@ constexpr uint32_t kImuStaleWindowMs = 500;
 constexpr uint32_t kBusUnderMv = 4500;      // 4.5 V (-10%)
 constexpr uint32_t kBusOverMv = 5500;       // 5.5 V (+10%)
 constexpr int32_t kBusOverCurrentMa = 300;  // above the idle draw, tune to ~2x measured baseline
-constexpr int16_t kDieOverTempCc = 8000;    // 80 degC
-constexpr int16_t kDieUnderTempCc = -2000;  // -20 degC
 
 // true if cur has not differed from prev for longer than the stale window; remembers the latest
 // reading and the time it last changed as a side effect
@@ -80,16 +78,18 @@ void SensorMonitor::evaluate_power(const std::optional<power_data_t>& power, Fau
     if (!power.has_value()) {
         return;  // no power sample this cycle
     }
+
     if ((power->flags & kPowerFlagValid) == 0U) {
-        return;  // bad read - no opinion, like an unsampled sensor (REQ-SNS-002)
+        fm.update(Fault::POWER_DROPOUT, true, t_ms);
+        return;
     }
+
+    fm.update(Fault::POWER_DROPOUT, false, t_ms);
 
     // value-based faults straight off the sample
     fm.update(Fault::UNDERVOLTAGE, power->bus_mv < kBusUnderMv, t_ms);
     fm.update(Fault::OVERVOLTAGE, power->bus_mv > kBusOverMv, t_ms);
     fm.update(Fault::OVERCURRENT, power->current_ma > kBusOverCurrentMa, t_ms);
-    fm.update(Fault::OVERTEMPERATURE, power->dietemp_cc > kDieOverTempCc, t_ms);
-    fm.update(Fault::UNDERTEMPERATURE, power->dietemp_cc < kDieUnderTempCc, t_ms);
 }
 
 }  // namespace fsw

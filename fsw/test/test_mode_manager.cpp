@@ -166,20 +166,23 @@ TEST_SUITE("MODE MANAGEMENT REQUIREMENTS") {
 
             {
                 Inputs inputs;
-                inputs.fault_updates.push_back({Fault::WATCHDOG_TIMEOUT, true});
+                // three bad samples clear UNDERVOLTAGE's debounce (3) -> latch -> SAFE
+                inputs.fault_updates.push_back({Fault::UNDERVOLTAGE, true});
+                inputs.fault_updates.push_back({Fault::UNDERVOLTAGE, true});
+                inputs.fault_updates.push_back({Fault::UNDERVOLTAGE, true});
 
                 exec.cycle(inputs, 10);
             }
 
             CHECK(exec.modes().mode() == Mode::SAFE);
-            CHECK(exec.faults().is_active(Fault::WATCHDOG_TIMEOUT));
+            CHECK(exec.faults().is_active(Fault::UNDERVOLTAGE));
 
             const auto mode_log_size_after_safe_entry = exec.modes().log().size();
 
             {
                 Inputs inputs;
                 inputs.command = command_t{static_cast<uint8_t>(Command::CLEAR_FAULT),
-                                           static_cast<uint8_t>(Fault::WATCHDOG_TIMEOUT), 1};
+                                           static_cast<uint8_t>(Fault::UNDERVOLTAGE), 1};
 
                 exec.cycle(inputs, 20);
             }
@@ -187,7 +190,7 @@ TEST_SUITE("MODE MANAGEMENT REQUIREMENTS") {
             REQUIRE(exec.commands().log().size() >= 1);
             CHECK(exec.commands().log().back().accepted);
             CHECK(exec.modes().mode() == Mode::SAFE);
-            CHECK_FALSE(exec.faults().is_active(Fault::WATCHDOG_TIMEOUT));
+            CHECK_FALSE(exec.faults().is_active(Fault::UNDERVOLTAGE));
 
             // CLEAR_FAULT should not itself leave SAFE or append a mode transition
             CHECK(exec.modes().log().size() == mode_log_size_after_safe_entry);
