@@ -9,7 +9,7 @@ Bench hardware that is actually in use. More sensors and actuator parts get adde
 | Breadboard | 1 | ~$5.00 | Bench wiring. |
 | Jumper wires | 1 set | ~$6.00 | Bench wiring. |
 | SparkFun ICM-20948 9-DoF IMU breakout | 1 | ~$17.00 | Accel/gyro over SPI, plus the AK09916 magnetometer through the chip's internal I2C master; all three streams are live on the bench. |
-| Adafruit INA228 power monitor breakout (#5832) | 1 | $14.95 | Bus voltage/current/power and a die-temperature channel over I2C (20-bit, 85 V); driver and fault path in place, bench bring-up pending. |
+| Adafruit INA228 power monitor breakout (#5832) | 1 | $14.95 | Bus voltage/current/power over I2C (20-bit, 85 V); up on the bench, current verified. |
 
 Temperature, reaction-wheel parts, and the rest get added here as each piece is brought up on the bench.
 

@@ -89,7 +89,7 @@ Every fault carries a severity that drives its response:
 | Degraded | a capability was lost but a documented fallback exists; switch to it and keep operating; does not force SAFE |
 | Critical | a capability was lost with no fallback; forces SAFE if unresolved |
 
-The fault catalog (13 faults: undervoltage, overcurrent, accel/gyro-dropout, mag-dropout, ...) is defined once in `common/protocol/state.hpp`; a fault's position there is both its id and its bit in the active-fault bitmask.
+The live fault catalog (command-link loss, IMU dropouts, power-monitor dropout, undervoltage, overvoltage, and overcurrent) is defined once in `common/protocol/state.hpp`; a fault's position there is both its id and its bit in the active-fault bitmask. Planned future capabilities add their own faults when the detector code lands.
 
 **REQ-FAULT-001** - The fault manager shall latch an active fault until it is explicitly cleared; a condition that clears on its own shall not un-latch the fault.  
 **Type**: Functional  
@@ -117,7 +117,7 @@ The fault catalog (13 faults: undervoltage, overcurrent, accel/gyro-dropout, mag
 
 **REQ-FAULT-005** - A fault of Warning or Degraded severity shall not by itself command SAFE; a Degraded fault shall switch to its documented fallback behavior (see Degraded fallback behaviors below), and every such fault shall be latched and reported in telemetry.
 **Type**: Functional
-**Status**: in progress (no-SAFE, latch, and report are SIL-verified; the ACCEL_GYRO_DROPOUT -> STANDBY retreat is implemented, but its POINTING/DETUMBLE scenario is still owed)
+**Status**: in progress (no-SAFE, latch, and report are SIL-verified; the ACCEL_GYRO_DROPOUT and POWER_DROPOUT -> STANDBY retreats are implemented, but their active-mode scenarios are still owed)
 **Verification**: unit test and SIL  
 **Artifact**: fsw/src/executive.cpp, fsw/src/sensor_monitor.cpp, fsw/test/test_fault_manager.cpp, docs/reports/sil/SIL-003.md
 
@@ -128,8 +128,9 @@ REQ-FAULT-005 requires a Degraded fault to switch to its documented fallback - l
 | Fault | Fallback when latched |
 | ----- | --------------------- |
 | ACCEL_GYRO_DROPOUT | In POINTING or DETUMBLE - the modes that depend on body-rate feedback - retreat to STANDBY, a stable idle; holding attitude without the gyro is unsafe, but the loss is not mission-ending. In any other mode, latch and report only. |
+| POWER_DROPOUT | In POINTING, DETUMBLE, or DOWNLINK - the high-power modes - retreat to STANDBY; with the power monitor unreadable, running power-hungry operations blind to brownout/overcurrent is unsafe, and STANDBY's lower draw cuts the risk. In any other mode, latch and report only. |
 
-The active retreat (POINTING/DETUMBLE -> STANDBY on ACCEL_GYRO_DROPOUT) runs in the executive's fault-response step and is logged as a `FaultEntry` transition stamped REQ-FAULT-005. Recovery is ground-commanded like every fault (CLEAR_FAULT, REQ-FAULT-010); the planned RESET_DEVICE command will let the ground re-initialize the affected sensor before clearing it.
+The active retreats - POINTING/DETUMBLE -> STANDBY on ACCEL_GYRO_DROPOUT, and POINTING/DETUMBLE/DOWNLINK -> STANDBY on POWER_DROPOUT - run in the executive's fault-response step and are logged as `FaultEntry` transitions stamped REQ-FAULT-005. Recovery is ground-commanded like every fault (CLEAR_FAULT, REQ-FAULT-010); the planned RESET_DEVICE command will let the ground re-initialize the affected sensor before clearing it.
 
 **REQ-FAULT-006** - The flight software shall evaluate the full fault set once per control cycle and apply the required response; when more than one response is indicated, the most conservative one shall win (SAFE dominates).  
 **Type**: Functional  
@@ -264,18 +265,18 @@ The active retreat (POINTING/DETUMBLE -> STANDBY on ACCEL_GYRO_DROPOUT) runs in 
 
 **REQ-SNS-002** - A sensor whose data is invalid, missing, or frozen beyond a defined staleness window shall raise that sensor's dropout fault.
 **Type**: Functional
-**Status**: unit-verified (the sensor monitor raises the matching dropout on invalid or frozen IMU sources; the invalid-source path is bench-exercised - pulling the IMU latches ACCEL_GYRO_DROPOUT + MAG_DROPOUT - with HIL still owed)
+**Status**: unit-verified (the sensor monitor raises the matching dropout on invalid or frozen IMU sources, and raises POWER_DROPOUT when the INA228 power monitor sample is invalid; both invalid-source paths are bench-exercised - pulling the IMU latches ACCEL_GYRO_DROPOUT + MAG_DROPOUT, and POWER_DROPOUT latched while the INA228 was unreachable and cleared once it answered - with HIL still owed)
 **Verification**: unit test and HIL
 **Artifact**: fsw/src/sensor_monitor.cpp, fsw/test/test_sensor_monitor.cpp
 
-**REQ-SNS-003** - Where redundant sources exist, disagreement beyond a defined threshold shall raise SENSOR_DISAGREEMENT.  
+**REQ-SNS-003** - Where redundant sources exist, disagreement beyond a defined threshold shall raise a dedicated disagreement fault added with that redundant sensor path.  
 **Type**: Functional  
 **Status**: planned  
 **Verification**: unit test and SIL
 
-**REQ-SNS-004** - A monitored scalar reading (bus voltage, current, die temperature) outside its configured operating limits shall raise the corresponding fault (undervoltage, overvoltage, overcurrent, over/under-temperature).
+**REQ-SNS-004** - A valid monitored power reading outside its configured operating limits shall raise the corresponding power fault (undervoltage, overvoltage, overcurrent).
 **Type**: Functional
-**Status**: unit-verified (the sensor monitor raises each power fault when its INA228 reading crosses the configured limit, after debounce; HIL on real silicon owed)
+**Status**: unit-verified (the sensor monitor raises each power fault when its INA228 reading crosses the configured limit, after debounce; on the bench a live INA228 reading below the undervoltage limit latched UNDERVOLTAGE, with overvoltage/overcurrent and HIL still owed)
 **Verification**: unit test and HIL
 **Artifact**: fsw/src/sensor_monitor.cpp, fsw/test/test_sensor_monitor.cpp
 
@@ -291,7 +292,7 @@ The active retreat (POINTING/DETUMBLE -> STANDBY on ACCEL_GYRO_DROPOUT) runs in 
 **Status**: planned  
 **Verification**: SIL (NASA 42) and HIL (reaction-wheel rig)
 
-**REQ-ADCS-003** - Actuator commands shall be saturation-limited, and sustained saturation shall raise ACTUATOR_SATURATION.  
+**REQ-ADCS-003** - Actuator commands shall be saturation-limited, and sustained saturation shall raise a dedicated actuator fault added with the actuator-control path.  
 **Type**: Functional  
 **Status**: planned  
 **Verification**: unit test and HIL
