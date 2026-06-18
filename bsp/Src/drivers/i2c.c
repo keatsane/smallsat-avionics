@@ -93,12 +93,22 @@ static i2c_status_t wait_addr(i2c_t* i) {
     return I2C_OK;
 }
 
+// the f4 i2c v1 cell leaves STOP wedged after a transfer - it does not self-clear, and the next
+// transfer that ORs START on top of it has that start silently dropped so the master never engages
+// (es0298 2.11.3). a software reset is the documented way out, so every transfer clears it first
+static void i2c_reset_if_wedged(i2c_t* i) {
+    if (i->regs->CR1 & I2C_CR1_STOP) {
+        i2c_start(i);
+    }
+}
+
 i2c_status_t i2c_read_regs(i2c_t* i, uint8_t addr, uint8_t reg, uint8_t* buf, size_t n) {
     i2c_status_t st;
 
     if ((st = wait_bus_free(i)) != I2C_OK) {
         return st;
     }
+    i2c_reset_if_wedged(i);  // clear a stop a previous transfer left wedged before START
 
     // address the device for a write and send the register pointer
     i->regs->CR1 |= I2C_CR1_ACK;
@@ -190,6 +200,7 @@ i2c_status_t i2c_write_regs(i2c_t* i, uint8_t addr, uint8_t reg, const uint8_t* 
     if ((st = wait_bus_free(i)) != I2C_OK) {
         return st;
     }
+    i2c_reset_if_wedged(i);  // clear a stop a previous transfer left wedged before START
 
     // start + address the device for a write
     i->regs->CR1 |= I2C_CR1_START;
