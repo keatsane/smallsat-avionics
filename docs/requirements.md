@@ -232,7 +232,7 @@ The active retreats - POINTING/DETUMBLE -> STANDBY on ACCEL_GYRO_DROPOUT, and PO
 **Type**: Performance  
 **Status**: bench-verified  
 **Verification**: demonstration and inspection  
-**Artifact**: bsp SysTick driver; fsw platform now_ms()
+**Artifact**: bsp SysTick driver; millis() passed into each fsw cycle
 
 **REQ-RT-002** - The decision paths shall run at a fixed, bounded rate and shall allocate no memory dynamically (fixed-capacity containers only).  
 **Type**: Constraint  
