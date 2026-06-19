@@ -16,14 +16,31 @@ def main() -> int:
     ap.add_argument("port", help="serial port, e.g. COM5 or /dev/ttyACM0")
     ap.add_argument("-b", "--baud", type=int, default=115200)
     ap.add_argument("--raw", action="store_true", help="also echo every raw byte as hex")
+    # kinds: HEARTBEAT, POWER_DATA, IMU_DATA, COMMAND, COMMAND_ACK, UART_STATUS, TEXT
+    ap.add_argument(
+        "--only", help="show only these kinds, comma-separated (e.g. HEARTBEAT,POWER_DATA)"
+    )
+    ap.add_argument("--hide", help="hide these kinds, comma-separated (e.g. IMU_DATA,TEXT)")
     args = ap.parse_args()
+
+    only = {s.strip().upper() for s in args.only.split(",")} if args.only else set()
+    hide = {s.strip().upper() for s in args.hide.split(",")} if args.hide else set()
+
+    def show(line: str) -> None:
+        # a line's kind is its leading token (HEARTBEAT, POWER_DATA, TEXT, ...)
+        kind = line.split(maxsplit=1)[0] if line.strip() else ""
+        if only and kind not in only:
+            return
+        if kind in hide:
+            return
+        print(line)
 
     decoder = FrameDecoder()
     text = bytearray()  # printable bytes between frames - firmware debug prints
 
     def flush_text() -> None:
         if text:
-            print(f"{'TEXT':<12} {text.decode('ascii')}")
+            show(f"{'TEXT':<12} {text.decode('ascii')}")
             text.clear()
 
     with serial.Serial(args.port, args.baud, timeout=1) as ser:
@@ -40,7 +57,7 @@ def main() -> int:
                 hunting = decoder.state == "sync0"
                 frame = decoder.push(byte)
                 if frame is not None:
-                    print(format_frame(*frame))
+                    show(format_frame(*frame))
                 elif hunting and decoder.state == "sync0":
                     # stray byte outside any frame: debug text from the firmware
                     if byte == 0x0A:
