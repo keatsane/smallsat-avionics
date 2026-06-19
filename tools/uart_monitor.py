@@ -5,6 +5,7 @@ Run: python tools/uart_monitor.py COMx (find the port x with: python -m serial.t
 """
 
 import argparse
+import os
 import sys
 
 import serial  # pyserial: pip install pyserial
@@ -16,15 +17,29 @@ def main() -> int:
     ap.add_argument("port", help="serial port, e.g. COM5 or /dev/ttyACM0")
     ap.add_argument("-b", "--baud", type=int, default=115200)
     ap.add_argument("--raw", action="store_true", help="also echo every raw byte as hex")
-    # kinds: HEARTBEAT, POWER_DATA, IMU_DATA, COMMAND, COMMAND_ACK, UART_STATUS, TEXT
+    # kinds: HEARTBEAT, TEMP_DATA, POWER_DATA, IMU_DATA, COMMAND, COMMAND_ACK, UART_STATUS, TEXT
     ap.add_argument(
         "--only", help="show only these kinds, comma-separated (e.g. HEARTBEAT,POWER_DATA)"
     )
     ap.add_argument("--hide", help="hide these kinds, comma-separated (e.g. IMU_DATA,TEXT)")
+    ap.add_argument("--no-color", action="store_true", help="plain output, no ANSI color")
     args = ap.parse_args()
 
     only = {s.strip().upper() for s in args.only.split(",")} if args.only else set()
     hide = {s.strip().upper() for s in args.hide.split(",")} if args.hide else set()
+
+    # color the kind when writing to a terminal (piped output stays plain): heartbeat stands out,
+    # commands/status are flagged, firmware text is dimmed, the high-rate sensor lines stay default
+    use_color = sys.stdout.isatty() and not args.no_color
+    if use_color and sys.platform == "win32":
+        os.system("")  # enable ANSI escape processing in the windows console
+    kind_color = {
+        "HEARTBEAT": "\x1b[1;36m",  # bold cyan
+        "COMMAND": "\x1b[33m",
+        "COMMAND_ACK": "\x1b[33m",
+        "UART_STATUS": "\x1b[33m",
+        "TEXT": "\x1b[2m",  # dim
+    }
 
     def show(line: str) -> None:
         # a line's kind is its leading token (HEARTBEAT, POWER_DATA, TEXT, ...)
@@ -33,7 +48,8 @@ def main() -> int:
             return
         if kind in hide:
             return
-        print(line)
+        color = kind_color.get(kind)
+        print(f"{color}{line}\x1b[0m" if use_color and color else line)
 
     decoder = FrameDecoder()
     text = bytearray()  # printable bytes between frames - firmware debug prints
