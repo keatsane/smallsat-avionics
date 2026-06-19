@@ -4,6 +4,8 @@ import re
 import struct
 from pathlib import Path
 
+import pytest
+
 from ground import frames
 from ground.frames import (
     FAULTS,
@@ -13,13 +15,16 @@ from ground.frames import (
     MSG_HEARTBEAT,
     MSG_IMU_DATA,
     MSG_POWER_DATA,
+    MSG_TEMP_DATA,
     MSG_UART_STATUS,
     REJECT_REASONS,
     FrameDecoder,
     crc16,
+    decode_command_ack,
     decode_heartbeat,
     decode_imu_data,
     decode_power_data,
+    decode_temp_data,
     encode,
     fault_names,
     format_frame,
@@ -50,6 +55,18 @@ def test_command_roundtrip():
     assert _decode_all(encode(MSG_COMMAND, payload)) == (MSG_COMMAND, payload)
 
 
+def test_command_ack_roundtrip():
+    payload = struct.pack("<BH2B", 1, 7, 0, 2)
+    assert _decode_all(encode(MSG_COMMAND_ACK, payload)) == (MSG_COMMAND_ACK, payload)
+
+
+def test_format_command():
+    text = format_frame(MSG_COMMAND, struct.pack("<BBH", 1, 3, 99))
+    assert "COMMAND" in text
+    assert "cmd=1" in text
+    assert "seq=99" in text
+
+
 def test_heartbeat_roundtrip():
     payload = struct.pack("<IBIH", 123456, 1, 0x04, 42)
     assert _decode_all(encode(MSG_HEARTBEAT, payload)) == (MSG_HEARTBEAT, payload)
@@ -58,6 +75,12 @@ def test_heartbeat_roundtrip():
 def test_uart_status_roundtrip():
     payload = struct.pack("<IIII", 3, 0, 1, 0)
     assert _decode_all(encode(MSG_UART_STATUS, payload)) == (MSG_UART_STATUS, payload)
+
+
+def test_format_uart_status():
+    text = format_frame(MSG_UART_STATUS, struct.pack("<IIII", 3, 0, 1, 0))
+    assert "UART_STATUS" in text
+    assert "overrun=3" in text
 
 
 def test_bad_crc_is_rejected_and_counted():
@@ -162,6 +185,29 @@ def test_format_power_data():
     assert "flags=0x01" in text
 
 
+def test_temp_data_roundtrip():
+    # temp_mc is signed - exercise a below-zero reading
+    payload = struct.pack("<IiB", 50, -5000, 0x01)
+    assert _decode_all(encode(MSG_TEMP_DATA, payload)) == (MSG_TEMP_DATA, payload)
+
+
+def test_decode_temp_data_fields():
+    # temp_mc must surface negatives, not wrap to unsigned
+    payload = struct.pack("<IiB", 50, -5000, 0x01)
+    assert decode_temp_data(payload) == {
+        "t_ms": 50,
+        "temp_mc": -5000,
+        "flags": 0x01,
+    }
+
+
+def test_format_temp_data():
+    text = format_frame(MSG_TEMP_DATA, struct.pack("<IiB", 5000, 24187, 0x01))
+    assert "TEMP_DATA" in text
+    assert "temp_mc=24187" in text
+    assert "flags=0x01" in text
+
+
 # --- mirror drift tests ---
 # the wire carries bare ints; the names live in c++. the python catalogs are hand-written
 # mirrors, so each is checked against its owning header - add a name in c++ and forget
@@ -207,3 +253,34 @@ def test_msgids_mirror_msg_hpp():
     expected = {_camel_to_macro(name): int(val, 16) for name, val in pairs}
     actual = {k: v for k, v in vars(frames).items() if k.startswith("MSG_")}
     assert actual == expected
+
+
+def test_payload_sizes_match_msg_hpp():
+    # the mirrors above catch name drift; this catches wire-SIZE drift - a python decoder that
+    # expects a different byte count than the C++ struct's sizeof assert in msg.hpp
+    header = REPO_ROOT / "common" / "protocol" / "msg.hpp"
+    sizes = {
+        name: int(n)
+        for name, n in re.findall(
+            r"^\s*static_assert\(sizeof\((\w+)\)\s*==\s*(\d+)", header.read_text(), re.M
+        )
+    }
+    # types with a decode_* helper - struct.unpack enforces the exact byte count
+    decoders = {
+        "command_ack_t": decode_command_ack,
+        "heartbeat_t": decode_heartbeat,
+        "imu_data_t": decode_imu_data,
+        "power_data_t": decode_power_data,
+        "temp_data_t": decode_temp_data,
+    }
+    for struct_name, decoder in decoders.items():
+        n = sizes[struct_name]
+        decoder(b"\x00" * n)  # the asserted size decodes cleanly - python and C++ agree
+        with pytest.raises(struct.error):
+            decoder(b"\x00" * (n - 1))  # a byte short must raise, never silently misread
+
+    # command_t and uart_status_t are unpacked inline in format_frame; its len guard is the size
+    for msg_id, struct_name in ((MSG_COMMAND, "command_t"), (MSG_UART_STATUS, "uart_status_t")):
+        n = sizes[struct_name]
+        assert not format_frame(msg_id, b"\x00" * n).startswith("msg ")  # right size -> decoded
+        assert format_frame(msg_id, b"\x00" * (n - 1)).startswith("msg ")  # wrong size -> fallback

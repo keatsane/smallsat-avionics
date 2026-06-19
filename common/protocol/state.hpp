@@ -26,7 +26,10 @@
     X(POWER_DROPOUT)      /* ina228 power monitor invalid/missing */ \
     X(UNDERVOLTAGE)       /* bus below the brownout threshold */     \
     X(OVERVOLTAGE)        /* bus above its max */                    \
-    X(OVERCURRENT)        /* current draw over the limit */
+    X(OVERCURRENT)        /* current draw over the limit */          \
+    X(TEMP_DROPOUT)       /* tmp117 temperature invalid/missing */   \
+    X(UNDERTEMPERATURE)   /* below the min operating temp */         \
+    X(OVERTEMPERATURE)    /* above the max operating temp */
 
 // operating modes - X(name). a mode's order here is its id, carried in heartbeat_t.mode
 #define FSW_MODE_LIST(X)                                      \

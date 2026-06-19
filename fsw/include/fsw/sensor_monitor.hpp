@@ -45,6 +45,14 @@ class SensorMonitor {
      */
     void evaluate_power(const std::optional<power_data_t>& power, FaultManager& fm, uint32_t t_ms);
 
+    /**
+     * @brief  evaluate temperature data and update necessary faults
+     * @param  temp   temperature data sample
+     * @param  fm     fault manager to feed
+     * @param  t_ms   platform time
+     */
+    void evaluate_temp(const std::optional<temp_data_t>& temp, FaultManager& fm, uint32_t t_ms);
+
     // last reading per source and when it last changed
     // imu
     int16_t prev_accel_[3] = {};

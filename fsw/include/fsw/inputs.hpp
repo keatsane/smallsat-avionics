@@ -27,6 +27,7 @@ struct Inputs {
     std::optional<command_t> command;                     // incoming command (optional)
     std::optional<imu_data_t> imu;                        // incoming imu sample (optional)
     std::optional<power_data_t> power;                    // incoming power sample (optional)
+    std::optional<temp_data_t> temp;                      // incoming temperature sample(optional)
 };
 
 }  // namespace fsw

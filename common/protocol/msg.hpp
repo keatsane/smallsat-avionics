@@ -25,7 +25,7 @@ enum class MsgId : uint8_t {
     // sensor telemetry
     ImuData = 0x07,    // icm-20948 accel/gyro/mag
     PowerData = 0x08,  // ina228 bus voltage/current/power
-    // TempData = 0x09,   // reserved - tmp117 structural temp
+    TempData = 0x09,   // tmp117 structural temp
 
     // payload - bulk data, downlink mode only (0x10 block leaves room for the category)
     // PayloadData = 0x10,  // reserved - chunked image buffer over the payload link
@@ -93,10 +93,18 @@ struct __attribute__((packed)) power_data_t {
     uint32_t bus_mv;     // bus voltage (millivolts)
     int32_t current_ma;  // current (milliamps)
     uint32_t power_mw;   // power (milliwatts)
-    uint8_t flags;       // kPowerFlag* bits - bit 0 validity, + tbd
+    uint8_t flags;       // kPowerFlag* bits - bit 0 validity
 };
 
-// temp_data_t  - reserved (tmp117 structural temp)
+// temp_data_t.flags bit
+inline constexpr uint8_t kTempFlagValid = 0x01;
+
+// MsgId::TempData - one tmp117 sample (temperature)
+struct __attribute__((packed)) temp_data_t {
+    uint32_t t_ms;    // acquisition time
+    int32_t temp_mc;  // temperature (milli-degrees celsius)
+    uint8_t flags;    // kTempFlag* bits - bit 0 validity
+};
 
 // ------- payload -------
 
@@ -112,7 +120,7 @@ static_assert(sizeof(uart_status_t) == 16, "uart_status_t wire layout changed");
 // static_assert(sizeof(nrf24_status_t) == ?, "nrf24_status_t wire layout changed");
 static_assert(sizeof(imu_data_t) == 23, "imu_data_t wire layout changed");
 static_assert(sizeof(power_data_t) == 17, "power_data_t wire layout changed");
-// static_assert(sizeof(temp_data_t) == ?, "temp_data_t wire layout changed");
+static_assert(sizeof(temp_data_t) == 9, "temp_data_t wire layout changed");
 
 }  // namespace fsw
 

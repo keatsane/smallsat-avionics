@@ -19,6 +19,9 @@ constexpr FaultSpec kFaultTable[] = {
     /* UNDERVOLTAGE        */ {Severity::Critical, 3, "REQ-FAULT-002"},
     /* OVERVOLTAGE         */ {Severity::Critical, 3, "REQ-FAULT-002"},
     /* OVERCURRENT         */ {Severity::Critical, 3, "REQ-FAULT-002"},
+    /* TEMP_DROPOUT        */ {Severity::Warning, 3, "REQ-FAULT-001"},
+    /* UNDERTEMPERATURE    */ {Severity::Warning, 3, "REQ-FAULT-001"},
+    /* OVERTEMPERATURE     */ {Severity::Critical, 3, "REQ-FAULT-002"},
 };
 static_assert(sizeof(kFaultTable) / sizeof(kFaultTable[0]) == kFaultCount,
               "fault table is out of sync with FSW_FAULT_LIST in state.hpp");

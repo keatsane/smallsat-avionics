@@ -31,6 +31,16 @@ Inputs power_reading(uint32_t bus_mv = 5000, int32_t current_ma = 150,
     inputs.power = s;
     return inputs;
 }
+
+// inputs carrying one temp sample; default is a healthy ~22 degC - override per test
+Inputs temp_reading(int32_t temp_mc = 22000, uint8_t flags = kTempFlagValid) {
+    Inputs inputs;
+    temp_data_t s{};
+    s.temp_mc = temp_mc;
+    s.flags = flags;
+    inputs.temp = s;
+    return inputs;
+}
 }  // namespace
 
 TEST_SUITE("SENSOR MONITOR REQUIREMENTS") {
@@ -212,6 +222,65 @@ TEST_SUITE("SENSOR MONITOR REQUIREMENTS") {
                 sm.evaluate(none, fm, t);
             }
             CHECK_FALSE(fm.is_active(Fault::UNDERVOLTAGE));
+        }
+    }
+
+    TEST_CASE("REQ-SNS-005") {
+        SUBCASE("A healthy in-range reading latches nothing") {
+            SensorMonitor sm;
+            FaultManager fm;
+            for (uint32_t t = 0; t < 10; ++t) {
+                sm.evaluate(temp_reading(), fm, t);
+            }
+            CHECK_FALSE(fm.is_active(Fault::OVERTEMPERATURE));
+            CHECK_FALSE(fm.is_active(Fault::UNDERTEMPERATURE));
+            CHECK_FALSE(fm.is_active(Fault::TEMP_DROPOUT));
+        }
+
+        SUBCASE("Overtemperature latches after the debounce threshold") {
+            SensorMonitor sm;
+            FaultManager fm;
+            const Inputs hot = temp_reading(65000);  // 65 degC, above the 60 degC limit
+
+            sm.evaluate(hot, fm, 0);
+            sm.evaluate(hot, fm, 1);
+            CHECK_FALSE(fm.is_active(Fault::OVERTEMPERATURE));  // below the debounce threshold (3)
+            sm.evaluate(hot, fm, 2);
+            CHECK(fm.is_active(Fault::OVERTEMPERATURE));
+        }
+
+        SUBCASE("Undertemperature latches") {
+            SensorMonitor sm;
+            FaultManager fm;
+            for (uint32_t t = 0; t < 3; ++t) {
+                sm.evaluate(temp_reading(-5000), fm, t);  // -5 degC, below the 0 degC limit
+            }
+            CHECK(fm.is_active(Fault::UNDERTEMPERATURE));
+        }
+
+        SUBCASE("An invalid sample latches TEMP_DROPOUT after debounce") {
+            SensorMonitor sm;
+            FaultManager fm;
+            const Inputs invalid = temp_reading(65000, 0);  // flags=0 -> invalid; value ignored
+
+            sm.evaluate(invalid, fm, 0);
+            sm.evaluate(invalid, fm, 1);
+            CHECK_FALSE(fm.is_active(Fault::TEMP_DROPOUT));  // below the debounce threshold (3)
+            sm.evaluate(invalid, fm, 2);
+            CHECK(fm.is_active(Fault::TEMP_DROPOUT));
+            CHECK_FALSE(
+                fm.is_active(Fault::OVERTEMPERATURE));  // value faults skipped while invalid
+        }
+
+        SUBCASE("No sample is no opinion") {
+            SensorMonitor sm;
+            FaultManager fm;
+            const Inputs none;  // no temp set -> nullopt
+            for (uint32_t t = 0; t < 10; ++t) {
+                sm.evaluate(none, fm, t);
+            }
+            CHECK_FALSE(fm.is_active(Fault::OVERTEMPERATURE));
+            CHECK_FALSE(fm.is_active(Fault::UNDERTEMPERATURE));
         }
     }
 }

@@ -5,6 +5,7 @@
 
 #include "devices/icm20948.h"
 #include "devices/ina228.h"
+#include "devices/tmp117.h"
 #include "drivers/clock.h"
 #include "drivers/gpio.h"
 #include "drivers/i2c.h"
@@ -17,7 +18,7 @@ namespace {
 fsw::Executive exec;
 bool imu_ok = false;    // did the imu answer at init - gates reads below
 bool power_ok = false;  // power monitor
-// bool temp_ok = false; // temperature sensor
+bool temp_ok = false;   // temperature sensor
 
 }  // namespace
 
@@ -34,7 +35,7 @@ static void init(void) {
     i2c_sensors_init();
 
     power_ok = ina228_init();
-    // temp_ok = tmp117_init();
+    temp_ok = tmp117_init();
 
     if (!imu_ok) {
         uart_write(uart_console, reinterpret_cast<const uint8_t*>("IMU INIT FAIL\r\n"), 15U);
@@ -42,6 +43,10 @@ static void init(void) {
 
     if (!power_ok) {
         uart_write(uart_console, reinterpret_cast<const uint8_t*>("POWER INIT FAIL\r\n"), 17U);
+    }
+
+    if (!temp_ok) {
+        uart_write(uart_console, reinterpret_cast<const uint8_t*>("TEMP INIT FAIL\r\n"), 16U);
     }
 }
 
@@ -69,13 +74,22 @@ static fsw::power_data_t to_power_data(const ina228_sample_t& s) {
     return d;
 }
 
+static fsw::temp_data_t to_temp_data(const tmp117_sample_t& s) {
+    fsw::temp_data_t d{};
+    d.t_ms = s.t_ms;
+    d.temp_mc = s.temp_mc;
+    d.flags = static_cast<uint8_t>(s.valid ? fsw::kTempFlagValid : 0U);
+    return d;
+}
+
 // read every available sensor into this cycle's inputs
 static void read_sensors(fsw::Inputs& inputs) {
     // always hand the fsw a sample so the sensor monitor can judge it, defaults to empty (invalid)
     inputs.imu = imu_ok ? to_imu_data(icm20948_read()) : fsw::imu_data_t{};
     inputs.power = power_ok ? to_power_data(ina228_read()) : fsw::power_data_t{};
+    inputs.temp = temp_ok ? to_temp_data(tmp117_read()) : fsw::temp_data_t{};
 
-    // temp, ...
+    // ...
 }
 
 int main(void) {

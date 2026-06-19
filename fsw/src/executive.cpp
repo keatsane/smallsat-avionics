@@ -84,6 +84,11 @@ void Executive::cycle(const Inputs& inputs, uint32_t t_ms) {
     if (inputs.power) {
         send(MsgId::PowerData, *inputs.power);
     }
+
+    // temp data
+    if (inputs.temp) {
+        send(MsgId::TempData, *inputs.temp);
+    }
 }
 
 }  // namespace fsw

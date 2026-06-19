@@ -18,6 +18,11 @@ constexpr uint32_t kBusUnderMv = 4500;      // 4.5 V (-10%)
 constexpr uint32_t kBusOverMv = 5500;       // 5.5 V (+10%)
 constexpr int32_t kBusOverCurrentMa = 300;  // above the idle draw, tune to ~2x measured baseline
 
+// temperature limits, signed milli-degrees C (the sensor reads below zero). conservative avionics
+// bounds - tunable; drop the over-limit to ~35000 to trip overtemperature by hand on the bench
+constexpr int32_t kTempUnderMc = 0;     // 0 degC - freezing, out of the operating range
+constexpr int32_t kTempOverMc = 60000;  // 60 degC - avionics running too hot
+
 // true if cur has not differed from prev for longer than the stale window; remembers the latest
 // reading and the time it last changed as a side effect
 bool source_stale(const int16_t cur[3], int16_t prev[3], uint32_t& changed_ms, uint32_t t_ms) {
@@ -35,7 +40,7 @@ bool source_stale(const int16_t cur[3], int16_t prev[3], uint32_t& changed_ms, u
 void SensorMonitor::evaluate(const Inputs& inputs, FaultManager& fm, uint32_t t_ms) {
     evaluate_imu(inputs.imu, fm, t_ms);
     evaluate_power(inputs.power, fm, t_ms);
-    // evaluate_temp(inputs.temp, ...) joins here as the tmp117 lands
+    evaluate_temp(inputs.temp, fm, t_ms);
 }
 
 void SensorMonitor::evaluate_imu(const std::optional<imu_data_t>& imu, FaultManager& fm,
@@ -90,6 +95,24 @@ void SensorMonitor::evaluate_power(const std::optional<power_data_t>& power, Fau
     fm.update(Fault::UNDERVOLTAGE, power->bus_mv < kBusUnderMv, t_ms);
     fm.update(Fault::OVERVOLTAGE, power->bus_mv > kBusOverMv, t_ms);
     fm.update(Fault::OVERCURRENT, power->current_ma > kBusOverCurrentMa, t_ms);
+}
+
+void SensorMonitor::evaluate_temp(const std::optional<temp_data_t>& temp, FaultManager& fm,
+                                  uint32_t t_ms) {
+    if (!temp.has_value()) {
+        return;  // no temperature sample this cycle
+    }
+
+    if ((temp->flags & kTempFlagValid) == 0U) {
+        fm.update(Fault::TEMP_DROPOUT, true, t_ms);
+        return;
+    }
+
+    fm.update(Fault::TEMP_DROPOUT, false, t_ms);
+
+    // value-based faults straight off the sample
+    fm.update(Fault::UNDERTEMPERATURE, temp->temp_mc < kTempUnderMc, t_ms);
+    fm.update(Fault::OVERTEMPERATURE, temp->temp_mc > kTempOverMc, t_ms);
 }
 
 }  // namespace fsw

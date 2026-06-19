@@ -16,12 +16,12 @@ MSG_COMMAND = 0x01
 MSG_COMMAND_ACK = 0x02
 MSG_HEARTBEAT = 0x03
 MSG_UART_STATUS = 0x04
-# LoraStatus = 0x05,
-# Nrf24Status = 0x06,
+# MSG_LORA_STATUS = 0x05
+# MSG_NRF24_STATUS = 0x06
 MSG_IMU_DATA = 0x07
 MSG_POWER_DATA = 0x08
-# TempData = 0x09,
-# PayloadData = 0x10,
+MSG_TEMP_DATA = 0x09
+# MSG_PAYLOAD_DATA = 0x10
 
 
 def crc16(data: bytes) -> int:
@@ -125,6 +125,9 @@ FAULTS = [
     "UNDERVOLTAGE",
     "OVERVOLTAGE",
     "OVERCURRENT",
+    "TEMP_DROPOUT",
+    "UNDERTEMPERATURE",
+    "OVERTEMPERATURE",
 ]
 
 
@@ -173,33 +176,52 @@ def decode_power_data(payload: bytes) -> dict:
     }
 
 
+def decode_temp_data(payload: bytes) -> dict:
+    """Unpack a temp_data_t payload (msg.hpp) into a dict."""
+    t_ms, temp_mc, flags = struct.unpack("<IiB", payload)
+    return {
+        "t_ms": t_ms,
+        "temp_mc": temp_mc,
+        "flags": flags,
+    }
+
+
 def format_frame(msg_id: int, payload: bytes) -> str:
-    """One-line human-readable summary of a decoded frame."""
+    """One-line summary of a decoded frame; the kind is left-justified so the fields line up."""
     if msg_id == MSG_COMMAND and len(payload) == 4:
         cmd_id, arg, seq = struct.unpack("<BBH", payload)
-        return f"COMMAND      cmd={cmd_id}  arg={arg}  seq={seq}"
+        return f"{'COMMAND':<12} cmd={cmd_id}  arg={arg}  seq={seq}"
     if msg_id == MSG_COMMAND_ACK and len(payload) == 5:
         d = decode_command_ack(payload)
         verdict = "accepted" if d["accepted"] else f"rejected (reason={d['reason']})"
-        return f"COMMAND_ACK  cmd={d['cmd_id']}  seq={d['seq']}  {verdict}"
+        return f"{'COMMAND_ACK':<12} cmd={d['cmd_id']}  seq={d['seq']}  {verdict}"
     if msg_id == MSG_HEARTBEAT and len(payload) == 11:
         d = decode_heartbeat(payload)
-        return f"HEARTBEAT    uptime={d['uptime_ms']} ms  mode={d['mode']}  faults={fault_names(d['faults'])}  seq={d['seq']}"
+        return (
+            f"{'HEARTBEAT':<12} uptime={d['uptime_ms']} ms  mode={d['mode']}  "
+            f"faults={fault_names(d['faults'])}  seq={d['seq']}"
+        )
     if msg_id == MSG_UART_STATUS and len(payload) == 16:
         overrun, framing, noise, dropped = struct.unpack("<IIII", payload)
         return (
-            f"UART_STATUS  overrun={overrun}  framing={framing}  noise={noise}  dropped={dropped}"
+            f"{'UART_STATUS':<12} overrun={overrun}  framing={framing}  "
+            f"noise={noise}  dropped={dropped}"
         )
     if msg_id == MSG_IMU_DATA and len(payload) == 23:
         d = decode_imu_data(payload)
         return (
-            f"IMU_DATA     t={d['t_ms']} ms  accel={d['accel']}  "
+            f"{'IMU_DATA':<12} t={d['t_ms']} ms  accel={d['accel']}  "
             f"gyro={d['gyro']}  mag={d['mag']}  flags=0x{d['flags']:02X}"
         )
     if msg_id == MSG_POWER_DATA and len(payload) == 17:
         d = decode_power_data(payload)
         return (
-            f"POWER_DATA     t={d['t_ms']} ms  bus_mv={d['bus_mv']}  "
+            f"{'POWER_DATA':<12} t={d['t_ms']} ms  bus_mv={d['bus_mv']}  "
             f"current_ma={d['current_ma']}  power_mw={d['power_mw']}  flags=0x{d['flags']:02X}"
         )
-    return f"msg 0x{msg_id:02X}  len={len(payload)}  payload={payload.hex()}"
+    if msg_id == MSG_TEMP_DATA and len(payload) == 9:
+        d = decode_temp_data(payload)
+        return (
+            f"{'TEMP_DATA':<12} t={d['t_ms']} ms  temp_mc={d['temp_mc']}  flags=0x{d['flags']:02X}"
+        )
+    return f"{'msg':<12} 0x{msg_id:02X}  len={len(payload)}  payload={payload.hex()}"
