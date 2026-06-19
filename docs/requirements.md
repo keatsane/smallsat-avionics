@@ -280,6 +280,12 @@ The active retreats - POINTING/DETUMBLE -> STANDBY on ACCEL_GYRO_DROPOUT, and PO
 **Verification**: unit test and HIL
 **Artifact**: fsw/src/sensor_monitor.cpp, fsw/test/test_sensor_monitor.cpp
 
+**REQ-SNS-005** - A valid monitored temperature reading outside its configured operating limits shall raise the corresponding temperature fault (overtemperature, undertemperature).
+**Type**: Functional
+**Status**: unit-verified (the sensor monitor latches OVERTEMPERATURE/UNDERTEMPERATURE when a valid reading crosses the configured limit after debounce, and TEMP_DROPOUT on an invalid sample; overtemperature is Critical -> SAFE, undertemperature a report-only Warning since dropping to a low-power state would only cool the spacecraft further. The TMP117 streams valid temperature on the bench; a real limit crossing - warming the sensor past the threshold - is still owed on hardware)
+**Verification**: unit test and HIL
+**Artifact**: fsw/src/sensor_monitor.cpp, fsw/test/test_sensor_monitor.cpp
+
 ## Attitude control (ADCS)
 
 **REQ-ADCS-001** - In DETUMBLE the flight software shall command the reaction wheel to reduce the measured body rate below a defined threshold.  

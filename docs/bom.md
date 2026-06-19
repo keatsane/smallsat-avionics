@@ -10,8 +10,9 @@ Bench hardware that is actually in use. More sensors and actuator parts get adde
 | Jumper wires | 1 set | ~$6.00 | Bench wiring. |
 | SparkFun ICM-20948 9-DoF IMU breakout | 1 | ~$17.00 | Accel/gyro over SPI, plus the AK09916 magnetometer through the chip's internal I2C master; all three streams are live on the bench. |
 | Adafruit INA228 power monitor breakout (#5832) | 1 | $14.95 | Bus voltage/current/power over I2C (20-bit, 85 V); up on the bench, current verified. |
+| Adafruit TMP117 temperature breakout (#4821) | 1 | $11.50 | High-accuracy structural temperature over I2C (16-bit, +-0.1 degC, addr 0x48); on the bench reading ~24 degC. |
 
-Temperature, reaction-wheel parts, and the rest get added here as each piece is brought up on the bench.
+Reaction-wheel parts and the rest get added here as each piece is brought up on the bench.
 
 ## Datasheets and references
 
@@ -35,3 +36,8 @@ Datasheets are vendored in `docs/datasheets/` and linked by relative path, so th
 
 - [INA228 datasheet (SLYS021)](datasheets/ina228-datasheet.pdf) - register map, the SHUNT_CAL / current equations, ADC and conversion config, electrical specs
 - [Product page (adafruit.com)](https://www.adafruit.com/product/5832) - the breakout: onboard 15 mohm shunt, STEMMA QT, address jumpers, schematic
+
+### TMP117 temperature sensor (Adafruit #4821)
+
+- [TMP117 datasheet](datasheets/tmp117-datasheet.pdf) - register map, the temperature result format, config and EEPROM registers, electrical specs
+- [Product page (adafruit.com)](https://www.adafruit.com/product/4821) - the breakout: STEMMA QT, the ADDR jumper (default 0x48)

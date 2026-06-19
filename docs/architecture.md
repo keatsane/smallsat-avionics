@@ -67,7 +67,7 @@ Separate from the comm links above. Those carry the spacecraft-to-ground contrac
 | ---------- | --- | ----------------------- | ------ |
 | ICM-20948 IMU (accel + gyro, plus the AK09916 magnetometer) | SPI2 | register read/write; the mag is polled through the IMU's own internal I2C master and read back in the same burst | on the bench |
 | INA228 power monitor | I2C | register reads - bus voltage, current, and power | on the bench (current verified) |
-| TMP117 temperature | I2C | register reads - placeable structural temperature | arrived, bring-up pending |
+| TMP117 temperature | I2C | register reads - placeable structural temperature | on the bench |
 
 More peripherals join this table as their phases arrive.
 
