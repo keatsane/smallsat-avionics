@@ -21,6 +21,7 @@ def main() -> int:
     args = ap.parse_args()
 
     import pyvisa  # lazy: bench-only dep
+    from pyvisa.resources import MessageBasedResource
 
     # pyvisa-py warns its LAN discovery is limited without psutil/zeroconf - we only
     # talk usb, so silence the advice instead of installing network-scan deps
@@ -42,6 +43,9 @@ def main() -> int:
         resource = usb[0]
 
     scope = rm.open_resource(resource)
+    # open_resource is typed as the base Resource; a usb scope is message-based, so narrow it -
+    # that gives the type checker timeout/chunk_size/query/write/read_raw and is a real sanity check
+    assert isinstance(scope, MessageBasedResource)
     scope.timeout = 10000  # ms - the image takes a moment
     scope.chunk_size = 1024 * 1024  # the dump is one big blob; the 20 KB default truncates it
     print(f"connected: {scope.query('*IDN?').strip()}")
