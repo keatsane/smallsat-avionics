@@ -20,24 +20,24 @@ Datasheets are vendored in `docs/datasheets/` and linked by relative path, so th
 
 ### STM32 Nucleo-F446RE (STM32F446RE)
 
-- [STM32F446RE datasheet](datasheets/stm32f446re-datasheet.pdf) - pinout, alternate-function mappings, electrical specs
-- [RM0390 reference manual](datasheets/rm0390-reference-manual.pdf) - register-level detail for every peripheral
-- [PM0214 programming manual](datasheets/pm0214-programming-manual.pdf) - Cortex-M4 core: NVIC, SysTick, SCB, instruction set
-- [UM1724 user manual](datasheets/um1724-nucleo64-user-manual.pdf) - the Nucleo-64 board: jumpers, ST-Link, pin mapping
-- [ES0298 errata](datasheets/es0298-errata.pdf) - silicon limitations and workarounds
+- [STM32F446RE datasheet](datasheets/compute/stm32f446re-datasheet.pdf) - pinout, alternate-function mappings, electrical specs
+- [RM0390 reference manual](datasheets/compute/rm0390-reference-manual.pdf) - register-level detail for every peripheral
+- [PM0214 programming manual](datasheets/compute/pm0214-programming-manual.pdf) - Cortex-M4 core: NVIC, SysTick, SCB, instruction set
+- [UM1724 user manual](datasheets/compute/um1724-nucleo64-user-manual.pdf) - the Nucleo-64 board: jumpers, ST-Link, pin mapping
+- [ES0298 errata](datasheets/compute/es0298-errata.pdf) - silicon limitations and workarounds
 - [Board product page (st.com)](https://www.st.com/en/evaluation-tools/nucleo-f446re.html) - schematics (MB1136) under CAD Resources, plus CubeIDE downloads
 
 ### ICM-20948 9-DoF IMU (SparkFun breakout)
 
-- [ICM-20948 datasheet (DS-000189)](datasheets/icm-20948-datasheet.pdf) - register map (four banks), SPI/I2C interface formats, electrical specs
+- [ICM-20948 datasheet (DS-000189)](datasheets/sensors/icm-20948-datasheet.pdf) - register map (four banks), SPI/I2C interface formats, electrical specs
 - [Product page (invensense.tdk.com)](https://invensense.tdk.com/en-us/products/9-axis/icm-20948) - latest datasheet revisions and app notes
 
 ### INA228 power monitor (Adafruit #5832)
 
-- [INA228 datasheet (SLYS021)](datasheets/ina228-datasheet.pdf) - register map, the SHUNT_CAL / current equations, ADC and conversion config, electrical specs
+- [INA228 datasheet (SLYS021)](datasheets/sensors/ina228-datasheet.pdf) - register map, the SHUNT_CAL / current equations, ADC and conversion config, electrical specs
 - [Product page (adafruit.com)](https://www.adafruit.com/product/5832) - the breakout: onboard 15 mohm shunt, STEMMA QT, address jumpers, schematic
 
 ### TMP117 temperature sensor (Adafruit #4821)
 
-- [TMP117 datasheet](datasheets/tmp117-datasheet.pdf) - register map, the temperature result format, config and EEPROM registers, electrical specs
+- [TMP117 datasheet](datasheets/sensors/tmp117-datasheet.pdf) - register map, the temperature result format, config and EEPROM registers, electrical specs
 - [Product page (adafruit.com)](https://www.adafruit.com/product/4821) - the breakout: STEMMA QT, the ADDR jumper (default 0x48)
