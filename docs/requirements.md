@@ -258,8 +258,9 @@ The active retreats - POINTING/DETUMBLE -> STANDBY on ACCEL_GYRO_DROPOUT, and PO
 
 **REQ-WDG-002** - After any reset the flight software shall report the reset cause - including a watchdog reset - in a boot telemetry packet.  
 **Type**: Functional  
-**Status**: planned  
-**Verification**: HIL
+**Status**: in progress (the reset-cause read and console boot-banner report are bench-demonstrated - a pin reset read back live as `BOOT: reset=pin`; the power-on / brownout / software / watchdog causes share the same decode path. Carrying it in the framed boot telemetry packet and demonstrating the watchdog-reset cause remain owed with phase 6)  
+**Verification**: HIL  
+**Artifact**: bsp/Src/drivers/reset.c, bsp/Inc/drivers/reset.h, bsp/Src/main.cpp
 
 ## Sensors and data validity
 

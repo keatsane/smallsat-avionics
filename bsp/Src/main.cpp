@@ -3,12 +3,15 @@
  * @brief  node entry - bring up the board, then run the flight-software cycle
  */
 
+#include <cstdio>  // snprintf - boot banner
+
 #include "devices/icm20948.h"
 #include "devices/ina228.h"
 #include "devices/tmp117.h"
 #include "drivers/clock.h"
 #include "drivers/gpio.h"
 #include "drivers/i2c.h"
+#include "drivers/reset.h"
 #include "drivers/systick.h"
 #include "drivers/uart.h"
 #include "fsw/executive.hpp"
@@ -24,11 +27,21 @@ bool temp_ok = false;   // temperature sensor
 
 // bring up clocks, the time base, and peripherals; record which sensors came up
 static void init(void) {
+    reset_init();  // latch why we last reset before anything can trigger a new one
     clock_init();
     systick_init();
     led_init();
     uart_console_init();   // console: usart2 -> st-link vcp (usb)
     uart_downlink_init();  // downlink: usart6 -> pc6/pc7 header
+
+    // boot banner - why we reset + the live core clock
+    {
+        char line[64];
+        int n = std::snprintf(line, sizeof(line), "BOOT: reset=%s clk=%lu Hz\r\n",
+                              reset_cause_str(reset_cause()),
+                              static_cast<unsigned long>(clock_hclk_hz()));
+        uart_write(uart_console, reinterpret_cast<const uint8_t*>(line), static_cast<size_t>(n));
+    }
 
     imu_ok = icm20948_init();
 
