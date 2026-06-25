@@ -245,6 +245,12 @@ The active retreats - POINTING/DETUMBLE -> STANDBY on ACCEL_GYRO_DROPOUT, and PO
 **Status**: planned  
 **Verification**: HIL (scheduler-smoke run)
 
+**REQ-RT-004** - An unhandled processor fault exception (hard fault, memory-management, bus, or usage fault) shall be caught by a dedicated handler that captures the fault context and performs a controlled reset, rather than leaving the processor halted in a default infinite loop.  
+**Type**: Functional  
+**Status**: bench-verified (forced a fault on the bench with a `udf` undefined instruction; the handler dumped pc=0x0800320c, CFSR=0x00010000 (UFSR.UNDEFINSTR) and HFSR=0x40000000 (FORCED - escalated to HardFault), then rebooted via NVIC_SystemReset, the next boot reading reset=software)  
+**Verification**: demonstration (trigger a fault, observe the capture then reset)  
+**Artifact**: bsp/Src/drivers/fault.c
+
 **REQ-WDG-001** - An independent hardware watchdog shall reset the on-board computer if the flight software stops servicing it within the watchdog window.  
 **Type**: Functional  
 **Status**: planned  
