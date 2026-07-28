@@ -66,10 +66,15 @@ Separate from the comm links above. Those carry the spacecraft-to-ground contrac
 | Peripheral | Bus | How the OBC talks to it | Status |
 | ---------- | --- | ----------------------- | ------ |
 | ICM-20948 IMU (accel + gyro, plus the AK09916 magnetometer) | SPI2 | register read/write; the mag is polled through the IMU's own internal I2C master and read back in the same burst | on the bench |
-| INA228 power monitor | I2C | register reads - bus voltage, current, and power | on the bench (current verified) |
-| TMP117 temperature | I2C | register reads - placeable structural temperature | on the bench |
+| INA228 power monitor | I2C1 | register reads - bus voltage, current, and power, sensed high-side on the main battery bus | on the bench |
+| TMP117 temperature | I2C1 | register reads - placeable structural temperature | on the bench |
+| OV2640 camera (ArduCAM) | SPI3 + I2C1 | two buses at once: SCCB register writes over I2C to configure the sensor, SPI to read frames out of the onboard FIFO | answers on both buses; driver not written |
+| B-G431B-ESC1 reaction-wheel driver | USART1 | speed/torque commands out; the ESC closes the FOC loop locally against its own encoder | wired, no firmware yet |
+| WS2812 status LEDs | GPIO (PA8) | one timed data line, three beads chained - mode, fault, and link | wired, no driver yet |
 
 More peripherals join this table as their phases arrive.
+
+The I2C bus runs at **100 kHz, not 400 kHz**. Once the slice, the harness, and three devices were all on it, the measured 10-90% rise time on SCL landed around 600-1000 ns - inside standard mode's 1000 ns budget but well past fast mode's 300 ns. The bus sits under 2% busy either way, so there was nothing to gain from pushing it.
 
 ## Fault handling and sensor monitoring
 

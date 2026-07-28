@@ -226,6 +226,11 @@ The active retreats - POINTING/DETUMBLE -> STANDBY on ACCEL_GYRO_DROPOUT, and PO
 **Verification**: inspection and HIL  
 **Artifact**: dual UART (USART2 console, USART6 downlink); LoRa transport (phase 8)
 
+**REQ-TLM-005** - The spacecraft shall indicate current mode, worst latched fault severity with a count of latched faults, and command-link state on a local status display, carrying the same information as the heartbeat packet so the two can be read against each other.  
+**Type**: Functional  
+**Status**: planned  
+**Verification**: demonstration (drive each mode, latch faults of each severity, and drop the uplink; observe the display against the decoded heartbeat)
+
 ## Real-time execution and recovery
 
 **REQ-RT-001** - The flight software shall maintain a monotonic millisecond time base, used to timestamp every logged event.  
@@ -283,7 +288,7 @@ The active retreats - POINTING/DETUMBLE -> STANDBY on ACCEL_GYRO_DROPOUT, and PO
 
 **REQ-SNS-004** - A valid monitored power reading outside its configured operating limits shall raise the corresponding power fault (undervoltage, overvoltage, overcurrent).
 **Type**: Functional
-**Status**: unit-verified (the sensor monitor raises each power fault when its INA228 reading crosses the configured limit, after debounce; on the bench a live INA228 reading below the undervoltage limit latched UNDERVOLTAGE, with overvoltage/overcurrent and HIL still owed)
+**Status**: unit-verified (the sensor monitor raises each power fault when its INA228 reading crosses the configured limit, after debounce. An earlier bench run latched UNDERVOLTAGE off a live INA228 reading, but the monitor has since moved high-side onto the 14.8 V battery bus and the limits were retuned to that bus, so all three crossings are owed again on hardware, along with HIL)
 **Verification**: unit test and HIL
 **Artifact**: fsw/src/sensor_monitor.cpp, fsw/test/test_sensor_monitor.cpp
 
