@@ -43,6 +43,13 @@ obc-flash: obc-build
 obc-monitor *flags:
     python tools/uart_monitor.py --stlink {{obc_stlink}} {{flags}}
 
+# compile+link check on the firmware, the same one ci runs. NOT the image you flash - that is
+# obc-build, which uses cubeide's own makefiles. this exists so ci can see a firmware break at
+# all, since those makefiles are generated and gitignored. needs arm-none-eabi-gcc on PATH
+[group('obc')]
+obc-check:
+    cmake -S obc -B obc/build-arm -G "Unix Makefiles" && cmake --build obc/build-arm
+
 # list the serial ports and what is on them
 [group('obc')]
 list-ports:
@@ -123,6 +130,11 @@ hil-scope test name:
 [group('bench')]
 scope-shot out="scope.png":
     python tools/scope_shot.py {{out}}
+
+# install the python tooling the bench and test suites need
+[group('setup')]
+deps:
+    pip install -r requirements-dev.txt
 
 # install the pre-commit git hook
 [group('setup')]

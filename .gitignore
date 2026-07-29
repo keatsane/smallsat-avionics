@@ -5,6 +5,7 @@ artifacts/
 # firmware build outputs
 obc/**/Debug/
 obc/**/Release/
+obc/build-arm/
 .pio/
 *.elf
 *.bin

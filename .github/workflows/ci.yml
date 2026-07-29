@@ -31,7 +31,8 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - run: pip install pytest pyyaml
+      # from the file rather than an ad-hoc list, so a missing declaration fails here
+      - run: pip install -r requirements-dev.txt
       - run: pytest -v
 
   unit-fsw:
@@ -79,7 +80,20 @@ jobs:
         run: cmake --build fsw/build --target sil_shim
       - name: Run the suite
         run: |
-          pip install pyyaml
+          pip install -r requirements-dev.txt
           python3 tools/sil_runner.py
 
-  # firmware cross-build (arm-none-eabi-gcc) comes next
+  firmware:
+    name: Firmware cross-build (cortex-m4)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Fetch the headers the image compiles against
+        run: git submodule update --init vendor/etl vendor/cmsis-core vendor/cmsis-device-f4
+      - name: Install the toolchain
+        run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi
+      - name: Configure
+        # CubeIDE owns the flashable image; this links the same sources to catch a break in CI
+        run: cmake -S obc -B obc/build-arm
+      - name: Build
+        run: cmake --build obc/build-arm
