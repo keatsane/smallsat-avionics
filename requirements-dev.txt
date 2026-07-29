@@ -1,0 +1,27 @@
+# python tooling for the bench and the test suites - nothing here ships to a board.
+# install with:  just deps      (or: pip install -r requirements-dev.txt)
+#
+# this is the pip half only. the compilers, IDEs, and task runner cannot be expressed in this
+# format, so the full prerequisite list lives in docs/setup.md and this file is one row of it.
+#
+# floors rather than pins: these are developer tools, and exact pins on tools age into install
+# failures on a fresh machine. CI installs from this file, so it stays honest.
+
+# the wire codec's only real dependency chain: talking to a board over its virtual COM port
+pyserial>=3.5
+
+# the ground console's prompt - pinned input line, tab completion, history
+prompt_toolkit>=3.0
+
+# scenario files for the SIL and HIL runners
+pyyaml>=6.0
+
+# unit suites for the python tooling
+pytest>=8.0
+
+# the formatting and lint hooks (it manages its own tool versions in .pre-commit-config.yaml)
+pre-commit>=4.0
+
+# reading the scope over usb for HIL captures. bench-only and imported lazily, so the rest of the
+# tooling works without a VISA backend installed
+pyvisa>=1.14

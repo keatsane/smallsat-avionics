@@ -1,5 +1,24 @@
 # Setup
 
+## Prerequisites
+
+Everything needed, and what each part is for. Only the first three are needed to run the host test suites; the rest are per-node, so a contributor who only touches flight software can stop after CMake.
+
+| Tool | Needed for | Notes |
+| ---- | ---------- | ----- |
+| Git | everything | the vendored dependencies are submodules |
+| [just](https://github.com/casey/just) | everything | task runner; `just` with no arguments lists every recipe |
+| Python 3.12+ | tooling, SIL, HIL | packages declared in `requirements-dev.txt`, installed by `just deps` |
+| CMake 3.20+ | flight software, firmware check | drives the host build and the ARM cross-build |
+| A host C++17 compiler | flight software | MinGW-w64 g++ on Windows; any recent GCC or Clang elsewhere |
+| [STM32CubeIDE](https://www.st.com/en/development-tools/stm32cubeide.html) | OBC firmware | owns the image that gets flashed, and bundles `arm-none-eabi-gcc` |
+| STM32CubeProgrammer CLI | flashing the OBC | ships with CubeIDE; override its path with `CUBEPROG` |
+| `arm-none-eabi-gcc` on PATH | `just obc-check` | CubeIDE bundles one but does not add it to PATH |
+| [PlatformIO Core](https://platformio.org/) | ESC firmware | the VS Code extension installs it; override its path with `PIO` |
+| A VISA backend | scope captures only | NI-VISA or equivalent, under `pyvisa`; nothing else needs it |
+
+Three environment variables exist because their defaults are machine-specific: `CUBEPROG` and `PIO` are version-stamped install paths, and `OBC_STLINK` pins the Nucleo's ST-Link serial so an unpinned flash cannot land on the ESC. All three have working defaults in the justfile for this bench.
+
 ## Get the code
 
 Clone the repo, then pull in the vendored dependencies - CMSIS, FreeRTOS, and ETL live under `vendor/` as Git submodules:
@@ -7,6 +26,14 @@ Clone the repo, then pull in the vendored dependencies - CMSIS, FreeRTOS, and ET
 ```bash
 git submodule update --init --recursive
 ```
+
+The Python tooling - the ground console, the SIL and HIL runners, the test suites - has its dependencies declared in `requirements-dev.txt`:
+
+```bash
+just deps
+```
+
+CI installs from that same file, so a dependency that is not declared there fails the build rather than working only on the machine it was added on.
 
 ## Firmware
 
@@ -19,7 +46,7 @@ just obc-build           # build the image
 just obc-flash           # build, then flash over st-link swd
 ```
 
-**Reaction-wheel node** (B-G431B-ESC1, `esc/`) is a PlatformIO project running SimpleFOC, flashed over its own onboard ST-Link. It needs the PlatformIO VS Code extension, or PlatformIO Core on PATH.
+**Reaction-wheel node** (B-G431B-ESC1, `esc/`) is a PlatformIO project running SimpleFOC, flashed over its own onboard ST-Link.
 
 ```bash
 just esc-build           # build the image
@@ -41,7 +68,6 @@ Two small pieces bridge it into this tree, and neither touches the vendored file
 The OBC streams CRC-framed telemetry over its virtual COM port. To decode it on the host:
 
 ```bash
-pip install pyserial prompt_toolkit
 just obc-monitor                      # decode telemetry frames
 ```
 
@@ -73,7 +99,6 @@ Scripting uses the same syntax without the prompt - pipe commands in: `echo SET_
 The SIL harness runs declared fault-injection scenarios against the flight software on the host - no hardware involved. See [scenarios.md](scenarios.md) for the catalog and [vv.md](vv.md) for how the harness fits the verification approach.
 
 ```bash
-pip install pyyaml
 just sil                              # run the whole scenario suite, reports to docs/reports/sil/
 just sil 1                            # or one scenario, by number or name
 ```
@@ -96,11 +121,14 @@ just test                # everything machine-runnable: all unit suites + the SI
 just unit                # both unit suites (or one: `just unit fsw`, `just unit tools`)
 just sil                 # the SIL scenario suite (or one scenario: `just sil 5`)
 just hil                 # the HIL campaign on the live board (or one: `just hil 2`)
+just obc-check           # cross-compile and link the firmware, the same check CI runs
 ```
+
+`obc-check` is not the image you flash - `obc-build` is, through STM32CubeIDE's own makefiles. It exists because those makefiles are generated and gitignored, so CI has no other way to see a firmware break. It links rather than only compiling, because a symbol that compiles but never reaches the linker is a failure this project has hit twice.
 
 Every test recipe takes an optional trailing `verbose` argument (`just test verbose`, `just unit fsw verbose`, ...) that switches to per-test names - through ctest for the C++ suite, `pytest -v` for the tooling, and per-check output for SIL.
 
-The C++ suite needs CMake and a host C++ compiler; `just unit fsw` does the configure, build, and run in one step.
+`just unit fsw` does the configure, build, and run in one step.
 
 ## Working environment
 
