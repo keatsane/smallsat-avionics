@@ -19,17 +19,19 @@
     X(CAPTURE_IMAGE) /* take a photo with the payload camera */
 
 // fault ids - X(name). a fault's order here is its id and its bit in heartbeat_t.faults
-#define FSW_FAULT_LIST(X)                                            \
-    X(COMMAND_LINK_LOSS)  /* command-loss timer expired */           \
-    X(ACCEL_GYRO_DROPOUT) /* accel/gyro invalid or frozen */         \
-    X(MAG_DROPOUT)        /* magnetometer invalid or frozen */       \
-    X(POWER_DROPOUT)      /* ina228 power monitor invalid/missing */ \
-    X(UNDERVOLTAGE)       /* bus below the brownout threshold */     \
-    X(OVERVOLTAGE)        /* bus above its max */                    \
-    X(OVERCURRENT)        /* current draw over the limit */          \
-    X(TEMP_DROPOUT)       /* tmp117 temperature invalid/missing */   \
-    X(UNDERTEMPERATURE)   /* below the min operating temp */         \
-    X(OVERTEMPERATURE)    /* above the max operating temp */
+#define FSW_FAULT_LIST(X)                                                    \
+    X(COMMAND_LINK_LOSS)  /* command-loss timer expired */                   \
+    X(ACCEL_GYRO_DROPOUT) /* accel/gyro invalid or frozen */                 \
+    X(MAG_DROPOUT)        /* magnetometer invalid or frozen */               \
+    X(POWER_DROPOUT)      /* ina228 power monitor invalid/missing */         \
+    X(UNDERVOLTAGE)       /* bus below the brownout threshold */             \
+    X(OVERVOLTAGE)        /* bus above its max */                            \
+    X(OVERCURRENT)        /* current draw over the limit */                  \
+    X(TEMP_DROPOUT)       /* tmp117 temperature invalid/missing */           \
+    X(UNDERTEMPERATURE)   /* below the min operating temp */                 \
+    X(OVERTEMPERATURE)    /* above the max operating temp */                 \
+    X(WHEEL_DROPOUT)      /* reaction wheel stopped answering on its link */ \
+    X(CAMERA_DROPOUT)     /* payload camera not answering */
 
 // operating modes - X(name). a mode's order here is its id, carried in heartbeat_t.mode
 #define FSW_MODE_LIST(X)                                      \

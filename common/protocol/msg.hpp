@@ -8,6 +8,8 @@
 
 #include <cstdint>
 
+#include "protocol/frame.hpp"  // kFrameMaxPayload - the ceiling every message must fit under
+
 namespace fsw {
 
 // message type that tags each frame
@@ -28,7 +30,12 @@ enum class MsgId : uint8_t {
     TempData = 0x09,   // tmp117 structural temp
 
     // payload - bulk data, downlink mode only (0x10 block leaves room for the category)
-    // PayloadData = 0x10,  // reserved - chunked image buffer over the payload link
+    PayloadData = 0x10,   // one chunk of a captured image
+    CameraStatus = 0x11,  // arducam link health + how much frame is waiting in its fifo
+
+    // actuation - the reaction-wheel node, on its own link rather than the ground one (0x20 block)
+    WheelCommand = 0x20,  // obc -> esc torque setpoint
+    WheelStatus = 0x21,   // esc -> obc wheel state
 };
 
 // ------- control plane -------
@@ -46,6 +53,28 @@ struct __attribute__((packed)) command_ack_t {
     uint16_t seq;      // echoes command_t.seq so the ground matches reply to request
     uint8_t accepted;  // 1 = accepted and executed, 0 = rejected
     uint8_t reason;    // why it was rejected (CmdReject in command_handler.hpp; 0 when accepted)
+};
+
+// ------- actuation -------
+
+// MsgId::WheelCommand - obc -> esc q-axis voltage setpoint
+struct __attribute__((packed)) wheel_command_t {
+    int16_t torque_mv;  // q-axis volts x1000, signed - the sign sets spin direction
+    uint16_t seq;       // obc-assigned, echoed back in wheel_status_t
+};
+
+inline constexpr uint8_t kWheelFlagFocReady = 0x01;  // foc aligned - the wheel can be driven
+inline constexpr uint8_t kWheelFlagSensorOk = 0x02;  // the as5600 acked on i2c
+inline constexpr uint8_t kWheelFlagMagnetOk = 0x04;  // as5600 status MD - it can see the magnet
+inline constexpr uint8_t kWheelFlagDriverOk = 0x08;  // the 6-pwm driver came up - pwm is running
+
+// MsgId::WheelStatus - esc -> obc, sent on every command and periodically between them
+struct __attribute__((packed)) wheel_status_t {
+    int32_t velocity_mrad_s;  // shaft velocity, milliradians per second
+    int32_t angle_mrad;       // shaft angle, milliradians
+    int16_t torque_mv;        // what is actually applied - zero after a dead-man timeout
+    uint8_t flags;            // kWheelFlag* bits
+    uint16_t seq;             // echoes the command that set this target
 };
 
 // ------- system telemetry -------
@@ -108,7 +137,37 @@ struct __attribute__((packed)) temp_data_t {
 
 // ------- payload -------
 
-// payload_data_t - reserved (chunked image buffer over the payload link)
+// camera_data_t.flags bits
+inline constexpr uint8_t kCameraFlagValid = 0x01;       // the arducam answered its test register
+inline constexpr uint8_t kCameraFlagFrameReady = 0x02;  // a captured frame is waiting in the fifo
+inline constexpr uint8_t kCameraFlagCapturing = 0x04;   // a capture is in flight
+
+// MsgId::CameraStatus - payload camera health. the frame itself goes out as payload_data_t, so
+// this is the small, always-on part the ground can read every pass
+struct __attribute__((packed)) camera_data_t {
+    uint32_t t_ms;         // acquisition time
+    uint32_t frame_bytes;  // still waiting in the fifo, 0 when there is no frame
+    uint8_t flags;         // kCameraFlag* bits - bit 0 validity
+};
+
+// bytes of image per chunk. sized so payload_data_t fills the frame's 64-byte payload exactly -
+// the header below is 8 bytes, and the framer refuses anything larger
+inline constexpr uint8_t kPayloadChunkBytes = 56;
+
+// MsgId::PayloadData - one chunk of a captured image.
+//
+// self-describing on purpose: every chunk carries which image it belongs to, its index, and how
+// many there are, so a receiver can reassemble out of order, detect a gap, and know when a frame
+// is complete without being told separately. that is what makes a multi-pass downlink possible -
+// a pass that ends halfway through an image is a set of chunks, not a broken stream
+struct __attribute__((packed)) payload_data_t {
+    uint16_t image_id;  // increments per capture, so two images never interleave silently
+    uint16_t chunk;     // 0-based index of this chunk within the image
+    uint16_t chunks;    // total chunks in this image
+    uint8_t len;        // valid bytes in data - only the last chunk is ever short
+    uint8_t reserved;   // pad to a 2-byte boundary, keeping the struct's layout explicit
+    uint8_t data[kPayloadChunkBytes];
+};
 
 // wire layout guards - these sizes are the contract the ground decodes against, so a dropped
 // packed attribute or a changed field fails the build instead of silently breaking the link
@@ -121,6 +180,9 @@ static_assert(sizeof(uart_status_t) == 16, "uart_status_t wire layout changed");
 static_assert(sizeof(imu_data_t) == 23, "imu_data_t wire layout changed");
 static_assert(sizeof(power_data_t) == 17, "power_data_t wire layout changed");
 static_assert(sizeof(temp_data_t) == 9, "temp_data_t wire layout changed");
+static_assert(sizeof(camera_data_t) == 9, "camera_data_t wire layout changed");
+static_assert(sizeof(payload_data_t) == 64, "payload_data_t wire layout changed");
+static_assert(sizeof(payload_data_t) <= kFrameMaxPayload, "payload_data_t no longer fits a frame");
 
 }  // namespace fsw
 
