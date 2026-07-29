@@ -1,7 +1,14 @@
+#include <string>
+
 #include "doctest.h"
 #include "fsw/executive.hpp"
 
 using namespace fsw;
+
+// the host backend counts capture_image() calls so dispatch is observable (platform_host.cpp)
+namespace fsw::platform {
+extern int capture_calls;
+}
 
 TEST_SUITE("EXECUTIVE REQUIREMENTS") {
     TEST_CASE("REQ-EXEC-001") {
@@ -31,12 +38,12 @@ TEST_SUITE("EXECUTIVE REQUIREMENTS") {
 
             CHECK(exec.commands().log().back().accepted);
 
-            // Fault was severe, so SAFE entry still happened.
+            // the fault was critical, so the safing still happened
             CHECK(exec.modes().mode() == Mode::SAFE);
             REQUIRE(exec.modes().log().size() == 1);
             CHECK(exec.modes().log().back().trigger == Trigger::FaultEntry);
 
-            // CLEAR_FAULT was dispatched after SAFE entry.
+            // and CLEAR_FAULT was dispatched after it
             CHECK_FALSE(exec.faults().is_active(Fault::UNDERVOLTAGE));
         }
 
@@ -58,6 +65,176 @@ TEST_SUITE("EXECUTIVE REQUIREMENTS") {
             CHECK(exec.modes().mode() == Mode::SAFE);
             REQUIRE(exec.modes().log().size() == 1);
             CHECK(exec.modes().log().back().trigger == Trigger::FaultEntry);
+        }
+    }
+
+    TEST_CASE("REQ-MODE-010") {
+        SUBCASE("BOOT is left for STANDBY once the debounce window has passed") {
+            Executive exec;
+
+            for (int i = 0; i < 3; ++i) {
+                exec.cycle(Inputs{}, static_cast<uint32_t>(10 * i));
+                CHECK(exec.modes().mode() == Mode::BOOT);  // still self-checking
+            }
+
+            exec.cycle(Inputs{}, 40);
+
+            CHECK(exec.modes().mode() == Mode::STANDBY);
+            REQUIRE(exec.modes().log().size() == 1);
+            CHECK(exec.modes().log().back().trigger == Trigger::Nominal);
+            CHECK(std::string(exec.modes().log().back().req_id) == "REQ-MODE-010");
+        }
+
+        SUBCASE("A critical fault during the self-check safes instead of proceeding") {
+            Executive exec;
+
+            Inputs bad;  // debounce is 3, so one cycle carries all three samples
+            bad.fault_updates.push_back({Fault::UNDERVOLTAGE, true});
+            bad.fault_updates.push_back({Fault::UNDERVOLTAGE, true});
+            bad.fault_updates.push_back({Fault::UNDERVOLTAGE, true});
+
+            for (int i = 0; i < 6; ++i) {
+                exec.cycle(bad, static_cast<uint32_t>(10 * i));
+            }
+
+            CHECK(exec.modes().mode() == Mode::SAFE);  // never passed through STANDBY
+            for (const ModeTransition& t : exec.modes().log()) {
+                CHECK(t.to != Mode::STANDBY);
+            }
+        }
+
+        SUBCASE("An inhibited critical fault does not hold the vehicle in BOOT") {
+            Executive exec;
+            exec.inhibit_fault(Fault::UNDERVOLTAGE);
+
+            Inputs bad;
+            bad.fault_updates.push_back({Fault::UNDERVOLTAGE, true});
+            bad.fault_updates.push_back({Fault::UNDERVOLTAGE, true});
+            bad.fault_updates.push_back({Fault::UNDERVOLTAGE, true});
+
+            for (int i = 0; i < 6; ++i) {
+                exec.cycle(bad, static_cast<uint32_t>(10 * i));
+            }
+
+            CHECK(exec.faults().is_active(Fault::UNDERVOLTAGE));  // latched and reported
+            CHECK(exec.modes().mode() == Mode::STANDBY);          // but not acted on
+        }
+    }
+
+    TEST_CASE("REQ-FAULT-005") {
+        SUBCASE("WHEEL_DROPOUT retreats POINTING to STANDBY without safing") {
+            Executive exec;
+
+            // pointing is only reachable through detumble
+            Inputs detumble;
+            detumble.command = command_t{static_cast<uint8_t>(Command::SET_MODE),
+                                         static_cast<uint8_t>(Mode::DETUMBLE), 1};
+            exec.cycle(detumble, 10);
+
+            Inputs enter;
+            enter.command = command_t{static_cast<uint8_t>(Command::SET_MODE),
+                                      static_cast<uint8_t>(Mode::POINTING), 2};
+            exec.cycle(enter, 20);
+            REQUIRE(exec.modes().mode() == Mode::POINTING);
+
+            Inputs drop;  // debounce is 3, so one cycle carries all three samples
+            drop.fault_updates.push_back({Fault::WHEEL_DROPOUT, true});
+            drop.fault_updates.push_back({Fault::WHEEL_DROPOUT, true});
+            drop.fault_updates.push_back({Fault::WHEEL_DROPOUT, true});
+            exec.cycle(drop, 30);
+
+            CHECK(exec.faults().is_active(Fault::WHEEL_DROPOUT));
+            CHECK(exec.modes().mode() == Mode::STANDBY);  // degraded, so a retreat and not SAFE
+            CHECK(exec.modes().log().back().trigger == Trigger::FaultEntry);
+            CHECK(std::string(exec.modes().log().back().req_id) == "REQ-FAULT-005");
+        }
+
+        SUBCASE("WHEEL_DROPOUT outside the actuating modes only latches") {
+            Executive exec;
+
+            Inputs enter;
+            enter.command = command_t{static_cast<uint8_t>(Command::SET_MODE),
+                                      static_cast<uint8_t>(Mode::STANDBY), 1};
+            exec.cycle(enter, 10);
+            const size_t transitions = exec.modes().log().size();
+
+            Inputs drop;
+            drop.fault_updates.push_back({Fault::WHEEL_DROPOUT, true});
+            drop.fault_updates.push_back({Fault::WHEEL_DROPOUT, true});
+            drop.fault_updates.push_back({Fault::WHEEL_DROPOUT, true});
+            exec.cycle(drop, 20);
+
+            CHECK(exec.faults().is_active(Fault::WHEEL_DROPOUT));
+            CHECK(exec.modes().mode() == Mode::STANDBY);
+            CHECK(exec.modes().log().size() == transitions);  // no transition logged
+        }
+    }
+
+    TEST_CASE("REQ-PAY-001") {
+        SUBCASE("An accepted CAPTURE_IMAGE starts a capture") {
+            Executive exec;
+
+            // imaging is legal in POINTING only, which is reachable through DETUMBLE
+            Inputs detumble;
+            detumble.command = command_t{static_cast<uint8_t>(Command::SET_MODE),
+                                         static_cast<uint8_t>(Mode::DETUMBLE), 1};
+            exec.cycle(detumble, 10);
+
+            Inputs pointing;
+            pointing.command = command_t{static_cast<uint8_t>(Command::SET_MODE),
+                                         static_cast<uint8_t>(Mode::POINTING), 2};
+            exec.cycle(pointing, 20);
+            REQUIRE(exec.modes().mode() == Mode::POINTING);
+
+            const int before = platform::capture_calls;
+            Inputs inputs;
+            inputs.command = command_t{static_cast<uint8_t>(Command::CAPTURE_IMAGE), 0, 3};
+            exec.cycle(inputs, 30);
+
+            CHECK(exec.commands().log().back().accepted);
+            CHECK(platform::capture_calls == before + 1);
+        }
+
+        SUBCASE("A rejected CAPTURE_IMAGE starts nothing") {
+            Executive exec;
+
+            // drive SAFE first - imaging is not legal there, so the command is refused
+            Inputs safing;
+            safing.fault_updates.push_back({Fault::UNDERVOLTAGE, true});
+            safing.fault_updates.push_back({Fault::UNDERVOLTAGE, true});
+            safing.fault_updates.push_back({Fault::UNDERVOLTAGE, true});
+            exec.cycle(safing, 10);
+            REQUIRE(exec.modes().mode() == Mode::SAFE);
+
+            const int before = platform::capture_calls;
+            Inputs inputs;
+            inputs.command = command_t{static_cast<uint8_t>(Command::CAPTURE_IMAGE), 0, 2};
+            exec.cycle(inputs, 20);
+
+            CHECK_FALSE(exec.commands().log().back().accepted);
+            CHECK(platform::capture_calls == before);  // never reached the payload
+        }
+    }
+
+    TEST_CASE("REQ-PAY-002") {
+        SUBCASE("CAMERA_DROPOUT latches without safing or changing mode") {
+            Executive exec;
+
+            Inputs enter;
+            enter.command = command_t{static_cast<uint8_t>(Command::SET_MODE),
+                                      static_cast<uint8_t>(Mode::STANDBY), 1};
+            exec.cycle(enter, 10);
+            const size_t transitions = exec.modes().log().size();
+
+            Inputs drop;
+            drop.fault_updates.push_back({Fault::CAMERA_DROPOUT, true});
+            drop.fault_updates.push_back({Fault::CAMERA_DROPOUT, true});
+            drop.fault_updates.push_back({Fault::CAMERA_DROPOUT, true});
+            exec.cycle(drop, 20);
+
+            CHECK(exec.faults().is_active(Fault::CAMERA_DROPOUT));
+            CHECK(exec.modes().mode() == Mode::STANDBY);  // a dead payload is not a safing event
+            CHECK(exec.modes().log().size() == transitions);  // no transition logged
         }
     }
 }

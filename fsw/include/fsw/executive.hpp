@@ -36,10 +36,31 @@ class Executive {
     /** @brief the fault manager */
     const FaultManager& faults() const { return fm_; }
 
+    /**
+     * @brief  inhibit a fault's autonomous response for a bench run (REQ-FAULT-012)
+     * @param  f  the fault to inhibit
+     *
+     * the only writable door into the fault manager, and deliberately narrow: it cannot set,
+     * clear, or hide a fault, only stop one from commanding a mode change. the caller is
+     * responsible for declaring what it inhibited
+     */
+    void inhibit_fault(Fault f) { fm_.inhibit(f, true); }
+
     /** @brief the mode manager */
     const ModeManager& modes() const { return mm_; }
 
    private:
+    // cycles BOOT waits before declaring the self-check passed. matches the longest fault debounce
+    // in the table, so a persistently bad sensor has had every chance to latch first (REQ-MODE-010)
+    static constexpr uint8_t kBootCheckCycles = 3;
+    uint8_t boot_cycles_ = 0;
+
+    // image chunks put on the link per cycle in DOWNLINK. four is a budget, not a preference: the
+    // uart's transmit ring is 256 bytes and telemetry already spends ~80 of it each cycle, so a
+    // larger burst would sit blocked in uart_write waiting for the ring to drain. at this rate a
+    // 7 KB frame takes about three seconds, which is also long enough to watch happen
+    static constexpr uint8_t kPayloadChunksPerCycle = 4;
+
     // wrap a wire message in a frame and hands it to the link
     template <typename T>
     void send(MsgId id, const T& msg) {

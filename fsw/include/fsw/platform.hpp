@@ -18,6 +18,33 @@ namespace fsw::platform {
  */
 void send_telemetry(const uint8_t* frame, uint32_t len);
 
+/**
+ * @brief  command the reaction wheel's q-axis voltage
+ * @param  torque_mv  volts x1000, signed - the sign is the spin direction
+ *
+ * an action the fsw performs, like send_telemetry, not an input it reads. the esc closes
+ * the current loop itself and clamps to its own limit, so this is a request, not a demand
+ */
+void set_wheel_torque(int16_t torque_mv);
+
+/**
+ * @brief  ask the payload camera to take a frame
+ *
+ * fire-and-forget, like set_wheel_torque: the camera's fifo holds the frame and the outcome comes
+ * back as camera_data_t on a later cycle, so the fsw never blocks on the sensor
+ */
+void capture_image(void);
+
+/**
+ * @brief  put one chunk of a captured image on the link
+ * @return true if a chunk went out, false if there is nothing waiting
+ *
+ * the image never enters flight-software memory - the payload's own buffer holds it and this
+ * reads straight out of it (REQ-PAY-003), so the fsw decides only *when* to downlink, not where
+ * the bytes live
+ */
+bool send_payload_chunk(void);
+
 }  // namespace fsw::platform
 
 #endif  // FSW_PLATFORM_HPP

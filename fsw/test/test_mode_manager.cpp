@@ -6,13 +6,13 @@
 
 using namespace fsw;
 
-// Drive the mode manager to the target mode
+// drive the mode manager up the chain to the target mode
 static void drive_to(ModeManager& mm, Mode target) {
     if (target == Mode::BOOT) {
         return;
     }
 
-    if (target == Mode::SAFE) {  // SAFE isn't on the chain
+    if (target == Mode::SAFE) {  // safe is not on the chain
         REQUIRE(mm.request(Mode::SAFE, Trigger::FaultEntry, 0, "REQ-FAULT-002"));
         return;
     }
@@ -26,7 +26,7 @@ static void drive_to(ModeManager& mm, Mode target) {
     }
 }
 
-// Confirm transition anticipated legality matches true legality
+// check one transition's legality against what the table says it should be
 static void expect_transition(Mode from, Trigger trigger, Mode to, bool legal) {
     ModeManager mm;
 

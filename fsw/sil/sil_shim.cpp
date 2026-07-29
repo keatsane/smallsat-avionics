@@ -39,6 +39,18 @@ void send_telemetry(const uint8_t* frame, uint32_t len) {
     std::printf("\n");
 }
 
+void set_wheel_torque(int16_t torque_mv) {
+    std::printf("WHEEL %d\n", torque_mv);  // observable, so a scenario can grade the command
+}
+
+void capture_image(void) {
+    std::printf("CAPTURE\n");  // observable, so a scenario can grade the dispatch
+}
+
+bool send_payload_chunk(void) {
+    return false;  // no payload in SIL - image bytes are hardware, not decision logic
+}
+
 }  // namespace fsw::platform
 
 // --- name lookups ---

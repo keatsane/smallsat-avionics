@@ -33,9 +33,20 @@ void Executive::cycle(const Inputs& inputs, uint32_t t_ms) {
             mm_.request(Mode::SAFE, Trigger::FaultEntry, t_ms, "REQ-FAULT-002");
     }
 
+    // leave BOOT once every detector has had a full debounce window to disqualify the vehicle and
+    // nothing Critical latched. BOOT is not a resting state - without this the rig sits there
+    // forever whenever no ground station is commanding it (REQ-MODE-010)
+    if (mm_.mode() == Mode::BOOT) {
+        if (boot_cycles_ < kBootCheckCycles) {
+            boot_cycles_++;
+        } else if (!fm_.should_enter_safe()) {
+            mm_.request(Mode::STANDBY, Trigger::Nominal, t_ms, "REQ-MODE-010");
+        }
+    }
+
     // imu degraded fallback
     if ((mm_.mode() == Mode::POINTING || mm_.mode() == Mode::DETUMBLE) &&
-        fm_.is_active(Fault::ACCEL_GYRO_DROPOUT)) {
+        fm_.response_active(Fault::ACCEL_GYRO_DROPOUT)) {
         mm_.request(Mode::STANDBY, Trigger::FaultEntry, t_ms,
                     fm_.fault_spec(Fault::ACCEL_GYRO_DROPOUT).req_id);
     }
@@ -44,9 +55,18 @@ void Executive::cycle(const Inputs& inputs, uint32_t t_ms) {
     // to brownout/overcurrent, so retreat them to STANDBY - lower draw, less risk (REQ-FAULT-005)
     if ((mm_.mode() == Mode::POINTING || mm_.mode() == Mode::DETUMBLE ||
          mm_.mode() == Mode::DOWNLINK) &&
-        fm_.is_active(Fault::POWER_DROPOUT)) {
+        fm_.response_active(Fault::POWER_DROPOUT)) {
         mm_.request(Mode::STANDBY, Trigger::FaultEntry, t_ms,
                     fm_.fault_spec(Fault::POWER_DROPOUT).req_id);
+    }
+
+    // wheel degraded fallback: pointing and detumble are the two modes that actuate, and with the
+    // wheel link down a torque command goes nowhere - so retreat to STANDBY rather than hold a
+    // mode the rig cannot fly (REQ-FAULT-005)
+    if ((mm_.mode() == Mode::POINTING || mm_.mode() == Mode::DETUMBLE) &&
+        fm_.response_active(Fault::WHEEL_DROPOUT)) {
+        mm_.request(Mode::STANDBY, Trigger::FaultEntry, t_ms,
+                    fm_.fault_spec(Fault::WHEEL_DROPOUT).req_id);
     }
 
     // dispatch accepted ground commands. acceptance only means the command passed validation
@@ -65,7 +85,9 @@ void Executive::cycle(const Inputs& inputs, uint32_t t_ms) {
                 fm_.clear(static_cast<Fault>(inputs.command->arg), t_ms);
                 break;
             case Command::CAPTURE_IMAGE:
-                // payload capture tbd
+                // fire-and-forget - the frame lands in the camera's fifo and is reported back as
+                // camera telemetry, so nothing here waits on the payload (REQ-PAY-001)
+                platform::capture_image();
                 break;
         }
     }
@@ -88,6 +110,23 @@ void Executive::cycle(const Inputs& inputs, uint32_t t_ms) {
     // temp data
     if (inputs.temp) {
         send(MsgId::TempData, *inputs.temp);
+    }
+
+    // camera health - the frame itself is bulk data and downlinks separately
+    if (inputs.camera) {
+        send(MsgId::CameraStatus, *inputs.camera);
+    }
+
+    // DOWNLINK is the mode that empties the payload buffer, and this is the whole of what makes
+    // it different from STANDBY. a few chunks a cycle rather than the whole image at once: the
+    // link is shared with telemetry, and a pass that ends early should leave a partial image the
+    // ground can resume, not a stalled control loop (REQ-PAY-004)
+    if (mm_.mode() == Mode::DOWNLINK) {
+        for (uint8_t i = 0; i < kPayloadChunksPerCycle; ++i) {
+            if (!platform::send_payload_chunk()) {
+                break;  // nothing waiting - the image is done, or there never was one
+            }
+        }
     }
 }
 

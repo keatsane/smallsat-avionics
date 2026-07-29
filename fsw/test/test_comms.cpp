@@ -66,6 +66,32 @@ TEST_SUITE("COMMS REQUIREMENTS") {
             CHECK(ch.handle(clear_fault, Mode::STANDBY, 0).reason == CmdReject::BadArg);
         }
 
+        SUBCASE("BOOT is refused as a SET_MODE target (REQ-CMD-005)") {
+            CommandHandler ch;
+
+            command_t to_boot{static_cast<uint8_t>(Command::SET_MODE),
+                              static_cast<uint8_t>(Mode::BOOT), 6};
+
+            // in range, so it would pass a bounds check - it is refused for what it names, and
+            // refused from every mode rather than only the ones BOOT cannot be reached from
+            CHECK(ch.handle(to_boot, Mode::STANDBY, 0).reason == CmdReject::BadArg);
+            CHECK(ch.handle(to_boot, Mode::BOOT, 0).reason == CmdReject::BadArg);
+            CHECK(ch.handle(to_boot, Mode::SAFE, 0).reason == CmdReject::BadArg);
+            CHECK_FALSE(ch.handle(to_boot, Mode::STANDBY, 0).accepted);
+        }
+
+        SUBCASE("Every other mode is still commandable") {
+            CommandHandler ch;
+
+            for (uint8_t m = 0; m < kModeCount; ++m) {
+                if (static_cast<Mode>(m) == Mode::BOOT) {
+                    continue;
+                }
+                command_t set_mode{static_cast<uint8_t>(Command::SET_MODE), m, 7};
+                CHECK(ch.handle(set_mode, Mode::STANDBY, 0).accepted);
+            }
+        }
+
         SUBCASE("Rejections are logged with their reason") {
             CommandHandler ch;
 
