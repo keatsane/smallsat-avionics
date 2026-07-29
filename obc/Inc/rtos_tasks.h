@@ -29,9 +29,18 @@
 #include "task.h"
 
 #define TASK_PRIO_CONTROL (configMAX_PRIORITIES - 1)
+#define TASK_PRIO_HEALTH  6
 #define TASK_PRIO_SENSORS 5
 
-#define TASK_STACK_CONTROL 1024U  // the fsw cycle plus vsnprintf, which is the expensive half
-#define TASK_STACK_SENSORS 512U
+// sized against measured peaks, not guesses. bench run 2026-08-02 covering every mode, a capture
+// and a 131-chunk downlink reported the same high-water marks as an idle run - the deepest path in
+// the control task is a console_printf, not the payload downlink. peaks were control 181, sensors
+// 101, health 80, idle 23 words; each below keeps roughly 2.5x that. the margin is deliberately
+// generous rather than tight, because the kernel's high-water figure reads optimistic: it counts a
+// fill pattern, and a written byte that happens to hold that pattern lets the count run past the
+// true frontier. re-measure and re-size when a task's work changes
+#define TASK_STACK_CONTROL 512U
+#define TASK_STACK_SENSORS 256U
+#define TASK_STACK_HEALTH  192U  // one small struct and a frame buffer, no formatted output
 
 #endif  // RTOS_TASKS_H
