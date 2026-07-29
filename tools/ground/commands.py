@@ -45,10 +45,30 @@ def parse(line: str) -> tuple[int, int]:
     return resolve(parts[0], parts[1] if len(parts) > 1 else None)
 
 
+# which modes each mode can reach - mirrors kAutoAllowed in fsw/src/mode_manager.cpp, and the
+# table in docs/requirements.md under REQ-MODE-003. shown in the help because SET_MODE is the one
+# command whose legality depends on where the spacecraft already is: without it the only way to
+# learn that STANDBY cannot reach POINTING is to be refused and go read the flight software
+MODE_LADDER = {
+    "BOOT": ("STANDBY", "DETUMBLE", "SAFE"),
+    "STANDBY": ("DETUMBLE", "SAFE"),
+    "DETUMBLE": ("STANDBY", "POINTING", "SAFE"),
+    "POINTING": ("STANDBY", "DOWNLINK", "SAFE"),
+    "DOWNLINK": ("STANDBY", "POINTING", "SAFE"),
+    "SAFE": ("STANDBY",),
+}
+
+
 def usage() -> str:
     """Multi-line summary of what can be typed, for an interactive prompt's help."""
     lines = []
     for name in COMMANDS:
         catalog = ARG_CATALOG.get(name)
         lines.append(f"  {name} <{'|'.join(catalog)}>" if catalog else f"  {name}")
+
+    lines.append("")
+    lines.append("  SET_MODE is refused unless the target is reachable from the current mode:")
+    for mode, reachable in MODE_LADDER.items():
+        lines.append(f"    from {mode:<9}-> {', '.join(reachable)}")
+    lines.append("    (CAPTURE_IMAGE is legal in POINTING only)")
     return "\n".join(lines)

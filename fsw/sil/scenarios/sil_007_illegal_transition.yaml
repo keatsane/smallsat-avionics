@@ -1,10 +1,14 @@
-# acceptance is not execution: SET_MODE POINTING is a valid command everywhere (known
-# id, in-range arg), so it is ACCEPTED - but STANDBY -> POINTING is not in the
-# transition allow-list, so the mode manager refuses it and nothing changes
-# (REQ-MODE-003/004). the final mode is the proof the transition never happened
+# a SET_MODE whose target is unreachable from the current mode is refused at validation, not
+# accepted and then quietly dropped: STANDBY -> POINTING is not in the transition allow-list
+# (REQ-MODE-003), so the ack comes back rejected with IllegalInMode and names why. the unchanged
+# final mode is the proof nothing moved; the ack is the proof the ground was told (REQ-CMD-006).
+#
+# note what this does NOT claim: acceptance still is not execution. a safing raised in the same
+# cycle overrides an accepted command, which is SIL-008's case. this covers only the narrower one
+# where the refusal was already knowable when the command was validated
 id: SIL-007
-title: accepted command, illegal transition refused
-verifies: [REQ-MODE-004]
+title: unreachable mode target refused at validation
+verifies: [REQ-MODE-004, REQ-CMD-006]
 timeline:
   - { t: 100, cmd: { name: SET_MODE, arg: 1, seq: 1 } }
   - { t: 300, cmd: { name: SET_MODE, arg: 3, seq: 2 } }
@@ -13,7 +17,8 @@ expect:
   mode_log:
     - { to: STANDBY, trigger: Command, req: REQ-CMD-001 }
   acks:
-    - { seq: 2, accepted: true }
+    - { seq: 1, accepted: true }
+    - { seq: 2, accepted: false, reason: IllegalInMode }
   final:
     mode: STANDBY
     faults_set: []

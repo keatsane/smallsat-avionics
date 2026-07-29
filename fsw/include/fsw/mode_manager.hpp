@@ -37,6 +37,18 @@ struct ModeTransition {
 // (REQ-MODE-009)
 using ModeLog = etl::circular_buffer<ModeTransition, kLogCapacity>;
 
+/**
+ * @brief  would this transition be allowed (REQ-MODE-003)
+ * exposed rather than private to ModeManager because the command handler has to answer the same
+ * question at validation time - a SET_MODE the mode manager would refuse must be rejected with a
+ * reason, not accepted and then quietly ignored (REQ-CMD-006)
+ * @param  from     the mode the spacecraft is in
+ * @param  trigger  what is asking; only Command may climb out of SAFE
+ * @param  to       the requested mode
+ * @return true if request() would accept it
+ */
+bool mode_transition_legal(Mode from, Trigger trigger, Mode to);
+
 class ModeManager {
    public:
     /** @brief the mode the spacecraft is in right now */

@@ -5,6 +5,8 @@
 
 #include "fsw/comms/command_handler.hpp"
 
+#include "fsw/mode_manager.hpp"  // mode_transition_legal - SET_MODE is validated against it
+
 namespace fsw {
 namespace {
 
@@ -46,6 +48,17 @@ CommandEvent CommandHandler::handle(const command_t& cmd, Mode current_mode, uin
         } else if ((c == Command::SET_MODE && !commandable_mode(cmd.arg)) ||
                    (c == Command::CLEAR_FAULT && cmd.arg >= kFaultCount)) {
             reason = CmdReject::BadArg;
+        } else if (c == Command::SET_MODE && !mode_transition_legal(current_mode, Trigger::Command,
+                                                                    static_cast<Mode>(cmd.arg))) {
+            // the target is a real mode but not reachable from this one (REQ-MODE-003), and that
+            // is knowable here rather than only after the mode manager shrugs. same reasoning as
+            // the BOOT refusal above: an ack saying yes while the vehicle does not move is a worse
+            // interface than a refusal that names why (REQ-CMD-006).
+            //
+            // this does not make acceptance mean execution - a safing raised in the same cycle
+            // still overrides an accepted command (REQ-EXEC-001, SIL-008). it closes the narrower
+            // case where the refusal was already predictable at validation time
+            reason = CmdReject::IllegalInMode;
         }
     }
 

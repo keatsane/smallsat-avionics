@@ -80,16 +80,49 @@ TEST_SUITE("COMMS REQUIREMENTS") {
             CHECK_FALSE(ch.handle(to_boot, Mode::STANDBY, 0).accepted);
         }
 
-        SUBCASE("Every other mode is still commandable") {
+        SUBCASE("Every other mode is a valid target, reachable or not") {
             CommandHandler ch;
 
+            // BOOT is the only mode id refused for what it names. the rest are well-formed
+            // targets, so whether they are accepted depends on reachability, never on BadArg
             for (uint8_t m = 0; m < kModeCount; ++m) {
                 if (static_cast<Mode>(m) == Mode::BOOT) {
                     continue;
                 }
                 command_t set_mode{static_cast<uint8_t>(Command::SET_MODE), m, 7};
-                CHECK(ch.handle(set_mode, Mode::STANDBY, 0).accepted);
+                CHECK(ch.handle(set_mode, Mode::STANDBY, 0).reason != CmdReject::BadArg);
             }
+        }
+
+        SUBCASE("A mode that cannot be reached from here is refused (REQ-CMD-006)") {
+            CommandHandler ch;
+
+            command_t to_pointing{static_cast<uint8_t>(Command::SET_MODE),
+                                  static_cast<uint8_t>(Mode::POINTING), 8};
+
+            // STANDBY -> POINTING is not in the transition table, so the mode manager would refuse
+            // it. validation knows that already, and says so rather than acking a no-op
+            const CommandEvent from_standby = ch.handle(to_pointing, Mode::STANDBY, 0);
+            CHECK_FALSE(from_standby.accepted);
+            CHECK(from_standby.reason == CmdReject::IllegalInMode);
+
+            // the same command one rung up the ladder is legal, so the refusal is about the
+            // transition and not about the command
+            CHECK(ch.handle(to_pointing, Mode::DETUMBLE, 0).accepted);
+        }
+
+        SUBCASE("The ground can still climb out of SAFE (REQ-MODE-006)") {
+            CommandHandler ch;
+
+            // SAFE has no autonomous exit, so this is the one transition only a command may make -
+            // the new validation must not close it
+            command_t to_standby{static_cast<uint8_t>(Command::SET_MODE),
+                                 static_cast<uint8_t>(Mode::STANDBY), 9};
+            CHECK(ch.handle(to_standby, Mode::SAFE, 0).accepted);
+
+            command_t to_detumble{static_cast<uint8_t>(Command::SET_MODE),
+                                  static_cast<uint8_t>(Mode::DETUMBLE), 10};
+            CHECK_FALSE(ch.handle(to_detumble, Mode::SAFE, 0).accepted);
         }
 
         SUBCASE("Rejections are logged with their reason") {
