@@ -61,7 +61,7 @@ Both directions beacon at 1 Hz: the satellite sends a heartbeat every second, an
 
 ## Onboard interfaces
 
-Separate from the comm links above. Those carry the spacecraft-to-ground contract - framed, CRC-checked packets. The onboard interfaces are how the OBC reaches its own sensors on the satellite itself. This traffic never leaves the board and is not framed - each device speaks its own native register protocol, handled in its driver under `bsp/`. Selected readings are then repackaged into downlink telemetry (for example `imu_data_t`) and sent to ground over a comm link, but the onboard bus read and the downlink packet are two different things: the read is a register access over SPI or I2C, the packet is a framed message over the link.
+Separate from the comm links above. Those carry the spacecraft-to-ground contract - framed, CRC-checked packets. The onboard interfaces are how the OBC reaches its own sensors on the satellite itself. This traffic never leaves the board and is not framed - each device speaks its own native register protocol, handled in its driver under `obc/`. Selected readings are then repackaged into downlink telemetry (for example `imu_data_t`) and sent to ground over a comm link, but the onboard bus read and the downlink packet are two different things: the read is a register access over SPI or I2C, the packet is a framed message over the link.
 
 | Peripheral | Bus | How the OBC talks to it | Status |
 | ---------- | --- | ----------------------- | ------ |
@@ -69,8 +69,8 @@ Separate from the comm links above. Those carry the spacecraft-to-ground contrac
 | INA228 power monitor | I2C1 | register reads - bus voltage, current, and power, sensed high-side on the main battery bus | on the bench |
 | TMP117 temperature | I2C1 | register reads - placeable structural temperature | on the bench |
 | OV2640 camera (ArduCAM) | SPI3 + I2C1 | two buses at once: SCCB register writes over I2C to configure the sensor, SPI to read frames out of the onboard FIFO | answers on both buses; driver not written |
-| B-G431B-ESC1 reaction-wheel driver | USART1 | speed/torque commands out; the ESC closes the FOC loop locally against its own encoder | wired, no firmware yet |
-| WS2812 status LEDs | GPIO (PA8) | one timed data line, three beads chained - mode, fault, and link | wired, no driver yet |
+| B-G431B-ESC1 reaction-wheel driver | USART1 | framed torque commands out, wheel status back; the ESC closes the FOC loop locally against its own encoder | link proven; OBC-side driver not written |
+| WS2812 status LEDs | GPIO (PA8) | one timed data line, three beads chained - mode, fault, and link | on the bench |
 
 More peripherals join this table as their phases arrive.
 
@@ -90,15 +90,32 @@ Recovery is deliberately conservative and ground-commanded: a latched fault clea
 
 Bare metal first: CMSIS startup, clock, a GPIO heartbeat, a SysTick or timer time base, interrupt-driven UART, then simple packet framing. FreeRTOS comes in when the workload turns genuinely concurrent - multiple rate-critical tasks (sensors, telemetry, commands, a control loop) - not before, when a super-loop is enough, and not as an afterthought.
 
-The firmware is grouped by layer under `bsp/`: `drivers/` (clock, gpio, systick, uart, spi, i2c) - register-level code for the MCU's own peripherals that moves raw bytes - and `devices/` (the ICM-20948 IMU, with the power and temperature sensors as they come up) - the external chips that ride those buses. The frame envelope and message definitions live in `common/protocol/` (C++) - the wire contract the flight software owns and the ground-station firmware will share when it lands. The protocol is the OBC's ground interface, not something the firmware interprets, so the flight software builds and parses the frames while the drivers just carry the bytes. A SysTick time base provides the millisecond clock, and an interrupt-driven multi-instance USART driver spans two UARTs - a console on USART2 (the ST-Link virtual COM port, for the host decoder and debug) and a downlink on USART6 (a header pin, so it can be probed on a scope or logic analyzer and later swapped for a radio). The I2C driver is a polled master; bringing the INA228 up on the bench surfaced a documented F4 erratum - the cell leaves its STOP bit wedged after a transfer (es0298 2.11.3) - so each transfer clears that stale stop with a controller reset before it issues a START.
+The firmware is grouped by layer under `obc/`: `drivers/` (clock, gpio, systick, uart, spi, i2c) - register-level code for the MCU's own peripherals that moves raw bytes - and `devices/` (the ICM-20948 IMU, with the power and temperature sensors as they come up) - the external chips that ride those buses. The frame envelope and message definitions live in `common/protocol/` (C++) - the wire contract the flight software owns and the ground-station firmware will share when it lands. The protocol is the OBC's ground interface, not something the firmware interprets, so the flight software builds and parses the frames while the drivers just carry the bytes. A SysTick time base provides the millisecond clock, and an interrupt-driven multi-instance USART driver spans three UARTs - a console on USART2 (the ST-Link virtual COM port, for the host decoder and debug), a downlink on USART6 (a header pin, so it can be probed on a scope or logic analyzer and later swapped for a radio), and the ESC command link on USART1. The I2C driver is a polled master; bringing the INA228 up on the bench surfaced a documented F4 erratum - the cell leaves its STOP bit wedged after a transfer (es0298 2.11.3) - so each transfer clears that stale stop with a controller reset before it issues a START.
+
+## Nodes
+
+The OBC is not the only processor in the system, so each node that runs its own firmware gets its own top-level directory alongside `obc/` and `fsw/`.
+
+| Path | Node | Runs on |
+| ---- | ---- | ------- |
+| `obc/` + `fsw/` | on-board computer - drivers, flight software | STM32F446 (Nucleo) |
+| `esc/` | reaction-wheel driver - FOC, encoder, torque commands | STM32G431 (B-G431B-ESC1) |
+| `gsw/` | ground station - link decode, display, command entry (planned) | Teensy |
+
+Each node owns its build and toolchain: the OBC builds from CubeIDE-generated makefiles, and the ESC node is an Arduino sketch on top of SimpleFOC, which handles the current control loop and the AS5600 encoder locally. The OBC only sends it torque targets over UART, so the fast inner loop stays off the flight computer. What crosses between nodes is the wire contract in `common/protocol/`, which the ground-station firmware will share when it lands.
 
 ## Vendored dependencies
 
-Third-party firmware lives under `vendor/` as Git submodules rather than copied-in source.
+Third-party code lives under `vendor/`, never copied into the node trees. Two forms, by one rule: **libraries the build compiles against are submodules; constant data transcribed out of a library is a checked-in file with its provenance recorded.**
 
-| Path | What it is |
-| ---- | ---------- |
-| `vendor/cmsis-core` | CMSIS core headers and support |
-| `vendor/cmsis-device-f4` | STM32F4 device headers and startup references |
-| `vendor/FreeRTOS-Kernel` | the RTOS kernel, vendored but excluded from the build until the FreeRTOS phase |
-| `vendor/etl` | the Embedded Template Library - fixed-capacity, no-heap containers for the flight software |
+The distinction is about what upstream is for. A submodule pins a whole project at a commit and is worth the weight when the project is the thing being used. The OV2640 tables are four constant arrays lifted out of a 115 MB Arduino repository that is otherwise unused here - a submodule would carry the entire library, and its release cadence, to get 19 KB of register values that have not changed in years. Checked in, the file is still byte-exact and still diffable against upstream; `docs/setup.md` has the one-line refetch.
+
+| Path | Form | What it is |
+| ---- | ---- | ---------- |
+| `vendor/cmsis-core` | submodule | CMSIS core headers and support |
+| `vendor/cmsis-device-f4` | submodule | STM32F4 device headers and startup references |
+| `vendor/FreeRTOS-Kernel` | submodule | the RTOS kernel, vendored but excluded from the build until the FreeRTOS phase |
+| `vendor/etl` | submodule | the Embedded Template Library - fixed-capacity, no-heap containers for the flight software |
+| `vendor/arducam` | checked in | OmniVision's OV2640 register tables by way of ArduCAM's library, plus the small shim that lets them compile outside Arduino |
+
+Everything under `vendor/` is excluded from the formatters, so vendored files stay byte-identical to upstream.

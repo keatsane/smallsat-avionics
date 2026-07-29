@@ -96,8 +96,8 @@ A HIL scenario tests the same flight software on the real STM32 over the live se
 ### Running
 
 ```
-just hil COM3            # the whole campaign, pausing for the operator between scenarios
-just hil COM3 2          # one scenario by number, name fragment, or path
+just hil                 # the whole campaign, pausing for the operator between scenarios
+just hil 2               # one scenario by number, name fragment, or path
 just hil-scope 1 frame   # file a scope capture for a HIL test
 ```
 

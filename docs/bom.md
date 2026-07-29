@@ -11,7 +11,7 @@ Bench hardware that is actually in use. More sensors and actuator parts get adde
 | SparkFun ICM-20948 9-DoF IMU breakout | 1 | ~$17.00 | Accel/gyro over SPI, plus the AK09916 magnetometer through the chip's internal I2C master; all three streams are live on the bench. |
 | Adafruit INA228 power monitor breakout (#5832) | 1 | $14.95 | Bus voltage/current/power over I2C (20-bit, 85 V); up on the bench, current verified. |
 | Adafruit TMP117 temperature breakout (#4821) | 1 | $11.50 | High-accuracy structural temperature over I2C (16-bit, +-0.1 degC, addr 0x48); on the bench reading ~24 degC. |
-| ArduCAM Mini 2MP (OV2640) | 1 | $25.99 | Imaging payload, on two buses: SPI3 for the frame FIFO and I2C1 for register config over SCCB. Both answer on the bench - the chip ID reads back and the SPI test register round-trips - but the driver isn't written yet. |
+| ArduCAM Mini 2MP (OV2640) | 1 | $25.99 | Imaging payload, on two buses: SPI3 for the frame FIFO and I2C1 for register config over SCCB. Both answer on the bench - the chip ID reads back and the SPI test register round-trips. The driver is written (ArduChip FIFO control, non-blocking capture, chunked read-out) but has not been run against the camera yet, and the sensor's JPEG register tables still need vendoring. |
 | GBM4108-120T gimbal motor | 1 | ~$40.00 | The reaction-wheel actuator. 24N22P, so 11 pole pairs, 12.4 ohm windings. Runs closed-loop FOC on the bench at ~344 RPM for 0.18 A. |
 | B-G431B-ESC1 FOC driver | 1 | $19.42 | Runs SimpleFOC and closes the motor loop locally, reading the encoder itself; takes speed/torque commands from the OBC over UART. |
 | AS5600 magnetic encoder + diametric magnet | 1 | ~$10.00 | Rotor position for sensored FOC. Wired to the ESC, not the OBC. Verified at 0x36 with the magnet detected, and one hand revolution reads 6.26 rad against 6.28 theoretical. |
@@ -80,7 +80,7 @@ Two things worth knowing before wiring it: the I2C the encoder needs is the **Ha
 
 - [AS5600 datasheet](datasheets/actuation/as5600-datasheet.pdf) - register map, the I2C interface at 0x36, and the status bits
 
-It sits on the ESC's bus, not the OBC's, so there is no driver for it in `bsp/` - this sheet is for reading it by hand on the bench or for setting SimpleFOC up. The DIR pin picks which way counts up: tied to ground the value increases clockwise, tied to VDD it increases counterclockwise. Magnet placement shows up in the status register rather than as a bad angle - MD means detected, ML means too weak or too far, MH means too strong or too close.
+It sits on the ESC's bus, not the OBC's, so there is no driver for it in `obc/` - this sheet is for reading it by hand on the bench or for setting SimpleFOC up. The DIR pin picks which way counts up: tied to ground the value increases clockwise, tied to VDD it increases counterclockwise. Magnet placement shows up in the status register rather than as a bad angle - MD means detected, ML means too weak or too far, MH means too strong or too close.
 
 ### RFM95W LoRa radio (Adafruit #3072)
 

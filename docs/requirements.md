@@ -73,6 +73,14 @@ The spacecraft operates in exactly one of six modes at any time. Their intent:
 **Verification**: unit test  
 **Artifact**: fsw/test/test_mode_manager.cpp
 
+**REQ-MODE-010** - The flight software shall leave BOOT autonomously, entering STANDBY once every fault detector has had a full debounce window to disqualify the vehicle and none has latched a Critical fault. The transition shall carry the Nominal trigger. BOOT shall never be a resting state: absent a Critical fault the vehicle proceeds, and given one it safes.  
+**Type**: Functional  
+**Status**: unit-verified  
+**Verification**: unit test and SIL  
+**Artifact**: fsw/src/executive.cpp, fsw/test/test_executive.cpp
+
+The wait is deliberate rather than an immediate hop on the first cycle. A fault needs `debounce_n` consecutive bad samples to latch, so leaving BOOT any sooner would mean declaring the self-check passed before a persistently bad sensor could possibly have failed it.
+
 **REQ-MODE-009** - The mode transition log shall be a fixed-capacity buffer that allocates no memory dynamically and retains at least the 32 most recent records; when full, the oldest record shall be overwritten.  
 **Type**: Constraint  
 **Status**: unit-verified  
@@ -117,9 +125,9 @@ The live fault catalog (command-link loss, IMU dropouts, power-monitor dropout, 
 
 **REQ-FAULT-005** - A fault of Warning or Degraded severity shall not by itself command SAFE; a Degraded fault shall switch to its documented fallback behavior (see Degraded fallback behaviors below), and every such fault shall be latched and reported in telemetry.
 **Type**: Functional
-**Status**: in progress (no-SAFE, latch, and report are SIL-verified; the ACCEL_GYRO_DROPOUT and POWER_DROPOUT -> STANDBY retreats are implemented, but their active-mode scenarios are still owed)
+**Status**: in progress (no-SAFE, latch, and report are SIL-verified; the WHEEL_DROPOUT -> STANDBY retreat is unit-verified, and the ACCEL_GYRO_DROPOUT and POWER_DROPOUT retreats are implemented but their active-mode scenarios are still owed)
 **Verification**: unit test and SIL  
-**Artifact**: fsw/src/executive.cpp, fsw/src/sensor_monitor.cpp, fsw/test/test_fault_manager.cpp, docs/reports/sil/SIL-003.md
+**Artifact**: fsw/src/executive.cpp, fsw/src/sensor_monitor.cpp, fsw/test/test_fault_manager.cpp, fsw/test/test_executive.cpp, fsw/test/test_sensor_monitor.cpp, docs/reports/sil/SIL-003.md
 
 ### Degraded fallback behaviors
 
@@ -129,8 +137,11 @@ REQ-FAULT-005 requires a Degraded fault to switch to its documented fallback - l
 | ----- | --------------------- |
 | ACCEL_GYRO_DROPOUT | In POINTING or DETUMBLE - the modes that depend on body-rate feedback - retreat to STANDBY, a stable idle; holding attitude without the gyro is unsafe, but the loss is not mission-ending. In any other mode, latch and report only. |
 | POWER_DROPOUT | In POINTING, DETUMBLE, or DOWNLINK - the high-power modes - retreat to STANDBY; with the power monitor unreadable, running power-hungry operations blind to brownout/overcurrent is unsafe, and STANDBY's lower draw cuts the risk. In any other mode, latch and report only. |
+| WHEEL_DROPOUT | In POINTING or DETUMBLE - the two modes that actuate - retreat to STANDBY; with the reaction wheel's link down a torque command goes nowhere, so holding a mode the rig cannot fly is a false claim of control. In any other mode, latch and report only. |
 
-The active retreats - POINTING/DETUMBLE -> STANDBY on ACCEL_GYRO_DROPOUT, and POINTING/DETUMBLE/DOWNLINK -> STANDBY on POWER_DROPOUT - run in the executive's fault-response step and are logged as `FaultEntry` transitions stamped REQ-FAULT-005. Recovery is ground-commanded like every fault (CLEAR_FAULT, REQ-FAULT-010); the planned RESET_DEVICE command will let the ground re-initialize the affected sensor before clearing it.
+The active retreats - POINTING/DETUMBLE -> STANDBY on ACCEL_GYRO_DROPOUT and on WHEEL_DROPOUT, and POINTING/DETUMBLE/DOWNLINK -> STANDBY on POWER_DROPOUT - run in the executive's fault-response step and are logged as `FaultEntry` transitions stamped REQ-FAULT-005. Recovery is ground-commanded like every fault (CLEAR_FAULT, REQ-FAULT-010); the planned RESET_DEVICE command will let the ground re-initialize the affected sensor before clearing it.
+
+`WHEEL_DROPOUT` is detected from the silence on the wheel link rather than from a sample: the ESC beacons its status every 250 ms, so a second without one is a dead link. The first frame after boot gets a longer window (8 s) because the ESC aligns its FOC for about five seconds from cold and says nothing until it finishes - without that grace every boot would latch a dropout that clears itself a moment later, which is how a real fault gets trained into background noise. An ESC that never comes up still latches once the grace expires.
 
 **REQ-FAULT-006** - The flight software shall evaluate the full fault set once per control cycle and apply the required response; when more than one response is indicated, the most conservative one shall win (SAFE dominates).  
 **Type**: Functional  
@@ -168,6 +179,14 @@ The active retreats - POINTING/DETUMBLE -> STANDBY on ACCEL_GYRO_DROPOUT, and PO
 **Verification**: unit test  
 **Artifact**: fsw/test/test_fault_manager.cpp
 
+**REQ-FAULT-012** - It shall be possible to inhibit an individual fault's autonomous response for ground testing. An inhibited fault shall still debounce, latch, log, and report in telemetry; only the mode change it would command shall be suppressed. The inhibited set shall be reported, so that a run with inhibits in force cannot be mistaken for one without.  
+**Type**: Functional  
+**Status**: unit-verified (compile-time inhibit list declared at the platform boundary and announced in the boot banner; ground-commandable inhibits wait on the ground station in Phase 8)  
+**Verification**: unit test  
+**Artifact**: fsw/src/fault_manager.cpp, fsw/src/executive.cpp, fsw/test/test_fault_manager.cpp, obc/Src/main.cpp
+
+Inhibits exist because the bench rig is routinely missing subsystems the flight configuration assumes: with no ground station, COMMAND_LINK_LOSS safes the vehicle about five seconds after every boot, and with the ESC unplugged WHEEL_DROPOUT latches on top of it. Suppressing the *response* while keeping the *evidence* is the standard fault-protection inhibit used during spacecraft commissioning, and it is why the fault still appears in every heartbeat.
+
 ## Executive
 
 **REQ-EXEC-001** - The flight software shall process each control cycle's inputs in a fixed, documented order: fault-sample ingestion, command validation, fault response, command dispatch. The fault response shall take precedence: a command accepted in the same cycle a critical fault forces SAFE shall not override the SAFE entry. Command acceptance acknowledges validation only; execution outcome is observed through telemetry.  
@@ -180,15 +199,23 @@ The active retreats - POINTING/DETUMBLE -> STANDBY on ACCEL_GYRO_DROPOUT, and PO
 
 **REQ-CMD-001** - The flight software shall validate every command - known id, in-range parameters, and legal in the current mode - before acting on it; an invalid command shall be rejected and reported, never executed.  
 **Type**: Functional  
-**Status**: SIL-verified  
+**Status**: SIL-verified (the uplink path onto the OBC is written - both links are drained each cycle and decoded commands enter as cycle inputs - but has not been exercised on the bench, so validation remains host-only evidence)  
 **Verification**: unit test and SIL  
-**Artifact**: fsw/test/test_comms.cpp, docs/reports/sil/SIL-002.md (scenario SIL-002)
+**Artifact**: fsw/test/test_comms.cpp, obc/Src/main.cpp, tools/uart_monitor.py, docs/reports/sil/SIL-002.md (scenario SIL-002)
 
 **REQ-CMD-002** - Loss of ground command contact for longer than a defined timeout shall raise COMMAND_LINK_LOSS.  
 **Type**: Functional  
 **Status**: SIL-verified  
 **Verification**: unit test and SIL  
 **Artifact**: fsw/test/test_comms.cpp, docs/reports/sil/SIL-005.md
+
+**REQ-CMD-005** - BOOT shall not be a commandable mode. A SET_MODE request naming BOOT shall be rejected as a bad argument.  
+**Type**: Functional  
+**Status**: unit-verified  
+**Verification**: unit test  
+**Artifact**: fsw/src/comms/command_handler.cpp, fsw/test/test_comms.cpp
+
+BOOT means "powered on and still self-checking" - a state the vehicle enters by resetting and leaves by passing its checks (REQ-MODE-010). There is nothing for the flight software to do with a request to re-enter it. Validating it away matters because the alternative is worse than useless: `BOOT` is a real mode id and a legal transition target from nowhere, so without this check the command passes validation, is acknowledged as accepted, and then changes nothing - an ack that says yes while the vehicle does not move.
 
 **REQ-CMD-003** - Every command shall be acknowledged in telemetry as accepted or rejected, with a reason given on rejection.  
 **Type**: Functional  
@@ -237,7 +264,7 @@ The active retreats - POINTING/DETUMBLE -> STANDBY on ACCEL_GYRO_DROPOUT, and PO
 **Type**: Performance  
 **Status**: bench-verified  
 **Verification**: demonstration and inspection  
-**Artifact**: bsp SysTick driver; millis() passed into each fsw cycle
+**Artifact**: obc SysTick driver; millis() passed into each fsw cycle
 
 **REQ-RT-002** - The decision paths shall run at a fixed, bounded rate and shall allocate no memory dynamically (fixed-capacity containers only).  
 **Type**: Constraint  
@@ -254,7 +281,7 @@ The active retreats - POINTING/DETUMBLE -> STANDBY on ACCEL_GYRO_DROPOUT, and PO
 **Type**: Functional  
 **Status**: bench-verified (forced a fault on the bench with a `udf` undefined instruction; the handler dumped pc=0x0800320c, CFSR=0x00010000 (UFSR.UNDEFINSTR) and HFSR=0x40000000 (FORCED - escalated to HardFault), then rebooted via NVIC_SystemReset, the next boot reading reset=software)  
 **Verification**: demonstration (trigger a fault, observe the capture then reset)  
-**Artifact**: bsp/Src/drivers/fault.c
+**Artifact**: obc/Src/drivers/fault.c
 
 **REQ-WDG-001** - An independent hardware watchdog shall reset the on-board computer if the flight software stops servicing it within the watchdog window.  
 **Type**: Functional  
@@ -265,7 +292,7 @@ The active retreats - POINTING/DETUMBLE -> STANDBY on ACCEL_GYRO_DROPOUT, and PO
 **Type**: Functional  
 **Status**: in progress (the reset-cause read and console boot-banner report are bench-demonstrated - a pin reset read back live as `BOOT: reset=pin`; the power-on / brownout / software / watchdog causes share the same decode path. Carrying it in the framed boot telemetry packet and demonstrating the watchdog-reset cause remain owed with phase 6)  
 **Verification**: HIL  
-**Artifact**: bsp/Src/drivers/reset.c, bsp/Inc/drivers/reset.h, bsp/Src/main.cpp
+**Artifact**: obc/Src/drivers/reset.c, obc/Inc/drivers/reset.h, obc/Src/main.cpp
 
 ## Sensors and data validity
 
@@ -273,7 +300,7 @@ The active retreats - POINTING/DETUMBLE -> STANDBY on ACCEL_GYRO_DROPOUT, and PO
 **Type**: Functional
 **Status**: bench-verified (the IMU sample carries an acquisition timestamp and per-half validity flags, streaming live on the bench; the sensor monitor treats an invalid half as a dropout rather than consuming it - a full attitude consumer that honors the flag lands with ADCS)
 **Verification**: unit test and HIL
-**Artifact**: common/protocol/msg.hpp (imu_data_t), bsp/Src/devices/icm20948.c, fsw/src/sensor_monitor.cpp, fsw/test/test_sensor_monitor.cpp
+**Artifact**: common/protocol/msg.hpp (imu_data_t), obc/Src/devices/icm20948.c, fsw/src/sensor_monitor.cpp, fsw/test/test_sensor_monitor.cpp
 
 **REQ-SNS-002** - A sensor whose data is invalid, missing, or frozen beyond a defined staleness window shall raise that sensor's dropout fault.
 **Type**: Functional
@@ -298,6 +325,28 @@ The active retreats - POINTING/DETUMBLE -> STANDBY on ACCEL_GYRO_DROPOUT, and PO
 **Verification**: unit test and HIL
 **Artifact**: fsw/src/sensor_monitor.cpp, fsw/test/test_sensor_monitor.cpp
 
+## Status indication
+
+**REQ-HMI-001** - The spacecraft shall indicate its current mode, the worst active fault severity, and its command-link health on an external visual indicator, updated every control cycle and readable without a ground connection.  
+**Type**: Functional  
+**Status**: bench-verified (three chained WS2812 beads on the comms plate, driven from PA8 by TIM1_CH1 + DMA; bead 0 carries mode by color, bead 1 the fault ladder, and bead 2 the uplink as three distinct states - amber before the first command is ever received, green in contact, red once COMMAND_LINK_LOSS acts, so a never-acquired link is never reported as a healthy one. The single-wire bit timing was scope-confirmed at 0.4 us / 0.8 us highs on a 1.25 us period)  
+**Verification**: demonstration (observe the array follow a commanded mode change and a latched fault)  
+**Artifact**: obc/Src/drivers/pwm_dma.c, obc/Src/devices/ws2812.c, obc/Src/main.cpp
+
+### Fault bead ladder
+
+Bead 1 shows the worst rung that applies, highest first:
+
+| Rung | Color | Meaning |
+| ---- | ----- | ------- |
+| Critical | red | a latched Critical fault whose response is live - the vehicle is safing or has safed |
+| Degraded | orange | a latched Degraded fault - a capability was lost and a documented fallback is in force |
+| Warning | yellow | a latched Warning fault - off-nominal, reported only |
+| Inhibited | blue | something is latched but every latched fault has its response inhibited (REQ-FAULT-012) |
+| Clean | off | nothing latched |
+
+An inhibited fault is deliberately excluded from the three alarm rungs and collected into the one below them. It remains in the heartbeat and in the boot banner, so nothing is hidden - but a bench build routinely runs with subsystems absent, and letting those hold the bead red on every boot is how a red indicator stops carrying information. Blue sits outside the red/orange/yellow alarm family on purpose: it reads as status, not as a call to act.
+
 ## Attitude control (ADCS)
 
 **REQ-ADCS-001** - In DETUMBLE the flight software shall command the reaction wheel to reduce the measured body rate below a defined threshold.  
@@ -314,6 +363,40 @@ The active retreats - POINTING/DETUMBLE -> STANDBY on ACCEL_GYRO_DROPOUT, and PO
 **Type**: Functional  
 **Status**: planned  
 **Verification**: unit test and HIL
+
+## Payload
+
+**REQ-PAY-001** - An accepted CAPTURE_IMAGE command shall start a payload image capture without blocking the control cycle; the capture outcome shall be reported in telemetry rather than returned to the command.  
+**Type**: Functional  
+**Status**: bench-verified (CAPTURE_IMAGE accepted in POINTING, the frame taken without a missed control cycle, and the result downlinked intact)  
+**Verification**: unit test and HIL  
+**Artifact**: fsw/src/executive.cpp, obc/Src/devices/ov2640.c, fsw/test/test_executive.cpp
+
+**REQ-PAY-002** - Loss of the payload camera shall raise CAMERA_DROPOUT; the payload is not required for vehicle safety, so the fault shall latch and report without changing mode.  
+**Type**: Functional  
+**Status**: in progress (detection and reporting are unit-verified; not yet demonstrated against real hardware)  
+**Verification**: unit test and HIL  
+**Artifact**: fsw/src/sensor_monitor.cpp, fsw/test/test_sensor_monitor.cpp
+
+**REQ-PAY-003** - A captured frame shall be held in the camera's own buffer and read out in caller-sized chunks, so that no image-sized buffer is allocated in flight-software RAM.  
+**Type**: Constraint  
+**Status**: bench-verified (a 7299-byte frame drained to exactly its own reported length, opening FF D8 and closing FF D9, with only a 64-byte stack buffer in the loop)  
+**Verification**: inspection and HIL  
+**Artifact**: obc/Src/devices/ov2640.c
+
+**REQ-PAY-004** - In DOWNLINK the flight software shall empty the payload buffer to the ground a bounded number of chunks per control cycle. Each chunk shall identify its image, its index, and the total count, so that a contact pass ending mid-image leaves a resumable set of chunks rather than an unusable partial stream.  
+**Type**: Functional  
+**Status**: bench-verified (a commanded capture in POINTING downlinked in DOWNLINK as 121 chunks over about three seconds and reassembled on the ground to a 6759-byte file whose JPEG markers were intact at both ends)  
+**Verification**: unit test and HIL  
+**Artifact**: fsw/src/executive.cpp, fsw/platform/stm32/platform_stm32.cpp, tools/ground/payload.py, tools/tests/test_payload.py
+
+The per-cycle bound is a real-time budget rather than a preference: the UART's transmit ring is 256 bytes and telemetry already spends about 80 of it each cycle, so a larger burst would block in `uart_write` waiting for the ring to drain and stall the control loop. The image length sent is the JPEG length found by scanning for the end-of-image marker, not the camera FIFO's reported length - those differ by a few hundred bytes of padding, which would otherwise be transmitted during a contact pass.
+
+**REQ-PAY-005** - The reported size of a captured image shall be the size of the image data, determined by locating its end-of-image marker, and not the raw fill level of the camera's buffer.  
+**Type**: Functional  
+**Status**: bench-verified (two captures of different scenes both reported a 7688-byte FIFO while their images measured 7265 and 7362 bytes)  
+**Verification**: unit test and HIL  
+**Artifact**: obc/Src/devices/ov2640.c
 
 ## Platform abstraction and portability
 

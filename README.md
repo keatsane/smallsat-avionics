@@ -24,7 +24,7 @@ The first HIL slice is bench-verified: the board beacons live telemetry, the hos
 The physical rig is now built: a three-plate stack on a lazy-susan pivot, with the reaction wheel and its encoder below, the OBC and sensors in the middle, and the radios and status LEDs up top. The wheel runs closed-loop FOC against a real magnetic encoder, and stepping its speed visibly kicks the platform the other way - the reaction-wheel effect, on the bench. The whole stack runs off a 14.8 V bus through its own switch, shunt, and regulators. The imaging payload answers on both of its buses, and the radios and LED array are wired.
 
 ## Layout
-- bsp/ - STM32 board-support firmware (drivers, startup, board bring-up)
+- obc/ - on-board computer firmware, STM32F446 board support (drivers, startup, board bring-up)
 - common/ - the wire contract: frame codec, message layouts, and the command/fault/mode id catalog
 - docs/ - architecture, setup, requirements, scenarios, V&V, reports, and the bill of materials
 - fsw/ - portable C++ flight software: modes, faults, command handling, with host unit tests and the SIL shim
