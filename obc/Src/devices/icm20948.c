@@ -13,6 +13,7 @@
 #define WHO_AM_I 0xEAU  // confirm communication
 
 #define GYRO_CAL_SAMPLES 64U  // still-burst length for the boot gyro bias measurement
+#define GYRO_CAL_DISCARD 16U  // samples thrown away first so the dlpf settles before averaging
 
 // registers
 // user bank 0
@@ -110,6 +111,20 @@ bool icm20948_init(void) {
 
     // gyro zero-rate calibration - average a still burst and subtract it on every read.
     // the board must be stationary at boot for this to mean anything
+
+    // icm20948_read() below subtracts gyro_bias, so a stale value from an earlier init would make
+    // the burst read ~0 and wipe the correction out
+    for (size_t i = 0U; i < 3U; i++) {
+        gyro_bias[i] = 0;
+    }
+
+    // the 5.7hz dlpf is still settling right after config - averaging that in skews the bias
+    // by hundreds of counts
+    for (uint16_t n = 0U; n < GYRO_CAL_DISCARD; n++) {
+        (void)icm20948_read();
+        delay_ms(10U);
+    }
+
     int32_t bias_sum[3] = {0, 0, 0};
     for (uint16_t n = 0U; n < GYRO_CAL_SAMPLES; n++) {
         icm20948_sample_t s = icm20948_read();
@@ -123,6 +138,12 @@ bool icm20948_init(void) {
     }
 
     return true;
+}
+
+void icm20948_gyro_bias(int16_t out[3]) {
+    for (size_t i = 0U; i < 3U; i++) {
+        out[i] = gyro_bias[i];
+    }
 }
 
 icm20948_sample_t icm20948_read(void) {

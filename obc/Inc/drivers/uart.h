@@ -14,9 +14,11 @@
 extern "C" {
 #endif
 
-// opaque per-instance handle; the two board uarts are exposed below
+// opaque per-instance handle; the three board uarts are exposed below
 typedef struct uart uart_t;
 
+// usart1 -> pa9/pa10: the esc command link (reaction wheel)
+extern uart_t* const uart_esc;
 // usart2 -> st-link vcp over usb: debug console + dev-time telemetry monitor (ground only)
 extern uart_t* const uart_console;
 // usart6 -> pc6/pc7 header: the telemetry downlink (scope/logic-analyzer now, lora later)
@@ -29,6 +31,11 @@ typedef struct {
     uint32_t noise;    // oversampling detected noise on a bit
     uint32_t dropped;  // the isr read a byte but the rx buffer was full
 } uart_errors_t;
+
+/**
+ * @brief  bring up the esc uart (usart1, pa9/pa10, af7) at 115200 8n1
+ */
+void uart_esc_init(void);
 
 /**
  * @brief  bring up the console uart (usart2, pa2/pa3, af7) at 115200 8n1

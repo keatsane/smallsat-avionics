@@ -17,12 +17,12 @@ extern "C" {
 /**
  * @brief  enable gpioa and drive pa5 (ld2) as a push-pull output
  */
-void led_init(void);
+void ld2_init(void);
 
 /**
  * @brief  toggle pa5 (ld2) output data register
  */
-void led_toggle(void);
+void ld2_toggle(void);
 
 // alternate-function pin setup, shared by the peripheral drivers
 
@@ -43,6 +43,13 @@ typedef enum {
  * @param  port  the gpio port (GPIOA, GPIOB, ...)
  */
 void gpio_enable_port(GPIO_TypeDef* port);
+
+/**
+ * @brief  configure one pin as a push-pull output
+ * @param  port  the gpio port
+ * @param  pin   pin number, 0-15
+ */
+void gpio_config_output(GPIO_TypeDef* port, uint32_t pin);
 
 /**
  * @brief  configure one pin as an alternate function

@@ -19,6 +19,9 @@ typedef struct spi spi_t;
 // spi2 -> pb12-15: icm-20948 imu
 extern spi_t* const spi_imu;
 
+// spi3 -> pc10-12 + pb0(cs): arducam ov2640 fifo
+extern spi_t* const spi_camera;
+
 // bus error counts since boot
 typedef struct {
     uint32_t overrun;  // hardware lost a byte before it was read
@@ -30,6 +33,13 @@ typedef struct {
  * mode 0, msb first, clocked at the fastest pclk1/2^n prescaler at or under the imu's 7 mhz ceiling
  */
 void spi_imu_init(void);
+
+/**
+ * @brief  bring up the camera spi (spi3, pb0(CS)/pc10(SCK)/pc11(MISO)/pc12(MOSI), af6 for
+ * 10/11/12), mode 0, msb first, clocked at the fastest pclk1/2^n prescaler at or under the arducam
+ * 8 mhz ceiling
+ */
+void spi_camera_init(void);
 
 /**
  * @brief  transfer a single byte over spi

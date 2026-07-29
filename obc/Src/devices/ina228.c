@@ -69,14 +69,17 @@ bool ina228_init(void) {
         return false;
     }
 
+    delay_ms(5U);  // first conversion - read before this and you get a zero flagged valid
+
     return true;
 }
 
 // read n big-endian bytes from a register into one value
 static uint32_t read_be(uint8_t reg, size_t n, bool* ok) {
-    uint8_t buf[3];
+    uint8_t buf[3] = {0U};
     if (i2c_read_regs(i2c_sensors, INA228_ADDR, reg, buf, n) != I2C_OK) {
         *ok = false;
+        return 0U;  // buffer was never filled
     }
 
     uint32_t v = 0U;

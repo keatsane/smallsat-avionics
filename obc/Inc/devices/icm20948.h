@@ -34,6 +34,12 @@ bool icm20948_init(void);
  */
 icm20948_sample_t icm20948_read(void);
 
+/**
+ * @brief  read back the gyro zero-rate offset measured at boot
+ * @param  out  filled with the x/y/z bias in raw counts
+ */
+void icm20948_gyro_bias(int16_t out[3]);
+
 #ifdef __cplusplus
 }
 #endif

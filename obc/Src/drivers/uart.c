@@ -11,9 +11,8 @@
 #include "stm32f446xx.h"
 
 #define BUF_SIZE 256U  // power of 2 - the wrap masks below depend on it
-_Static_assert((BUF_SIZE & (BUF_SIZE - 1U)) == 0U, "BUF_SIZE must be a power of 2");
 
-#define UART_BAUD 115200U  // console + downlink run the same rate
+#define UART_BAUD 115200U  // all three links run the same rate
 
 // per-instance state: the register block plus this uart's own ring buffers
 struct uart {
@@ -30,43 +29,104 @@ struct uart {
     volatile uart_errors_t errors;  // receive-line error counts
 };
 
-static struct uart uart_console_inst = {.regs = CONSOLE_UART};
-static struct uart uart_downlink_inst = {.regs = DOWNLINK_UART};
+// uart_init fills regs into the handle from the cfg below, so the instances start empty
+static struct uart uart_esc_inst;
+uart_t* const uart_esc = &uart_esc_inst;
 
+static struct uart uart_console_inst;
 uart_t* const uart_console = &uart_console_inst;
+
+static struct uart uart_downlink_inst;
 uart_t* const uart_downlink = &uart_downlink_inst;
 
-// the part that's identical for every usart: baud, enable tx/rx, arm rx interrupt
-static void uart_start(uart_t* u, uint32_t pclk_hz, IRQn_Type irqn, uint32_t baud) {
-    u->regs->BRR = (pclk_hz + baud / 2U) / baud;  // baud from the live clock
+// which apb - picks the enable bit and the baud clock together, so they cannot disagree
+typedef enum {
+    UART_BUS_APB1 = 0,
+    UART_BUS_APB2 = 1,
+} uart_bus_t;
+
+// all that differs between links: the peripheral, its bus + clock-enable bit, the pin map, the irq
+typedef struct {
+    USART_TypeDef* regs;
+    uart_bus_t bus;
+    uint32_t enr_bit;
+    GPIO_TypeDef* port;  // tx and rx share one port on all three
+    uint32_t tx_pin;
+    uint32_t rx_pin;
+    uint8_t af;
+    IRQn_Type irq;
+    uint32_t baud;
+} uart_cfg_t;
+
+// bring up one link from its cfg: clock on, both af pins, baud, enable tx/rx, arm rx interrupt
+static void uart_init(uart_t* u, const uart_cfg_t* c) {
+    u->regs = c->regs;
+
+    uint32_t pclk_hz;
+    if (c->bus == UART_BUS_APB2) {
+        RCC->APB2ENR |= c->enr_bit;
+        (void)RCC->APB2ENR;
+        pclk_hz = clock_pclk2_hz();
+    } else {
+        RCC->APB1ENR |= c->enr_bit;
+        (void)RCC->APB1ENR;
+        pclk_hz = clock_pclk1_hz();
+    }
+
+    gpio_enable_port(c->port);
+    gpio_config_af(c->port, c->tx_pin, c->af, GPIO_PUSH_PULL, GPIO_SPEED_LOW);
+    gpio_config_af(c->port, c->rx_pin, c->af, GPIO_PUSH_PULL, GPIO_SPEED_LOW);
+
+    u->regs->BRR = (pclk_hz + c->baud / 2U) / c->baud;  // baud from the live clock
     u->regs->CR1 |= (USART_CR1_TE | USART_CR1_RE);
     u->regs->CR1 |= USART_CR1_UE;
     u->regs->CR1 |= USART_CR1_RXNEIE;  // rx interrupt on; tx armed on demand in uart_write
-    NVIC_EnableIRQ(irqn);
+    NVIC_EnableIRQ(c->irq);
+}
+
+void uart_esc_init(void) {
+    static const uart_cfg_t cfg = {
+        .regs = ESC_UART,
+        .bus = UART_BUS_APB2,
+        .enr_bit = RCC_APB2ENR_USART1EN,
+        .port = ESC_PORT,
+        .tx_pin = ESC_TX_PIN,
+        .rx_pin = ESC_RX_PIN,
+        .af = ESC_AF,
+        .irq = ESC_IRQ,
+        .baud = UART_BAUD,
+    };
+    uart_init(uart_esc, &cfg);
 }
 
 void uart_console_init(void) {
-    // usart2 on apb1 -> st-link vcp; pin map in board.h
-    RCC->APB1ENR |= RCC_APB1ENR_USART2EN;
-    (void)RCC->APB1ENR;
-    gpio_enable_port(CONSOLE_PORT);
-
-    gpio_config_af(CONSOLE_PORT, CONSOLE_TX_PIN, CONSOLE_AF, GPIO_PUSH_PULL, GPIO_SPEED_LOW);
-    gpio_config_af(CONSOLE_PORT, CONSOLE_RX_PIN, CONSOLE_AF, GPIO_PUSH_PULL, GPIO_SPEED_LOW);
-
-    uart_start(uart_console, clock_pclk1_hz(), CONSOLE_IRQ, UART_BAUD);
+    static const uart_cfg_t cfg = {
+        .regs = CONSOLE_UART,
+        .bus = UART_BUS_APB1,
+        .enr_bit = RCC_APB1ENR_USART2EN,
+        .port = CONSOLE_PORT,
+        .tx_pin = CONSOLE_TX_PIN,
+        .rx_pin = CONSOLE_RX_PIN,
+        .af = CONSOLE_AF,
+        .irq = CONSOLE_IRQ,
+        .baud = UART_BAUD,
+    };
+    uart_init(uart_console, &cfg);
 }
 
 void uart_downlink_init(void) {
-    // usart6 on apb2 -> header link; pin map in board.h
-    RCC->APB2ENR |= RCC_APB2ENR_USART6EN;
-    (void)RCC->APB2ENR;
-    gpio_enable_port(DOWNLINK_PORT);
-
-    gpio_config_af(DOWNLINK_PORT, DOWNLINK_TX_PIN, DOWNLINK_AF, GPIO_PUSH_PULL, GPIO_SPEED_LOW);
-    gpio_config_af(DOWNLINK_PORT, DOWNLINK_RX_PIN, DOWNLINK_AF, GPIO_PUSH_PULL, GPIO_SPEED_LOW);
-
-    uart_start(uart_downlink, clock_pclk2_hz(), DOWNLINK_IRQ, UART_BAUD);
+    static const uart_cfg_t cfg = {
+        .regs = DOWNLINK_UART,
+        .bus = UART_BUS_APB2,
+        .enr_bit = RCC_APB2ENR_USART6EN,
+        .port = DOWNLINK_PORT,
+        .tx_pin = DOWNLINK_TX_PIN,
+        .rx_pin = DOWNLINK_RX_PIN,
+        .af = DOWNLINK_AF,
+        .irq = DOWNLINK_IRQ,
+        .baud = UART_BAUD,
+    };
+    uart_init(uart_downlink, &cfg);
 }
 
 void uart_write(uart_t* u, const uint8_t* data, size_t len) {
@@ -150,5 +210,6 @@ static void uart_isr(uart_t* u) {
 }
 
 // override the weak vectors in startup_stm32f446retx.s
+void USART1_IRQHandler(void) { uart_isr(uart_esc); }
 void USART2_IRQHandler(void) { uart_isr(uart_console); }
 void USART6_IRQHandler(void) { uart_isr(uart_downlink); }

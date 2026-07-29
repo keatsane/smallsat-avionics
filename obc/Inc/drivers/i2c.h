@@ -33,6 +33,14 @@ typedef enum {
 void i2c_sensors_init(void);
 
 /**
+ * @brief  address a device and check only whether it acks - no register byte, no repeated start
+ * @param  i     target i2c handle
+ * @param  addr  7-bit device address
+ * @return I2C_OK if the device acked its address, I2C_ERR_NACK if nothing answered
+ */
+i2c_status_t i2c_probe(i2c_t* i, uint8_t addr);
+
+/**
  * @brief  read n bytes from a device register over i2c
  * @param  i     target i2c handle
  * @param  addr  7-bit device address

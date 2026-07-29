@@ -5,9 +5,9 @@
 exclude: |
   (?x)^(
     vendor/
-    | bsp/(\.cproject|\.project|\.settings/|.*\.launch|Startup/|.*\.ld)
-    | bsp/Src/(syscalls|sysmem)\.c
-    | bsp/Inc/FreeRTOSConfig\.h
+    | obc/(\.cproject|\.project|\.settings/|.*\.launch|Startup/|.*\.ld)
+    | obc/Src/(syscalls|sysmem)\.c
+    | obc/Inc/FreeRTOSConfig\.h
     | fsw/third_party/
     | docs/datasheets/
   )

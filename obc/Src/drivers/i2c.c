@@ -11,8 +11,10 @@
 #include "drivers/systick.h"
 #include "stm32f446xx.h"
 
-#define I2C_SCL_HZ     400000U  // fast-mode scl frequency (the slowest device on the bus caps this)
-#define I2C_TIMEOUT_MS 5U       // a 400 khz byte is ~25 us; 5 ms with no progress means a hung bus
+// standard mode, not fast: the assembled bus (slice + cable + protoboard + three devices) measures
+// ~800 ns 10-90% rise, well past fast mode's 300 ns limit but inside standard mode's 1000 ns
+#define I2C_SCL_HZ     100000U
+#define I2C_TIMEOUT_MS 5U  // a 100 khz byte is ~90 us; 5 ms with no progress means a hung bus
 
 // per-instance state
 struct i2c {
@@ -31,10 +33,11 @@ static void i2c_start(i2c_t* i) {
     i->regs->CR1 |= I2C_CR1_SWRST;  // reset to a clean state
     i->regs->CR1 &= ~I2C_CR1_SWRST;
 
-    // fast mode formulas: FREQ = pclk in MHz, CCR = pclk / (3 * scl), TRISE = pclk * 300 ns + 1
+    // standard mode formulas: FREQ = pclk in MHz, CCR = pclk / (2 * scl), TRISE = pclk * 1000 ns +
+    // 1
     i->regs->CR2 = pclk_mhz;
-    i->regs->CCR = I2C_CCR_FS | (pclk / (3U * I2C_SCL_HZ));
-    i->regs->TRISE = (pclk_mhz * 300U) / 1000U + 1U;
+    i->regs->CCR = pclk / (2U * I2C_SCL_HZ);
+    i->regs->TRISE = pclk_mhz + 1U;
 
     i->regs->OAR1 = (1UL << 14);  // bit 14 must be kept at 1 per the rm
 
@@ -100,6 +103,29 @@ static void i2c_reset_if_wedged(i2c_t* i) {
     if (i->regs->CR1 & I2C_CR1_STOP) {
         i2c_start(i);
     }
+}
+
+i2c_status_t i2c_probe(i2c_t* i, uint8_t addr) {
+    i2c_status_t st;
+
+    if ((st = wait_bus_free(i)) != I2C_OK) {
+        return st;
+    }
+    i2c_reset_if_wedged(i);
+
+    i->regs->CR1 |= I2C_CR1_ACK;
+    i->regs->CR1 |= I2C_CR1_START;
+    if ((st = wait_flag(i, I2C_SR1_SB)) != I2C_OK) {
+        return st;
+    }
+    i->regs->DR = (uint8_t)(addr << 1U);  // write mode - we only care whether it acks
+    st = wait_addr(i);
+    if (st == I2C_OK) {
+        (void)i->regs->SR1;  // clear addr: read sr1 then sr2
+        (void)i->regs->SR2;
+    }
+    i->regs->CR1 |= I2C_CR1_STOP;
+    return st;
 }
 
 i2c_status_t i2c_read_regs(i2c_t* i, uint8_t addr, uint8_t reg, uint8_t* buf, size_t n) {

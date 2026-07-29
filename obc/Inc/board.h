@@ -10,8 +10,18 @@
 #include "stm32f446xx.h"
 
 // status led - ld2
-#define LED_PORT GPIOA
-#define LED_PIN  5U
+#define LD2_PORT GPIOA
+#define LD2_PIN  5U
+
+// ws2812 status array - single-wire data on pa8, clocked out by tim1_ch1 (af1) + dma2
+#define WS2812_PORT   GPIOA
+#define WS2812_PIN    8U
+#define WS2812_AF     1U
+#define WS2812_TIM    TIM1
+#define WS2812_DMA    DMA2
+#define WS2812_STREAM DMA2_Stream1
+#define WS2812_DMA_CH 6U  // stream 1 channel 6 = tim1_ch1
+#define WS2812_COUNT  3U  // 3 beads
 
 // imu - spi2 (sck/miso/mosi af5, cs driven as a plain gpio)
 #define IMU_SPI      SPI2
@@ -30,6 +40,14 @@
 #define I2C_SDA_PIN     9U
 #define I2C_AF          4U
 
+// actuation - usart1 (tx/rx af7) - stm32g431cb esc
+#define ESC_UART   USART1
+#define ESC_PORT   GPIOA
+#define ESC_TX_PIN 9U
+#define ESC_RX_PIN 10U
+#define ESC_AF     7U
+#define ESC_IRQ    USART1_IRQn
+
 // console - usart2 (af7) -> st-link vcp over usb
 #define CONSOLE_UART   USART2
 #define CONSOLE_PORT   GPIOA
@@ -45,5 +63,15 @@
 #define DOWNLINK_RX_PIN 7U
 #define DOWNLINK_AF     8U
 #define DOWNLINK_IRQ    USART6_IRQn
+
+// camera - spi3 (sck/miso/mosi af6, cs on pb0 as a plain gpio) - arducam ov2640 fifo
+#define CAMERA_SPI      SPI3
+#define CAMERA_SPI_PORT GPIOC
+#define CAMERA_SCK_PIN  10U
+#define CAMERA_MISO_PIN 11U
+#define CAMERA_MOSI_PIN 12U
+#define CAMERA_SPI_AF   6U
+#define CAMERA_CS_PORT  GPIOB
+#define CAMERA_CS_PIN   0U
 
 #endif  // BOARD_H
