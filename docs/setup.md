@@ -124,7 +124,7 @@ just hil                 # the HIL campaign on the live board (or one: `just hil
 just obc-check           # cross-compile and link the firmware, the same check CI runs
 ```
 
-`obc-check` is not the image you flash - `obc-build` is, through STM32CubeIDE's own makefiles. It exists because those makefiles are generated and gitignored, so CI has no other way to see a firmware break. It links rather than only compiling, because a symbol that compiles but never reaches the linker is a failure this project has hit twice.
+`obc-check` and `obc-build` are the same build - one CMake cross-build that produces the image `just obc-flash` writes to the board and the check CI runs. They were separate once, with CubeIDE's generated makefiles owning the flashable image, and that cost bench time twice: those makefiles list each source file explicitly and only the IDE regenerates them, so adding a source file broke the build with undefined references until someone refreshed and cleaned inside CubeIDE. CubeIDE remains useful as a debugger and can still build the project on its own, but it is no longer the authority. The build links rather than only compiling, because a symbol that compiles and never reaches the linker is a failure this project has hit twice.
 
 Every test recipe takes an optional trailing `verbose` argument (`just test verbose`, `just unit fsw verbose`, ...) that switches to per-test names - through ctest for the C++ suite, `pytest -v` for the tooling, and per-check output for SIL.
 

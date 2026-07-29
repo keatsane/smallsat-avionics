@@ -26,15 +26,17 @@ format:
 # ---------------------------------------------------------------- obc node
 # on-board computer - nucleo-f446re, obc/ firmware + fsw/ flight software
 
-# build the obc firmware image (obc firmware + the flight software cross-compiled into it)
+# build the obc firmware image (obc firmware + the flight software cross-compiled into it).
+# configures every time on purpose - that is what re-globs the source tree, so a newly added file
+# is in the image without anyone remembering a step. needs arm-none-eabi-gcc on PATH
 [group('obc')]
 obc-build:
-    make -C obc/Debug -j all
+    cmake -S obc -B obc/build-arm -G "Unix Makefiles" && cmake --build obc/build-arm
 
 # build and flash the obc over st-link swd
 [group('obc')]
 obc-flash: obc-build
-    & "{{cubeprog}}" -c port=SWD sn={{obc_stlink}} mode=UR reset=HWrst -d "obc/Debug/obc.elf" -v -rst
+    & "{{cubeprog}}" -c port=SWD sn={{obc_stlink}} mode=UR reset=HWrst -d "obc/build-arm/obc.elf" -v -rst
 
 # ground console - decoded telemetry out, typed commands in. the port is found by the obc's
 # st-link serial, same as the flasher. type `SET_MODE DETUMBLE` or `?` at the prompt.
@@ -43,12 +45,10 @@ obc-flash: obc-build
 obc-monitor *flags:
     python tools/uart_monitor.py --stlink {{obc_stlink}} {{flags}}
 
-# compile+link check on the firmware, the same one ci runs. NOT the image you flash - that is
-# obc-build, which uses cubeide's own makefiles. this exists so ci can see a firmware break at
-# all, since those makefiles are generated and gitignored. needs arm-none-eabi-gcc on PATH
+# kept as the name ci and the docs use for the firmware compile+link check. it is the same build
+# as obc-build now that there is only one, which is the point
 [group('obc')]
-obc-check:
-    cmake -S obc -B obc/build-arm -G "Unix Makefiles" && cmake --build obc/build-arm
+obc-check: obc-build
 
 # list the serial ports and what is on them
 [group('obc')]

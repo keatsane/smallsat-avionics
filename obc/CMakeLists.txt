@@ -1,20 +1,21 @@
-# Cross-build of the OBC firmware, for CI.
+# The OBC firmware build - the image that gets flashed, and the one CI compiles.
 #
-# STM32CubeIDE owns the image that actually gets flashed - its generated makefiles under
-# obc/Debug/ are the authority, and they are gitignored, which is why CI cannot use them. This
-# exists so a firmware break is caught by CI rather than only on the bench, and it is a
-# compile-and-link check, not a second way to produce a deliverable. Do not flash what it emits.
+# This used to be a CI-only check next to CubeIDE's generated makefiles, and that split cost real
+# bench time twice: those makefiles list every source file explicitly and are regenerated only by
+# the IDE, so adding a source file broke `just obc-build` with undefined references until someone
+# refreshed and cleaned inside CubeIDE. Worse, it meant two builds that could disagree about what
+# was in the image. This is now the single build; CubeIDE stays as a debugger and can still build
+# the project itself, but it is no longer the authority.
 #
-# It links rather than only compiling on purpose. Twice now this project has lost hours to code
-# that compiled fine and was never handed to the linker - a weak symbol satisfied out of an
-# archive on the ESC, and an object missing from CubeIDE's objects.list on the OBC. Only a link
-# catches that class of bug.
+# Sources are globbed rather than listed, deliberately: configuring re-globs, so a new driver
+# cannot silently fall out of the image the way it could out of a hand-listed makefile. `just
+# obc-build` configures before it builds for exactly that reason.
 #
-# Sources are globbed rather than listed. That is normally poor CMake practice, but here the
-# whole point is that a new driver cannot silently fall out of coverage: CubeIDE discovers files
-# by scanning the tree, so this has to as well or the two disagree the moment a file is added.
+# It links rather than only compiling. Twice this project has lost hours to code that compiled
+# fine and was never handed to the linker - a weak symbol satisfied out of an archive on the ESC,
+# and an object missing from CubeIDE's objects.list on the OBC. Only a link catches that class.
 #
-#   just obc-check
+#   just obc-build    just obc-flash
 
 cmake_minimum_required(VERSION 3.20)
 
@@ -89,12 +90,19 @@ target_compile_definitions(obc.elf PRIVATE STM32F446xx STM32 STM32F4 STM32F446RE
 # have to stay in step with the .cproject
 set(CPU_FLAGS -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb)
 
+# -O0 -g3 -DDEBUG match what CubeIDE's Debug configuration has been producing, so promoting this
+# to the flashable build did not change the image's behaviour. Pinned rather than left to
+# CMAKE_BUILD_TYPE: the optimisation level a firmware image is flashed at should not depend on
+# whether the caller remembered a flag.
 target_compile_options(obc.elf PRIVATE
     ${CPU_FLAGS}
+    -O0 -g3
     -ffunction-sections -fdata-sections
     -Wall -Wextra
     $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions -fno-rtti -fno-threadsafe-statics>
 )
+
+target_compile_definitions(obc.elf PRIVATE DEBUG)
 
 target_link_options(obc.elf PRIVATE
     ${CPU_FLAGS}
