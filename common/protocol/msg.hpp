@@ -36,6 +36,9 @@ enum class MsgId : uint8_t {
     // actuation - the reaction-wheel node, on its own link rather than the ground one (0x20 block)
     WheelCommand = 0x20,  // obc -> esc torque setpoint
     WheelStatus = 0x21,   // esc -> obc wheel state
+
+    // rtos / platform health (0x30 block) - about the computer rather than the spacecraft
+    TaskHealth = 0x30,  // per-task liveness and stack margin
 };
 
 // ------- control plane -------
@@ -169,6 +172,31 @@ struct __attribute__((packed)) payload_data_t {
     uint8_t data[kPayloadChunkBytes];
 };
 
+// ------- rtos / platform health -------
+
+// how many tasks one report can carry. sized for the whole planned set plus the kernel's idle task,
+// so adding a task does not change the wire layout
+inline constexpr uint8_t kTaskHealthMaxTasks = 7;
+
+// one task's health. stack margin is in words because that is the unit the kernel counts stacks in
+struct __attribute__((packed)) task_entry_t {
+    uint8_t id;                 // which task (TaskId in the obc's task_health.hpp)
+    uint8_t state;              // freertos eTaskState: 0 running, 1 ready, 2 blocked, 3 suspended
+    uint16_t stack_free_words;  // smallest free stack ever seen, not the free stack right now
+    uint16_t checkin_age_ms;    // since this task last finished a pass; 0xFFFF = never, or n/a
+};
+
+// MsgId::TaskHealth - liveness and stack margin for every task (REQ-RT-003).
+//
+// platform telemetry, not flight-software state: the fsw is single-threaded by design and never
+// learns that tasks exist, so this is assembled and sent by the health task rather than by the
+// executive. that split is what keeps Executive::cycle() identical between SIL and the target
+struct __attribute__((packed)) task_health_t {
+    uint32_t t_ms;  // when the snapshot was taken
+    uint8_t count;  // valid entries in tasks
+    task_entry_t tasks[kTaskHealthMaxTasks];
+};
+
 // wire layout guards - these sizes are the contract the ground decodes against, so a dropped
 // packed attribute or a changed field fails the build instead of silently breaking the link
 static_assert(sizeof(command_t) == 4, "command_t wire layout changed");
@@ -183,6 +211,9 @@ static_assert(sizeof(temp_data_t) == 9, "temp_data_t wire layout changed");
 static_assert(sizeof(camera_data_t) == 9, "camera_data_t wire layout changed");
 static_assert(sizeof(payload_data_t) == 64, "payload_data_t wire layout changed");
 static_assert(sizeof(payload_data_t) <= kFrameMaxPayload, "payload_data_t no longer fits a frame");
+static_assert(sizeof(task_entry_t) == 6, "task_entry_t wire layout changed");
+static_assert(sizeof(task_health_t) == 47, "task_health_t wire layout changed");
+static_assert(sizeof(task_health_t) <= kFrameMaxPayload, "task_health_t no longer fits a frame");
 
 }  // namespace fsw
 

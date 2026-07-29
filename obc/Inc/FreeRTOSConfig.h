@@ -90,6 +90,9 @@ extern uint32_t SystemCoreClock;
 #define INCLUDE_xTaskGetCurrentTaskHandle   1
 #define INCLUDE_uxTaskGetStackHighWaterMark 1
 #define INCLUDE_eTaskGetState               1
+/* the idle task's stack is the smallest in the build, so it is the one whose margin is most worth
+ * reporting - and its handle only exists once the scheduler has created it */
+#define INCLUDE_xTaskGetIdleTaskHandle 1
 
 #define configASSERT(x)                \
     do {                               \

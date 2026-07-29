@@ -21,6 +21,7 @@
 #include "queue.h"
 #include "rtos_tasks.h"
 #include "task.h"
+#include "task_health.hpp"
 
 namespace {
 
@@ -87,6 +88,7 @@ void sensor_task(void*) {
 
         xQueueOverwrite(s_queue, &set);
 
+        task_health_checkin(TASK_ID_SENSORS);
         xTaskDelayUntil(&next, pdMS_TO_TICKS(kSamplePeriodMs));
     }
 }
@@ -100,8 +102,9 @@ void sensor_task_create(bool imu_ok, bool power_ok, bool temp_ok) {
 
     s_queue = xQueueCreateStatic(1, sizeof(sensor_set_t), s_queue_storage, &s_queue_ctrl);
 
-    xTaskCreateStatic(sensor_task, "sensors", TASK_STACK_SENSORS, nullptr, TASK_PRIO_SENSORS,
-                      s_stack, &s_tcb);
+    const TaskHandle_t h = xTaskCreateStatic(sensor_task, "sensors", TASK_STACK_SENSORS, nullptr,
+                                             TASK_PRIO_SENSORS, s_stack, &s_tcb);
+    task_health_register(TASK_ID_SENSORS, h);
 }
 
 bool sensor_task_take(sensor_set_t* out) { return xQueueReceive(s_queue, out, 0) == pdTRUE; }
