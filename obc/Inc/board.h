@@ -9,6 +9,13 @@
 
 #include "stm32f446xx.h"
 
+// interrupt priority plan. cortex-m priorities are least-urgent-when-numerically-largest, and
+// freertos refuses a FromISR call from any isr more urgent than
+// configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY (5) - it trips configASSERT. everything here that
+// talks to the kernel sits at or above that number; 6 leaves 5 free for something that has to be
+// more urgent than the uarts and still hand work to a queue
+#define IRQ_PRIO_UART 6U
+
 // status led - ld2
 #define LD2_PORT GPIOA
 #define LD2_PIN  5U

@@ -80,7 +80,8 @@ static void uart_init(uart_t* u, const uart_cfg_t* c) {
     u->regs->BRR = (pclk_hz + c->baud / 2U) / c->baud;  // baud from the live clock
     u->regs->CR1 |= (USART_CR1_TE | USART_CR1_RE);
     u->regs->CR1 |= USART_CR1_UE;
-    u->regs->CR1 |= USART_CR1_RXNEIE;  // rx interrupt on; tx armed on demand in uart_write
+    u->regs->CR1 |= USART_CR1_RXNEIE;         // rx interrupt on; tx armed on demand in uart_write
+    NVIC_SetPriority(c->irq, IRQ_PRIO_UART);  // before enabling - the default is 0, see board.h
     NVIC_EnableIRQ(c->irq);
 }
 
