@@ -4,6 +4,7 @@
  */
 
 #include "board.h"
+#include "drivers/panic.h"
 #include "stm32f446xx.h"
 
 void hardfault_report(const uint32_t* frame);  // called from the naked handler below
@@ -18,13 +19,18 @@ static void panic_putc(char c) {
     CONSOLE_UART->DR = (uint8_t)c;
 }
 
-static void panic_puts(const char* s) {
+void panic_puts(const char* s) {
     while (*s != '\0') {
         panic_putc(*s++);
     }
 }
 
-static void panic_hex(uint32_t v) {
+void panic_drain(void) {
+    while ((CONSOLE_UART->SR & USART_SR_TC) == 0U) {
+    }
+}
+
+void panic_hex(uint32_t v) {
     panic_puts("0x");
     for (int shift = 28; shift >= 0; shift -= 4) {
         uint32_t nib = (v >> shift) & 0xFU;
@@ -49,9 +55,7 @@ void hardfault_report(const uint32_t* frame) {
     panic_puts(" hfsr=");
     panic_hex(SCB->HFSR);
     panic_puts("\r\n");
-
-    while ((CONSOLE_UART->SR & USART_SR_TC) == 0U) {  // let the last byte clear the wire
-    }
+    panic_drain();  // let the last byte clear the wire
 
     NVIC_SystemReset();  // controlled reboot - next boot reads reset=software
     for (;;) {

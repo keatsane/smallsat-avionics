@@ -52,9 +52,22 @@ file(GLOB_RECURSE FSW_SOURCES
 # every other file CubeIDE links from outside obc/ is covered by the globs above
 set(CMSIS_SYSTEM ${REPO_ROOT}/vendor/cmsis-device-f4/Source/Templates/system_stm32f4xx.c)
 
+# the kernel, listed rather than globbed - the submodule ships far more than this build uses, and
+# only what the config turns on belongs in the image. no heap_*.c on purpose: static allocation
+# only (configSUPPORT_DYNAMIC_ALLOCATION 0), and no timers.c because configUSE_TIMERS is 0. our own
+# glue (rtos_hooks.c, the tasks) is a real directory under Src/ and comes in through the glob above
+set(FREERTOS_DIR ${REPO_ROOT}/vendor/FreeRTOS-Kernel)
+set(FREERTOS_SOURCES
+    ${FREERTOS_DIR}/tasks.c
+    ${FREERTOS_DIR}/queue.c
+    ${FREERTOS_DIR}/list.c
+    ${FREERTOS_DIR}/portable/GCC/ARM_CM4F/port.c
+)
+
 add_executable(obc.elf
     ${OBC_SOURCES}
     ${FSW_SOURCES}
+    ${FREERTOS_SOURCES}
     ${CMSIS_SYSTEM}
     ${REPO_ROOT}/common/protocol/frame.cpp
 )
@@ -66,11 +79,9 @@ target_include_directories(obc.elf PRIVATE
     ${REPO_ROOT}/vendor/cmsis-core/CMSIS/Core/Include
     ${REPO_ROOT}/vendor/cmsis-device-f4/Include
     ${REPO_ROOT}/vendor/etl/include
+    ${FREERTOS_DIR}/include
+    ${FREERTOS_DIR}/portable/GCC/ARM_CM4F
 )
-
-# no FreeRTOS include path here, unlike the CubeIDE project: nothing includes a kernel header yet
-# (the RTOS lands in phase 6), so requiring the submodule would make CI fetch what it cannot use.
-# add it here in the same change that adds the first #include of it
 
 target_compile_definitions(obc.elf PRIVATE STM32F446xx STM32 STM32F4 STM32F446RETx)
 

@@ -20,6 +20,13 @@ extern "C" {
 void systick_init(void);
 
 /**
+ * @brief  start forwarding each tick to the freertos scheduler
+ * call once, immediately before vTaskStartScheduler(); the driver keeps the
+ * SysTick vector so millis() stays monotonic across the scheduler start
+ */
+void systick_kernel_tick_enable(void);
+
+/**
  * @brief  milliseconds elapsed since systick_init
  * @return ms tick count (wraps after ~49 days)
  */
@@ -27,6 +34,8 @@ uint32_t millis(void);
 
 /**
  * @brief  busy-wait for a number of milliseconds
+ * for board bring-up, before the scheduler runs - it spins rather than yields,
+ * so a task must use vTaskDelay instead
  * @param  ms delay length in milliseconds
  */
 void delay_ms(uint32_t ms);

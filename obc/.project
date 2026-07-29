@@ -61,6 +61,31 @@
 			<locationURI>virtual:/virtual</locationURI>
 		</link>
 		<link>
+			<name>Src/kernel</name>
+			<type>2</type>
+			<locationURI>virtual:/virtual</locationURI>
+		</link>
+		<link>
+			<name>Src/kernel/tasks.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/vendor/FreeRTOS-Kernel/tasks.c</locationURI>
+		</link>
+		<link>
+			<name>Src/kernel/queue.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/vendor/FreeRTOS-Kernel/queue.c</locationURI>
+		</link>
+		<link>
+			<name>Src/kernel/list.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/vendor/FreeRTOS-Kernel/list.c</locationURI>
+		</link>
+		<link>
+			<name>Src/kernel/port.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/vendor/FreeRTOS-Kernel/portable/GCC/ARM_CM4F/port.c</locationURI>
+		</link>
+		<link>
 			<name>Src/common/protocol/frame.cpp</name>
 			<type>1</type>
 			<locationURI>PARENT-1-PROJECT_LOC/common/protocol/frame.cpp</locationURI>

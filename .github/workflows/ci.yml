@@ -88,8 +88,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Fetch the headers the image compiles against
-        run: git submodule update --init vendor/etl vendor/cmsis-core vendor/cmsis-device-f4
+      - name: Fetch the headers and kernel the image compiles against
+        run: git submodule update --init vendor/etl vendor/cmsis-core vendor/cmsis-device-f4 vendor/FreeRTOS-Kernel
       - name: Install the toolchain
         run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi
       - name: Configure
