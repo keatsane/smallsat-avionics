@@ -48,7 +48,18 @@ void uart_console_init(void);
 void uart_downlink_init(void);
 
 /**
+ * @brief  create the per-uart transmit mutexes
+ * separate from the init functions on purpose: board bring-up must not call into the kernel, since
+ * a failure there happens before the console can report it. call once after the board is up and
+ * before the scheduler starts - until then uart_write serialises nothing, which is correct while
+ * there is only one thread of execution
+ */
+void uart_locks_init(void);
+
+/**
  * @brief  transmit a block of bytes
+ * holds the uart's transmit mutex for the whole write once the scheduler is running, so two tasks
+ * cannot interleave bytes into one frame
  * @param  u     target uart handle
  * @param  data  pointer to the bytes to send
  * @param  len   number of bytes

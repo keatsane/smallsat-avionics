@@ -21,6 +21,7 @@
 #include "fsw/platform.hpp"
 #include "sensor_task.hpp"
 #include "task.h"
+#include "task_health.hpp"
 
 namespace {
 
@@ -36,15 +37,20 @@ static void init(void) {
     reset_init();  // latch why we last reset before anything can trigger a new one
     clock_init();
     systick_init();
-    ld2_init();
-    ws2812_init();
-    uart_esc_init();
-    uart_console_init();   // console: usart2 -> st-link vcp (usb)
-    uart_downlink_init();  // downlink: usart6 -> pc6/pc7 header
+
+    // the console comes up before anything that could fault, and that ordering is load-bearing:
+    // the hardfault handler reports through this usart, so a fault raised before it is clocked can
+    // only be reported by a handler talking to a dead peripheral
+    uart_console_init();  // console: usart2 -> st-link vcp (usb)
 
     // boot banner - why we reset + the live core clock
     console_printf("BOOT: reset=%s clk=%lu Hz\r\n", reset_cause_str(reset_cause()),
                    static_cast<unsigned long>(clock_hclk_hz()));
+
+    ld2_init();
+    ws2812_init();
+    uart_esc_init();
+    uart_downlink_init();  // downlink: usart6 -> pc6/pc7 header
 
     // sensors take longer than the mcu to come up from cold - without this their inits silently
     // fail on power-on (a pin reset works, the rails are already stable)
@@ -97,10 +103,13 @@ static void init(void) {
 int main(void) {
     init();
 
+    uart_locks_init();  // first kernel call in the program, and after the console can report it
+
     // nothing runs until the scheduler starts, so creation order is not a startup order - each
     // task's own file owns its stack, its priority, and whatever it needs to be told at init
     control_task_create(camera_ok);
     sensor_task_create(imu_ok, power_ok, temp_ok);
+    health_task_create();  // last, so every slot it reports on is already registered
 
     systick_kernel_tick_enable();  // hand the tick over before anything expects to be scheduled
     vTaskStartScheduler();

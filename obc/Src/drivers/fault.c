@@ -13,8 +13,17 @@ void hardfault_report(const uint32_t* frame);  // called from the naked handler 
 // is interrupt-driven, and its tx isr can't run inside the higher-priority fault
 // handler - so we bypass the driver and push bytes straight to the usart, polling
 // the txe flag ourselves
+// bounded, not "while (!TXE)". if the fault happened before the console was brought up, its clock
+// is off, SR reads back as zero, and an unbounded wait here hangs the fault handler forever - a
+// silently dead board instead of a reported one. the spin count is generous next to one byte at
+// 115200 (~87 us, a few thousand cycles at 180 MHz) and finite when the peripheral is not there
+#define PANIC_SPIN_LIMIT 2000000U
+
 static void panic_putc(char c) {
-    while ((CONSOLE_UART->SR & USART_SR_TXE) == 0U) {
+    for (uint32_t i = 0U; i < PANIC_SPIN_LIMIT; i++) {
+        if ((CONSOLE_UART->SR & USART_SR_TXE) != 0U) {
+            break;
+        }
     }
     CONSOLE_UART->DR = (uint8_t)c;
 }
@@ -26,8 +35,12 @@ void panic_puts(const char* s) {
 }
 
 void panic_drain(void) {
-    while ((CONSOLE_UART->SR & USART_SR_TC) == 0U) {
+    for (uint32_t i = 0U; i < PANIC_SPIN_LIMIT; i++) {
+        if ((CONSOLE_UART->SR & USART_SR_TC) != 0U) {
+            return;
+        }
     }
+    // fell through: the console never finished, so reset without it rather than waiting forever
 }
 
 void panic_hex(uint32_t v) {

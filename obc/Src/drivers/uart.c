@@ -5,10 +5,13 @@
 
 #include "drivers/uart.h"
 
+#include "FreeRTOS.h"
 #include "board.h"
 #include "drivers/clock.h"
 #include "drivers/gpio.h"
+#include "semphr.h"
 #include "stm32f446xx.h"
+#include "task.h"
 
 #define BUF_SIZE 256U  // power of 2 - the wrap masks below depend on it
 
@@ -27,6 +30,12 @@ struct uart {
     volatile uint16_t rx_tail;  // consumer: uart_read_byte
 
     volatile uart_errors_t errors;  // receive-line error counts
+
+    // tx is one shared resource with more than one writer task, so it gets a mutex - that is what
+    // mutexes are for here, never for shared flight state. rx needs none: the isr is the only
+    // producer and one task the only consumer
+    SemaphoreHandle_t tx_mutex;
+    StaticSemaphore_t tx_mutex_buf;
 };
 
 // uart_init fills regs into the handle from the cfg below, so the instances start empty
@@ -130,7 +139,30 @@ void uart_downlink_init(void) {
     uart_init(uart_downlink, &cfg);
 }
 
+// hold the tx line for the whole of one write, so two tasks cannot interleave their bytes into one
+// unreadable frame. board bring-up writes before the scheduler exists, so the lock is conditional -
+// and there is no contention then either, since there is only one thread of execution.
+//
+// the mutex is held across the wait-for-room spin below, which is deliberate: a frame half in the
+// ring is not a frame, so the writer keeps the line until its last byte is queued. freertos mutexes
+// inherit priority, so a lower-priority writer holding it gets boosted to the waiter's priority and
+// the block is bounded by how fast the ring drains (256 bytes, ~22 ms at 115200)
+static bool tx_lock(uart_t* u) {
+    if (u->tx_mutex == NULL || xTaskGetSchedulerState() == taskSCHEDULER_NOT_STARTED) {
+        return false;
+    }
+    return xSemaphoreTake(u->tx_mutex, portMAX_DELAY) == pdTRUE;
+}
+
+void uart_locks_init(void) {
+    uart_esc->tx_mutex = xSemaphoreCreateMutexStatic(&uart_esc->tx_mutex_buf);
+    uart_console->tx_mutex = xSemaphoreCreateMutexStatic(&uart_console->tx_mutex_buf);
+    uart_downlink->tx_mutex = xSemaphoreCreateMutexStatic(&uart_downlink->tx_mutex_buf);
+}
+
 void uart_write(uart_t* u, const uint8_t* data, size_t len) {
+    const bool locked = tx_lock(u);
+
     for (size_t i = 0; i < len; i++) {
         uint16_t next = (uint16_t)((u->tx_head + 1U) & (BUF_SIZE - 1U));
         while (next == u->tx_tail) {
@@ -139,6 +171,10 @@ void uart_write(uart_t* u, const uint8_t* data, size_t len) {
         u->tx_buf[u->tx_head] = data[i];
         u->tx_head = next;
         u->regs->CR1 |= USART_CR1_TXEIE;  // kick the tx interrupt
+    }
+
+    if (locked) {
+        (void)xSemaphoreGive(u->tx_mutex);
     }
 }
 
