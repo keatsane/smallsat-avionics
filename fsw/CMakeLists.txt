@@ -16,9 +16,6 @@ endif()
 
 add_compile_options(-Wall -Wextra)
 
-# CI passes -DFSW_WERROR=ON; scoped to the fsw library below (not the vendored doctest tests)
-option(FSW_WERROR "treat warnings as errors" OFF)
-
 # ETL - fixed-capacity, no-heap containers (header-only, vendored as a submodule)
 set(ETL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../vendor/etl/include)
 
@@ -38,9 +35,11 @@ add_library(fsw STATIC
 )
 target_include_directories(fsw PUBLIC include ${COMMON_DIR} ${ETL_DIR})
 
-if(FSW_WERROR)
-    target_compile_options(fsw PRIVATE -Werror)
-endif()
+# warnings are errors, always. this used to be an opt-in that only CI passed, which meant a local
+# build could go green on something CI would reject - the one thing a local build must never do.
+# scoped to this target rather than globally because the vendored doctest header warns under
+# -Wextra and is not ours to fix
+target_compile_options(fsw PRIVATE -Werror)
 
 # unit tests (doctest, single header under third_party/)
 enable_testing()

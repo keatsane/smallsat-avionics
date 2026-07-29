@@ -42,7 +42,7 @@ jobs:
       - name: Fetch ETL
         run: git submodule update --init vendor/etl
       - name: Configure
-        run: cmake -S fsw -B fsw/build -DCMAKE_BUILD_TYPE=Debug -DFSW_WERROR=ON
+        run: cmake -S fsw -B fsw/build -DCMAKE_BUILD_TYPE=Debug
       - name: Build
         run: cmake --build fsw/build
       - name: Test
@@ -57,7 +57,7 @@ jobs:
         run: git submodule update --init vendor/etl
       - name: Configure
         # tidy only needs the compile database the configure step emits
-        run: cmake -S fsw -B fsw/build -DCMAKE_BUILD_TYPE=Debug -DFSW_WERROR=ON
+        run: cmake -S fsw -B fsw/build -DCMAKE_BUILD_TYPE=Debug
       - name: Analyze
         run: |
           sudo apt-get update && sudo apt-get install -y clang-tidy
@@ -74,7 +74,7 @@ jobs:
       - name: Fetch ETL
         run: git submodule update --init vendor/etl
       - name: Configure
-        run: cmake -S fsw -B fsw/build -DCMAKE_BUILD_TYPE=Debug -DFSW_WERROR=ON
+        run: cmake -S fsw -B fsw/build -DCMAKE_BUILD_TYPE=Debug
       - name: Build the shim
         run: cmake --build fsw/build --target sil_shim
       - name: Run the suite
