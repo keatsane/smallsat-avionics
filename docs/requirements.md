@@ -189,7 +189,7 @@ Inhibits exist because the bench rig is routinely missing subsystems the flight 
 
 ## Executive
 
-**REQ-EXEC-001** - The flight software shall process each control cycle's inputs in a fixed, documented order: fault-sample ingestion, command validation, fault response, command dispatch. The fault response shall take precedence: a command accepted in the same cycle a critical fault forces SAFE shall not override the SAFE entry. Command acceptance acknowledges validation only; execution outcome is observed through telemetry.  
+**REQ-EXEC-001** - The flight software shall process each control cycle's inputs in a fixed, documented order: fault-sample ingestion, command validation, fault response, command dispatch. The fault response shall take precedence: a command accepted in the same cycle a critical fault forces SAFE shall not override the SAFE entry. Command acceptance acknowledges validation only; execution outcome is observed through telemetry. Validation is expected to reject what it can already determine is impossible, including an unreachable SET_MODE target (REQ-CMD-006) - what acceptance cannot promise is immunity from a fault response raised later in the same cycle.  
 **Type**: Functional  
 **Status**: SIL-verified  
 **Verification**: unit test and SIL  
@@ -214,6 +214,14 @@ Inhibits exist because the bench rig is routinely missing subsystems the flight 
 **Status**: unit-verified  
 **Verification**: unit test  
 **Artifact**: fsw/src/comms/command_handler.cpp, fsw/test/test_comms.cpp
+
+**REQ-CMD-006** - A SET_MODE request naming a mode that is not reachable from the current mode shall be rejected as illegal-in-mode at validation, rather than accepted and then refused by the mode manager.  
+**Type**: Functional  
+**Status**: SIL-verified  
+**Verification**: unit test and SIL  
+**Artifact**: fsw/src/comms/command_handler.cpp, fsw/test/test_comms.cpp, docs/reports/sil/SIL-007.md
+
+This extends REQ-CMD-005's reasoning from one mode to the whole transition table: an acknowledgement that says yes while the vehicle does not move is a worse interface than a refusal that names why. It narrows REQ-EXEC-001 rather than contradicting it - acceptance still is not execution, because a safing raised in the same cycle overrides an accepted command (SIL-008). What changed is that a refusal already knowable at validation time is now reported at validation time.
 
 BOOT means "powered on and still self-checking" - a state the vehicle enters by resetting and leaves by passing its checks (REQ-MODE-010). There is nothing for the flight software to do with a request to re-enter it. Validating it away matters because the alternative is worse than useless: `BOOT` is a real mode id and a legal transition target from nowhere, so without this check the command passes validation, is acknowledged as accepted, and then changes nothing - an ack that says yes while the vehicle does not move.
 
@@ -274,9 +282,9 @@ BOOT means "powered on and still self-checking" - a state the vehicle enters by 
 
 **REQ-RT-003** - Under concurrent workloads the flight software shall run as prioritized tasks with the control loop at the highest priority, and shall report task health (liveness and stack high-water).  
 **Type**: Performance  
-**Status**: in progress (the task model runs on the bench - control at the highest priority, sensor sampling below it behind a queue, no stack overflow and no fault over a 51 s run covering every mode, a capture, and a downlink. Sensor telemetry stayed valid throughout, so the queue delivers a set every cycle. Task-health reporting - liveness and stack high-water - is not built yet, which is the half this requirement still owes)  
+**Status**: in progress (the task model runs on the bench - control at the highest priority, sensor sampling below it behind a queue, no stack overflow and no fault over a 51 s run covering every mode, a capture, and a downlink. Sensor telemetry stayed valid throughout, so the queue delivers a set every cycle. Health reporting is bench-verified: every task checks in at the end of each pass and a 1 Hz report carries each one's state, check-in age, and stack high-water mark down as `MsgId::TaskHealth`, decoded by the ground console. A 22 s run reported all four tasks every second with no overflow. Margins so far are idle-mode only - control 842 words free of 1024, sensors 410 of 512, health 177 of 256, idle 104 of 128 - and are not yet the basis for trimming, since that run neither captured nor downlinked. Note the kernel's high-water figures read slightly optimistic: they count a fill pattern, and a written byte holding that pattern lets the count pass the true frontier)  
 **Verification**: HIL (scheduler-smoke run)  
-**Artifact**: the task table in obc/Inc/rtos_tasks.h; obc/Src/freertos/
+**Artifact**: the task table in obc/Inc/rtos_tasks.h; obc/Src/freertos/; `task_health_t` in common/protocol/msg.hpp with its ground decoder and 6 pytest cases
 
 **REQ-RT-004** - An unhandled processor fault exception (hard fault, memory-management, bus, or usage fault) shall be caught by a dedicated handler that captures the fault context and performs a controlled reset, rather than leaving the processor halted in a default infinite loop.  
 **Type**: Functional  
