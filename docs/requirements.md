@@ -268,14 +268,15 @@ BOOT means "powered on and still self-checking" - a state the vehicle enters by 
 
 **REQ-RT-002** - The decision paths shall run at a fixed, bounded rate and shall allocate no memory dynamically (fixed-capacity containers only).  
 **Type**: Constraint  
-**Status**: in progress  
-**Verification**: inspection and analysis  
-**Artifact**: no-heap rule, ETL containers; fixed-rate loop (phase 6)
+**Status**: bench-verified (heartbeats landed exactly 1000 ms apart for 34 s of idle running and unbroken through a 128-chunk payload downlink - the absolute wake-up holds the period regardless of the cycle's work. The super-loop it replaced measured 1020 ms, a structural 2% slow. No cycle overran its period, including the one a capture completes on: the JPEG end-marker scan costs that cycle ~16 ms of its 100 ms budget, which is visible only because the heartbeat's timestamp is taken after it. Static allocation only, so a dynamic task or queue fails to link)  
+**Verification**: inspection and analysis, plus demonstration (measure heartbeat spacing idle and under downlink load)  
+**Artifact**: no-heap rule, ETL containers, `configSUPPORT_DYNAMIC_ALLOCATION 0` in obc/Inc/FreeRTOSConfig.h; the control task's `xTaskDelayUntil` in obc/Src/main.cpp
 
 **REQ-RT-003** - Under concurrent workloads the flight software shall run as prioritized tasks with the control loop at the highest priority, and shall report task health (liveness and stack high-water).  
 **Type**: Performance  
-**Status**: planned  
-**Verification**: HIL (scheduler-smoke run)
+**Status**: in progress (the task model runs on the bench - control at the highest priority, sensor sampling below it behind a queue, no stack overflow and no fault over a 51 s run covering every mode, a capture, and a downlink. Sensor telemetry stayed valid throughout, so the queue delivers a set every cycle. Task-health reporting - liveness and stack high-water - is not built yet, which is the half this requirement still owes)  
+**Verification**: HIL (scheduler-smoke run)  
+**Artifact**: the task table in obc/Inc/rtos_tasks.h; obc/Src/freertos/
 
 **REQ-RT-004** - An unhandled processor fault exception (hard fault, memory-management, bus, or usage fault) shall be caught by a dedicated handler that captures the fault context and performs a controlled reset, rather than leaving the processor halted in a default infinite loop.  
 **Type**: Functional  
