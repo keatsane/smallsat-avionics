@@ -8,6 +8,7 @@ import pytest
 
 from ground import frames
 from ground.frames import (
+    COMMANDS,
     FAULTS,
     MODES,
     MSG_COMMAND,
@@ -20,12 +21,14 @@ from ground.frames import (
     REJECT_REASONS,
     FrameDecoder,
     crc16,
+    decode_camera_data,
     decode_command_ack,
     decode_heartbeat,
     decode_imu_data,
     decode_power_data,
     decode_temp_data,
     encode,
+    encode_command,
     fault_names,
     format_frame,
     mode_name,
@@ -63,8 +66,14 @@ def test_command_ack_roundtrip():
 def test_format_command():
     text = format_frame(MSG_COMMAND, struct.pack("<BBH", 1, 3, 99))
     assert "COMMAND" in text
-    assert "cmd=1" in text
+    assert "cmd=SET_MODE" in text  # named, not a raw id
     assert "seq=99" in text
+
+
+def test_encode_command_roundtrip():
+    # what command.py puts on the wire must decode back to the same command_t fields
+    frame = encode_command(3, 0, 7)  # CAPTURE_IMAGE
+    assert _decode_all(frame) == (MSG_COMMAND, struct.pack("<BBH", 3, 0, 7))
 
 
 def test_heartbeat_roundtrip():
@@ -79,7 +88,7 @@ def test_uart_status_roundtrip():
 
 def test_format_uart_status():
     text = format_frame(MSG_UART_STATUS, struct.pack("<IIII", 3, 0, 1, 0))
-    assert "UART_STATUS" in text
+    assert "UART" in text
     assert "overrun=3" in text
 
 
@@ -153,7 +162,7 @@ def test_decode_imu_data_fields():
 
 def test_format_imu_data():
     text = format_frame(MSG_IMU_DATA, struct.pack("<I9hB", 5000, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0x03))
-    assert "IMU_DATA" in text
+    assert "IMU" in text
     assert "accel=(1, 2, 3)" in text
     assert "flags=0x03" in text
 
@@ -178,7 +187,7 @@ def test_decode_power_data_fields():
 
 def test_format_power_data():
     text = format_frame(MSG_POWER_DATA, struct.pack("<2IiIB", 5000, 1, 2, 3, 0x01))
-    assert "POWER_DATA" in text
+    assert "POWER" in text
     assert "bus_mv=1" in text
     assert "current_ma=2" in text
     assert "power_mw=3" in text
@@ -203,7 +212,7 @@ def test_decode_temp_data_fields():
 
 def test_format_temp_data():
     text = format_frame(MSG_TEMP_DATA, struct.pack("<IiB", 5000, 24187, 0x01))
-    assert "TEMP_DATA" in text
+    assert "TEMP" in text
     assert "temp_mc=24187" in text
     assert "flags=0x01" in text
 
@@ -220,6 +229,11 @@ def _xmacro_names(header: Path, macro: str) -> list:
     block = re.search(rf"#define {macro}\(X\)(.*?)\n\n", text, re.S)
     assert block is not None, f"{macro} not found in {header}"
     return re.findall(r"X\((\w+)\)", block.group(1))
+
+
+def test_commands_mirror_state_hpp():
+    header = REPO_ROOT / "common" / "protocol" / "state.hpp"
+    assert COMMANDS == _xmacro_names(header, "FSW_COMMAND_LIST")
 
 
 def test_modes_mirror_state_hpp():
@@ -272,6 +286,7 @@ def test_payload_sizes_match_msg_hpp():
         "imu_data_t": decode_imu_data,
         "power_data_t": decode_power_data,
         "temp_data_t": decode_temp_data,
+        "camera_data_t": decode_camera_data,
     }
     for struct_name, decoder in decoders.items():
         n = sizes[struct_name]
@@ -282,5 +297,7 @@ def test_payload_sizes_match_msg_hpp():
     # command_t and uart_status_t are unpacked inline in format_frame; its len guard is the size
     for msg_id, struct_name in ((MSG_COMMAND, "command_t"), (MSG_UART_STATUS, "uart_status_t")):
         n = sizes[struct_name]
-        assert not format_frame(msg_id, b"\x00" * n).startswith("msg ")  # right size -> decoded
-        assert format_frame(msg_id, b"\x00" * (n - 1)).startswith("msg ")  # wrong size -> fallback
+        assert not format_frame(msg_id, b"\x00" * n).startswith("UNKNOWN")  # right size -> decoded
+        assert format_frame(msg_id, b"\x00" * (n - 1)).startswith(
+            "UNKNOWN"
+        )  # wrong size -> falls back

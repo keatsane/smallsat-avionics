@@ -288,12 +288,13 @@ def run_scenario(sc: HilScenario, port: str, baud: int, verbose: bool) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="run HIL scenarios against the live board")
-    ap.add_argument("port", help="serial port, e.g. COM5 or /dev/ttyACM0")
+    ap.add_argument("port", nargs="?", help="serial port; omit to find it automatically")
     ap.add_argument(
         "scenarios",
         nargs="*",
         help="scenario refs: 'all' (default), a number (2), a name (link_loss), or a path",
     )
+    ap.add_argument("--stlink", help="pin the port by ST-Link serial number")
     ap.add_argument("-b", "--baud", type=int, default=115200)
     ap.add_argument(
         "-v", "--verbose", action="store_true", help="print every check, not just failures"
@@ -304,6 +305,12 @@ def main() -> int:
         args.scenarios or ["all"], REPO_ROOT / "fsw" / "hil" / "scenarios", "hil"
     )
 
+    # resolved once, before any scenario runs - a wrong port should fail before a human is
+    # asked to set the bench up for the first stimulus
+    from ground.link import find_port  # noqa: PLC0415 - hardware-only, keeps CI import clean
+
+    port = args.port or find_port(args.stlink)
+
     results = []
     try:
         for path in files:
@@ -311,7 +318,7 @@ def main() -> int:
             if len(files) > 1:
                 # a human performs the stimuli, so a campaign pauses between scenarios
                 input(f"\nnext: {sc.id} - press enter when the bench is ready... ")
-            results.append(run_scenario(sc, args.port, args.baud, args.verbose))
+            results.append(run_scenario(sc, port, args.baud, args.verbose))
     except KeyboardInterrupt:
         die("interrupted before the observation window ended")
     except EOFError:

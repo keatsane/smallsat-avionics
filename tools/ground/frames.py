@@ -21,7 +21,10 @@ MSG_UART_STATUS = 0x04
 MSG_IMU_DATA = 0x07
 MSG_POWER_DATA = 0x08
 MSG_TEMP_DATA = 0x09
-# MSG_PAYLOAD_DATA = 0x10
+MSG_PAYLOAD_DATA = 0x10
+MSG_CAMERA_STATUS = 0x11
+MSG_WHEEL_COMMAND = 0x20
+MSG_WHEEL_STATUS = 0x21
 
 
 def crc16(data: bytes) -> int:
@@ -106,6 +109,16 @@ def decode_command_ack(payload: bytes) -> dict:
     }
 
 
+# commands - mirror FSW_COMMAND_LIST in common/protocol/state.hpp (drift-checked by test_frames).
+# a command's index here is its id on the wire
+COMMANDS = ["NOOP", "SET_MODE", "CLEAR_FAULT", "CAPTURE_IMAGE"]
+
+
+def command_name(cmd_id: int) -> str:
+    """Name for a command id, or 'UNKNOWN' if out of range."""
+    return COMMANDS[cmd_id] if 0 <= cmd_id < len(COMMANDS) else "UNKNOWN"
+
+
 # modes - mirror FSW_MODE_LIST in common/protocol/state.hpp (drift-checked by test_frames)
 MODES = ["BOOT", "STANDBY", "DETUMBLE", "POINTING", "DOWNLINK", "SAFE"]
 
@@ -128,6 +141,8 @@ FAULTS = [
     "TEMP_DROPOUT",
     "UNDERTEMPERATURE",
     "OVERTEMPERATURE",
+    "WHEEL_DROPOUT",
+    "CAMERA_DROPOUT",
 ]
 
 
@@ -186,42 +201,113 @@ def decode_temp_data(payload: bytes) -> dict:
     }
 
 
+def encode_command(cmd_id: int, arg: int, seq: int) -> bytes:
+    """Frame a command_t (msg.hpp) ready to send to the OBC."""
+    return encode(MSG_COMMAND, struct.pack("<BBH", cmd_id, arg, seq))
+
+
+# bytes of image per chunk - mirrors kPayloadChunkBytes in msg.hpp
+PAYLOAD_CHUNK_BYTES = 56
+
+
+def decode_payload_data(payload: bytes) -> dict:
+    """Unpack a payload_data_t payload (msg.hpp) into a dict; data is trimmed to its valid length."""
+    image_id, chunk, chunks, length, _reserved = struct.unpack("<3H2B", payload[:8])
+    return {
+        "image_id": image_id,
+        "chunk": chunk,
+        "chunks": chunks,
+        "len": length,
+        "data": payload[8 : 8 + length],
+    }
+
+
+def decode_camera_data(payload: bytes) -> dict:
+    """Unpack a camera_data_t payload (msg.hpp) into a dict."""
+    t_ms, frame_bytes, flags = struct.unpack("<IIB", payload)
+    return {
+        "t_ms": t_ms,
+        "frame_bytes": frame_bytes,
+        "flags": flags,
+    }
+
+
+def encode_wheel_command(torque_mv: int, seq: int) -> bytes:
+    """Frame a wheel_command_t (msg.hpp) ready to send to the ESC node."""
+    return encode(MSG_WHEEL_COMMAND, struct.pack("<hH", torque_mv, seq))
+
+
+def decode_wheel_status(payload: bytes) -> dict:
+    """Unpack a wheel_status_t payload (msg.hpp) into a dict."""
+    velocity_mrad_s, angle_mrad, torque_mv, flags, seq = struct.unpack("<iihBH", payload)
+    return {
+        "velocity_mrad_s": velocity_mrad_s,
+        "angle_mrad": angle_mrad,
+        "torque_mv": torque_mv,
+        "flags": flags,
+        "seq": seq,
+    }
+
+
 def format_frame(msg_id: int, payload: bytes) -> str:
-    """One-line summary of a decoded frame; the kind is left-justified so the fields line up."""
+    """One-line summary of a decoded frame; the kind is left-justified so the fields line up.
+
+    Kind naming: a subsystem that sends one message is named bare (IMU, POWER, CAMERA), and a
+    suffix is added only where one subsystem sends more than one (WHEEL_CMD vs WHEEL_STATUS).
+    Every millisecond stamp is `t=`, since they all come off the same millis() time base.
+    """
     if msg_id == MSG_COMMAND and len(payload) == 4:
         cmd_id, arg, seq = struct.unpack("<BBH", payload)
-        return f"{'COMMAND':<12} cmd={cmd_id}  arg={arg}  seq={seq}"
+        return f"{'COMMAND':<12} cmd={command_name(cmd_id)}  arg={arg}  seq={seq}"
     if msg_id == MSG_COMMAND_ACK and len(payload) == 5:
         d = decode_command_ack(payload)
         verdict = "accepted" if d["accepted"] else f"rejected (reason={d['reason']})"
-        return f"{'COMMAND_ACK':<12} cmd={d['cmd_id']}  seq={d['seq']}  {verdict}"
+        return f"{'COMMAND_ACK':<12} cmd={command_name(d['cmd_id'])}  seq={d['seq']}  {verdict}"
     if msg_id == MSG_HEARTBEAT and len(payload) == 11:
         d = decode_heartbeat(payload)
         return (
-            f"{'HEARTBEAT':<12} uptime={d['uptime_ms']} ms  mode={d['mode']}  "
+            f"{'HEARTBEAT':<12} t={d['uptime_ms']} ms  mode={d['mode']}  "
             f"faults={fault_names(d['faults'])}  seq={d['seq']}"
         )
     if msg_id == MSG_UART_STATUS and len(payload) == 16:
         overrun, framing, noise, dropped = struct.unpack("<IIII", payload)
         return (
-            f"{'UART_STATUS':<12} overrun={overrun}  framing={framing}  "
-            f"noise={noise}  dropped={dropped}"
+            f"{'UART':<12} overrun={overrun}  framing={framing}  noise={noise}  dropped={dropped}"
         )
     if msg_id == MSG_IMU_DATA and len(payload) == 23:
         d = decode_imu_data(payload)
         return (
-            f"{'IMU_DATA':<12} t={d['t_ms']} ms  accel={d['accel']}  "
+            f"{'IMU':<12} t={d['t_ms']} ms  accel={d['accel']}  "
             f"gyro={d['gyro']}  mag={d['mag']}  flags=0x{d['flags']:02X}"
         )
     if msg_id == MSG_POWER_DATA and len(payload) == 17:
         d = decode_power_data(payload)
         return (
-            f"{'POWER_DATA':<12} t={d['t_ms']} ms  bus_mv={d['bus_mv']}  "
+            f"{'POWER':<12} t={d['t_ms']} ms  bus_mv={d['bus_mv']}  "
             f"current_ma={d['current_ma']}  power_mw={d['power_mw']}  flags=0x{d['flags']:02X}"
         )
     if msg_id == MSG_TEMP_DATA and len(payload) == 9:
         d = decode_temp_data(payload)
+        return f"{'TEMP':<12} t={d['t_ms']} ms  temp_mc={d['temp_mc']}  flags=0x{d['flags']:02X}"
+    if msg_id == MSG_PAYLOAD_DATA and len(payload) == 8 + PAYLOAD_CHUNK_BYTES:
+        d = decode_payload_data(payload)
         return (
-            f"{'TEMP_DATA':<12} t={d['t_ms']} ms  temp_mc={d['temp_mc']}  flags=0x{d['flags']:02X}"
+            f"{'PAYLOAD':<12} image={d['image_id']}  chunk={d['chunk']}/{d['chunks']}  "
+            f"len={d['len']}"
         )
-    return f"{'msg':<12} 0x{msg_id:02X}  len={len(payload)}  payload={payload.hex()}"
+    if msg_id == MSG_CAMERA_STATUS and len(payload) == 9:
+        d = decode_camera_data(payload)
+        return (
+            f"{'CAMERA':<12} t={d['t_ms']} ms  frame_bytes={d['frame_bytes']}  "
+            f"flags=0x{d['flags']:02X}"
+        )
+    if msg_id == MSG_WHEEL_COMMAND and len(payload) == 4:
+        torque_mv, seq = struct.unpack("<hH", payload)
+        return f"{'WHEEL_CMD':<12} torque_mv={torque_mv}  seq={seq}"
+    if msg_id == MSG_WHEEL_STATUS and len(payload) == 13:
+        d = decode_wheel_status(payload)
+        return (
+            f"{'WHEEL_STATUS':<12} vel={d['velocity_mrad_s']} mrad/s  ang={d['angle_mrad']} mrad  "
+            f"torque_mv={d['torque_mv']}  flags=0x{d['flags']:02X}  seq={d['seq']}"
+        )
+    return f"{'UNKNOWN':<12} id=0x{msg_id:02X}  len={len(payload)}  payload={payload.hex()}"
