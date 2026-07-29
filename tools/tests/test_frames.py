@@ -23,6 +23,7 @@ from ground.frames import (
     crc16,
     decode_camera_data,
     decode_command_ack,
+    decode_task_health,
     decode_heartbeat,
     decode_imu_data,
     decode_power_data,
@@ -217,6 +218,68 @@ def test_format_temp_data():
     assert "flags=0x01" in text
 
 
+def _task_health_payload(entries: list) -> bytes:
+    """Pack a task_health_t: t_ms, count, then every slot, unused ones left zero."""
+    padded = entries + [(0, 0, 0, 0)] * (frames.TASK_HEALTH_MAX - len(entries))
+    body = b"".join(struct.pack("<BBHH", *e) for e in padded)
+    return struct.pack("<IB", 12000, len(entries)) + body
+
+
+def test_task_health_roundtrip():
+    payload = _task_health_payload([(0, 2, 812, 100), (1, 2, 402, 95)])
+    assert _decode_all(encode(frames.MSG_TASK_HEALTH, payload)) == (
+        frames.MSG_TASK_HEALTH,
+        payload,
+    )
+
+
+def test_decode_task_health_trims_to_count():
+    # every slot is on the wire; only the first `count` of them mean anything
+    payload = _task_health_payload([(0, 2, 812, 100), (1, 2, 402, 95)])
+    d = decode_task_health(payload)
+    assert d["t_ms"] == 12000
+    assert d["count"] == 2
+    assert [t["name"] for t in d["tasks"]] == ["control", "sensors"]
+    assert d["tasks"][0] == {
+        "id": 0,
+        "name": "control",
+        "state": 2,
+        "stack_free_words": 812,
+        "checkin_age_ms": 100,
+    }
+
+
+def test_decode_task_health_rejects_short_payload():
+    # a truncated report must raise, never decode the entries it happens to have
+    with pytest.raises(struct.error):
+        decode_task_health(_task_health_payload([(0, 2, 812, 100)])[:-1])
+
+
+def test_task_health_names_unknown_id():
+    # a report from a newer build naming a slot this ground station does not know
+    d = decode_task_health(_task_health_payload([(99, 1, 64, 0)]))
+    assert d["tasks"][0]["name"] == "id99"
+
+
+def test_format_task_health():
+    # idle never checks in, so its age is the sentinel and must be left off entirely
+    payload = _task_health_payload([(0, 2, 812, 100), (6, 1, 96, frames.TASK_CHECKIN_NONE)])
+    text = format_frame(frames.MSG_TASK_HEALTH, payload)
+    assert "TASKS" in text
+    assert "control: blk 812w 100ms" in text
+    assert "idle: rdy 96w" in text
+    assert "65535" not in text  # the sentinel must never reach the screen as a number
+
+
+def test_task_health_len_matches_msg_hpp():
+    # the python length guard against the C++ sizeof assert - format_frame keys off it, so a
+    # mismatch would silently render every report as UNKNOWN
+    header = REPO_ROOT / "common" / "protocol" / "msg.hpp"
+    match = re.search(r"sizeof\(task_health_t\)\s*==\s*(\d+)", header.read_text())
+    assert match is not None
+    assert frames.TASK_HEALTH_LEN == int(match.group(1))
+
+
 # --- mirror drift tests ---
 # the wire carries bare ints; the names live in c++. the python catalogs are hand-written
 # mirrors, so each is checked against its owning header - add a name in c++ and forget
@@ -258,6 +321,24 @@ def _camel_to_macro(name: str) -> str:
     return "MSG_" + "_".join(p.upper() for p in re.findall(r"[A-Z][a-z0-9]*", name))
 
 
+def test_mode_ladder_mirrors_mode_manager_cpp():
+    # the console prints this table as help, so a stale copy would tell an operator a transition
+    # is legal when the flight software will refuse it
+    from ground.commands import MODE_LADDER
+
+    source = (REPO_ROOT / "fsw" / "src" / "mode_manager.cpp").read_text()
+    rows = re.findall(r"/\* from (\w+)\s*\*/([^\n]*)", source)
+    assert rows, "kAutoAllowed table not found"
+
+    expected = {mode: tuple(re.findall(r"Mode::(\w+)", body)) for mode, body in rows}
+    # SAFE has no autonomous exit, so its row is a bare 0; the one way out is ground-commanded
+    # (REQ-MODE-006), which is a carve-out in is_legal rather than a bit in the table
+    assert expected["SAFE"] == ()
+    expected["SAFE"] = ("STANDBY",)
+
+    assert MODE_LADDER == expected
+
+
 def test_msgids_mirror_msg_hpp():
     header = REPO_ROOT / "common" / "protocol" / "msg.hpp"
     block = re.search(r"enum class MsgId[^{]*\{(.*?)\}", header.read_text(), re.S)
@@ -287,6 +368,7 @@ def test_payload_sizes_match_msg_hpp():
         "power_data_t": decode_power_data,
         "temp_data_t": decode_temp_data,
         "camera_data_t": decode_camera_data,
+        "task_health_t": decode_task_health,
     }
     for struct_name, decoder in decoders.items():
         n = sizes[struct_name]

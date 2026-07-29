@@ -25,6 +25,7 @@ MSG_PAYLOAD_DATA = 0x10
 MSG_CAMERA_STATUS = 0x11
 MSG_WHEEL_COMMAND = 0x20
 MSG_WHEEL_STATUS = 0x21
+MSG_TASK_HEALTH = 0x30
 
 
 def crc16(data: bytes) -> int:
@@ -249,6 +250,81 @@ def decode_wheel_status(payload: bytes) -> dict:
     }
 
 
+# task slots, mirroring TaskId in obc/Inc/task_health.hpp. reserved slots are named because a
+# report only carries the tasks that exist, so an id has to decode without one being present
+TASK_NAMES = (
+    "control",
+    "sensors",
+    "health",
+    "uplink",
+    "telemetry",
+    "downlink",
+    "idle",
+)
+
+TASK_STATES = ("run", "rdy", "blk", "susp", "del")
+
+TASK_HEALTH_MAX = 7  # kTaskHealthMaxTasks in msg.hpp
+TASK_HEALTH_LEN = 5 + 6 * TASK_HEALTH_MAX  # t_ms + count, then one 6-byte entry per slot
+
+# a check-in age the obc could not report: never checked in, or the task does not check in at all
+TASK_CHECKIN_NONE = 0xFFFF
+
+
+def task_name(task_id: int) -> str:
+    """Name for a task id, falling back to the raw id for one this build does not know."""
+    if task_id < len(TASK_NAMES):
+        return TASK_NAMES[task_id]
+    return f"id{task_id}"
+
+
+def task_state_name(state: int) -> str:
+    """Short name for a FreeRTOS eTaskState value."""
+    if state < len(TASK_STATES):
+        return TASK_STATES[state]
+    return f"s{state}"
+
+
+def decode_task_health(payload: bytes) -> dict:
+    """Unpack a task_health_t payload (msg.hpp) into a dict, trimmed to its valid entries.
+
+    The struct is fixed-size and every slot is on the wire, so the whole thing is unpacked at once
+    and the count decides how many entries mean anything. A short payload raises rather than
+    decoding partially - a truncated report is not a report.
+    """
+    fields = struct.unpack("<IB" + "BBHH" * TASK_HEALTH_MAX, payload)
+    t_ms, count = fields[0], fields[1]
+    tasks = []
+    for i in range(min(count, TASK_HEALTH_MAX)):
+        task_id, state, stack_free_words, checkin_age_ms = fields[2 + 4 * i : 6 + 4 * i]
+        tasks.append(
+            {
+                "id": task_id,
+                "name": task_name(task_id),
+                "state": state,
+                "stack_free_words": stack_free_words,
+                "checkin_age_ms": checkin_age_ms,
+            }
+        )
+    return {"t_ms": t_ms, "count": count, "tasks": tasks}
+
+
+def format_task_health(payload: bytes) -> str:
+    """One line for a task_health_t: name, state, stack words still free, check-in age.
+
+    A task with no check-in age (the kernel's idle task never checks in) simply has none printed -
+    a placeholder there reads as a missing value rather than an inapplicable one.
+    """
+    d = decode_task_health(payload)
+    parts = []
+    for t in d["tasks"]:
+        fields = [task_state_name(t["state"]), f"{t['stack_free_words']}w"]
+        if t["checkin_age_ms"] != TASK_CHECKIN_NONE:
+            fields.append(f"{t['checkin_age_ms']}ms")
+        parts.append(f"{t['name']}: {' '.join(fields)}")
+    return f"{'TASKS':<12} t={d['t_ms']} ms  " + " | ".join(parts)
+
+
 def format_frame(msg_id: int, payload: bytes) -> str:
     """One-line summary of a decoded frame; the kind is left-justified so the fields line up.
 
@@ -301,6 +377,8 @@ def format_frame(msg_id: int, payload: bytes) -> str:
             f"{'CAMERA':<12} t={d['t_ms']} ms  frame_bytes={d['frame_bytes']}  "
             f"flags=0x{d['flags']:02X}"
         )
+    if msg_id == MSG_TASK_HEALTH and len(payload) == TASK_HEALTH_LEN:
+        return format_task_health(payload)
     if msg_id == MSG_WHEEL_COMMAND and len(payload) == 4:
         torque_mv, seq = struct.unpack("<hH", payload)
         return f"{'WHEEL_CMD':<12} torque_mv={torque_mv}  seq={seq}"

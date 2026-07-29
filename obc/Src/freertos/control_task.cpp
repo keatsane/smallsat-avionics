@@ -23,6 +23,7 @@
 #include "rtos_tasks.h"
 #include "sensor_task.hpp"
 #include "task.h"
+#include "task_health.hpp"
 
 namespace {
 
@@ -235,20 +236,30 @@ void control_task(void*) {
             ld2_toggle();  // ~1 hz alive blink
         }
 
-        // TEMP esc rx diagnosis - are bytes arriving at all, and are they clean
+        // TEMP esc rx diagnosis - are bytes arriving at all, and are they clean. printed once and
+        // then only when something moves: the question is "has anything changed", and repeating
+        // the same all-zero line every two seconds forever only buries the lines that matter
         if ((cycle % 20U) == 0U && wheel_last_ms == 0U) {
-            uart_errors_t e = uart_get_errors(uart_esc);
-            console_printf(
-                "ESC rx: waiting=%u ore=%lu fe=%lu ne=%lu drop=%lu\r\n",
-                static_cast<unsigned>(uart_rx_available(uart_esc)),
-                static_cast<unsigned long>(e.overrun), static_cast<unsigned long>(e.framing),
-                static_cast<unsigned long>(e.noise), static_cast<unsigned long>(e.dropped));
+            static uint32_t last_sum = UINT32_MAX;
+            const uart_errors_t e = uart_get_errors(uart_esc);
+            const uint32_t waiting = static_cast<uint32_t>(uart_rx_available(uart_esc));
+            const uint32_t sum = waiting + e.overrun + e.framing + e.noise + e.dropped;
+            if (sum != last_sum) {
+                last_sum = sum;
+                console_printf(
+                    "ESC rx: waiting=%lu ore=%lu fe=%lu ne=%lu drop=%lu\r\n",
+                    static_cast<unsigned long>(waiting), static_cast<unsigned long>(e.overrun),
+                    static_cast<unsigned long>(e.framing), static_cast<unsigned long>(e.noise),
+                    static_cast<unsigned long>(e.dropped));
+            }
         }
 
         update_status_leds(exec);
         ws2812_show();  // re-send every cycle - a missed latch self-heals next pass
 
         cycle++;
+
+        task_health_checkin(TASK_ID_CONTROL);
 
         // absolute wake-up, not a delay: the period stays 100 ms whatever the cycle's work costs,
         // so the rate cannot drift the way a delay-after-work loop does (REQ-RT-002)
@@ -282,6 +293,7 @@ void control_task_create(bool camera_present) {
     }
     console_puts("\r\n");
 
-    xTaskCreateStatic(control_task, "control", TASK_STACK_CONTROL, nullptr, TASK_PRIO_CONTROL,
-                      s_stack, &s_tcb);
+    const TaskHandle_t h = xTaskCreateStatic(control_task, "control", TASK_STACK_CONTROL, nullptr,
+                                             TASK_PRIO_CONTROL, s_stack, &s_tcb);
+    task_health_register(TASK_ID_CONTROL, h);
 }

@@ -97,6 +97,8 @@ def main() -> int:
         "SENT": "\x1b[1;32m",  # bold green - the local side of the conversation
         "REJECT": "\x1b[1;31m",  # bold red - refused here, never reached the wire
         "PAYLOAD": "\x1b[35m",  # magenta - bulk data, distinct from the health stream
+        "TASKS": "\x1b[36m",  # cyan, plainer than the heartbeat's - same cadence, less to read
+        "LINKERR": "\x1b[1;31m",  # bold red - a frame arrived corrupt, which is never routine
     }
 
     # rebound to prompt_toolkit's printer once the prompt owns the terminal (see console.py)
@@ -186,7 +188,12 @@ def main() -> int:
                     sys.stdout.write(f"{byte:02X} ")
                     sys.stdout.flush()
                 hunting = decoder.state == "sync0"
+                crc_before = decoder.crc_errors
                 frame = decoder.push(byte)
+                # a corrupt frame was being counted and never reported, which made a link problem
+                # look like stray debug text. say so the moment it happens
+                if decoder.crc_errors != crc_before:
+                    show(f"{'LINKERR':<12} bad crc - frames dropped={decoder.crc_errors}")
                 if frame is not None:
                     if frame[0] == MSG_PAYLOAD_DATA:
                         take_chunk(*frame)
@@ -202,6 +209,7 @@ def main() -> int:
     print(f"listening on {port} at {args.baud} 8N1 (ctrl-c to quit)")
     if default_quiet:
         print(f"per-cycle telemetry hidden ({', '.join(PER_CYCLE_KINDS)}) - --all shows it")
+    print("TASKS reads <task>: <state> <stack words still free> <age of last check-in>")
 
     interactive = not args.read_only and sys.stdin.isatty()
     if interactive:
