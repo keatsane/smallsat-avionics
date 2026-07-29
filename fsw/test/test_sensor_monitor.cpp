@@ -21,7 +21,7 @@ Inputs imu_reading(int16_t v, uint8_t flags) {
 constexpr uint8_t kBothValid = kImuFlagAccelGyroValid | kImuFlagMagValid;
 
 // inputs carrying one power sample; defaults are a healthy 5 V rail - override one field per test
-Inputs power_reading(uint32_t bus_mv = 5000, int32_t current_ma = 150,
+Inputs power_reading(uint32_t bus_mv = 14800, int32_t current_ma = 250,
                      uint8_t flags = kPowerFlagValid) {
     Inputs inputs;
     power_data_t s{};
@@ -39,6 +39,24 @@ Inputs temp_reading(int32_t temp_mc = 22000, uint8_t flags = kTempFlagValid) {
     s.temp_mc = temp_mc;
     s.flags = flags;
     inputs.temp = s;
+    return inputs;
+}
+
+// inputs carrying one camera health sample; default is a healthy idle camera
+Inputs camera_reading(uint8_t flags = kCameraFlagValid) {
+    Inputs inputs;
+    camera_data_t s{};
+    s.flags = flags;
+    inputs.camera = s;
+    return inputs;
+}
+
+// inputs carrying one wheel status - a frame arriving is all the detector reads
+Inputs wheel_reading() {
+    Inputs inputs;
+    wheel_status_t s{};
+    s.flags = kWheelFlagFocReady | kWheelFlagSensorOk | kWheelFlagMagnetOk | kWheelFlagDriverOk;
+    inputs.wheel = s;
     return inputs;
 }
 }  // namespace
@@ -173,7 +191,7 @@ TEST_SUITE("SENSOR MONITOR REQUIREMENTS") {
         SUBCASE("Undervoltage latches after the debounce threshold") {
             SensorMonitor sm;
             FaultManager fm;
-            const Inputs low = power_reading(4000);  // below 4.5 V
+            const Inputs low = power_reading(13000);  // below 13.6 V
 
             sm.evaluate(low, fm, 0);
             sm.evaluate(low, fm, 1);
@@ -186,7 +204,7 @@ TEST_SUITE("SENSOR MONITOR REQUIREMENTS") {
             SensorMonitor sm;
             FaultManager fm;
             for (uint32_t t = 0; t < 3; ++t) {
-                sm.evaluate(power_reading(6000), fm, t);  // above 5.5 V
+                sm.evaluate(power_reading(17500), fm, t);  // above 17.0 V
             }
             CHECK(fm.is_active(Fault::OVERVOLTAGE));
         }
@@ -195,7 +213,7 @@ TEST_SUITE("SENSOR MONITOR REQUIREMENTS") {
             SensorMonitor sm;
             FaultManager fm;
             for (uint32_t t = 0; t < 3; ++t) {
-                sm.evaluate(power_reading(5000, 500), fm, t);  // above 300 mA
+                sm.evaluate(power_reading(14800, 2000), fm, t);  // above 1500 mA
             }
             CHECK(fm.is_active(Fault::OVERCURRENT));
         }
@@ -204,7 +222,7 @@ TEST_SUITE("SENSOR MONITOR REQUIREMENTS") {
             SensorMonitor sm;
             FaultManager fm;
             const Inputs invalid =
-                power_reading(4000, 500, 0);  // flags=0 -> invalid; values ignored
+                power_reading(13000, 2000, 0);  // flags=0 -> invalid; values ignored
             sm.evaluate(invalid, fm, 0);
             sm.evaluate(invalid, fm, 1);
             CHECK_FALSE(fm.is_active(Fault::POWER_DROPOUT));  // below the debounce threshold (3)
@@ -281,6 +299,113 @@ TEST_SUITE("SENSOR MONITOR REQUIREMENTS") {
             }
             CHECK_FALSE(fm.is_active(Fault::OVERTEMPERATURE));
             CHECK_FALSE(fm.is_active(Fault::UNDERTEMPERATURE));
+        }
+    }
+
+    // the wheel link's detection half - the fallback it triggers is graded in test_executive
+    TEST_CASE("REQ-FAULT-005") {
+        SUBCASE("A beaconing esc latches nothing") {
+            SensorMonitor sm;
+            FaultManager fm;
+
+            // status every 250 ms, sampled on the 100 ms cycle, well past the acquire window
+            for (uint32_t t = 0; t <= 20000; t += 100) {
+                sm.evaluate((t % 250 < 100) ? wheel_reading() : Inputs{}, fm, t);
+            }
+
+            CHECK_FALSE(fm.is_active(Fault::WHEEL_DROPOUT));
+        }
+
+        SUBCASE("An esc that never comes up latches after the acquire window") {
+            SensorMonitor sm;
+            FaultManager fm;
+            const Inputs silence;  // no wheel set -> nothing arrived
+
+            // the esc aligns foc for ~5 s from cold, so nothing here may latch yet
+            for (uint32_t t = 0; t <= 8000; t += 100) {
+                sm.evaluate(silence, fm, t);
+            }
+            CHECK_FALSE(fm.is_active(Fault::WHEEL_DROPOUT));
+
+            sm.evaluate(silence, fm, 8100);
+            sm.evaluate(silence, fm, 8200);
+            CHECK_FALSE(fm.is_active(Fault::WHEEL_DROPOUT));  // below the debounce threshold (3)
+            sm.evaluate(silence, fm, 8300);
+            CHECK(fm.is_active(Fault::WHEEL_DROPOUT));
+        }
+
+        SUBCASE("A link that goes quiet after acquiring latches on the short window") {
+            SensorMonitor sm;
+            FaultManager fm;
+
+            sm.evaluate(wheel_reading(), fm, 5000);  // esc up
+
+            // once acquired the window is 1 s, not the 8 s grace
+            for (uint32_t t = 5100; t <= 6000; t += 100) {
+                sm.evaluate(Inputs{}, fm, t);
+            }
+            CHECK_FALSE(fm.is_active(Fault::WHEEL_DROPOUT));
+
+            sm.evaluate(Inputs{}, fm, 6100);
+            sm.evaluate(Inputs{}, fm, 6200);
+            sm.evaluate(Inputs{}, fm, 6300);
+            CHECK(fm.is_active(Fault::WHEEL_DROPOUT));
+        }
+
+        SUBCASE("A single dropped status frame is not a dropout") {
+            SensorMonitor sm;
+            FaultManager fm;
+
+            sm.evaluate(wheel_reading(), fm, 1000);
+            for (uint32_t t = 1100; t < 1900; t += 100) {  // three beacons missed, still in window
+                sm.evaluate(Inputs{}, fm, t);
+            }
+            sm.evaluate(wheel_reading(), fm, 1900);
+
+            CHECK_FALSE(fm.is_active(Fault::WHEEL_DROPOUT));
+        }
+    }
+
+    TEST_CASE("REQ-PAY-002") {
+        SUBCASE("A camera that answers latches nothing") {
+            SensorMonitor sm;
+            FaultManager fm;
+            for (uint32_t t = 0; t < 10; ++t) {
+                sm.evaluate(camera_reading(), fm, t);
+            }
+            CHECK_FALSE(fm.is_active(Fault::CAMERA_DROPOUT));
+        }
+
+        SUBCASE("A mute camera latches CAMERA_DROPOUT after debounce") {
+            SensorMonitor sm;
+            FaultManager fm;
+            const Inputs mute = camera_reading(0);  // validity bit clear
+
+            sm.evaluate(mute, fm, 0);
+            sm.evaluate(mute, fm, 1);
+            CHECK_FALSE(fm.is_active(Fault::CAMERA_DROPOUT));  // below the debounce threshold (3)
+            sm.evaluate(mute, fm, 2);
+            CHECK(fm.is_active(Fault::CAMERA_DROPOUT));
+        }
+
+        SUBCASE("A frame waiting in the fifo is not a fault") {
+            SensorMonitor sm;
+            FaultManager fm;
+            const Inputs ready = camera_reading(kCameraFlagValid | kCameraFlagFrameReady);
+            for (uint32_t t = 0; t < 10; ++t) {
+                sm.evaluate(ready, fm, t);
+            }
+            CHECK_FALSE(fm.is_active(Fault::CAMERA_DROPOUT));
+        }
+
+        SUBCASE("No sample is no opinion") {
+            SensorMonitor sm;
+            FaultManager fm;
+            const Inputs none;
+            for (uint32_t t = 0; t < 10; ++t) {
+                sm.evaluate(none, fm, t);
+            }
+            CHECK_FALSE(fm.is_active(Fault::CAMERA_DROPOUT));
         }
     }
 }

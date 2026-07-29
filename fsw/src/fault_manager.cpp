@@ -22,6 +22,8 @@ constexpr FaultSpec kFaultTable[] = {
     /* TEMP_DROPOUT        */ {Severity::Warning, 3, "REQ-FAULT-001"},
     /* UNDERTEMPERATURE    */ {Severity::Warning, 3, "REQ-FAULT-001"},
     /* OVERTEMPERATURE     */ {Severity::Critical, 3, "REQ-FAULT-002"},
+    /* WHEEL_DROPOUT       */ {Severity::Degraded, 3, "REQ-FAULT-005"},
+    /* CAMERA_DROPOUT      */ {Severity::Warning, 3, "REQ-FAULT-001"},
 };
 static_assert(sizeof(kFaultTable) / sizeof(kFaultTable[0]) == kFaultCount,
               "fault table is out of sync with FSW_FAULT_LIST in state.hpp");
@@ -61,8 +63,17 @@ void FaultManager::clear(Fault f, uint32_t t_ms) {
 bool FaultManager::is_active(Fault f) const { return (active_ & fault_bit(f)) != 0; }
 
 bool FaultManager::should_enter_safe() const {
-    // any latched fault whose policy forces SAFE -> command SAFE (REQ-FAULT-002)
-    return (active_ & kForcesSafe) != 0;
+    // any latched fault whose policy forces SAFE -> command SAFE (REQ-FAULT-002), unless its
+    // response is inhibited (REQ-FAULT-012). the fault stays latched and reported either way
+    return (active_ & kForcesSafe & ~inhibited_) != 0;
+}
+
+void FaultManager::inhibit(Fault f, bool on) {
+    if (on) {
+        inhibited_ |= fault_bit(f);
+    } else {
+        inhibited_ &= ~fault_bit(f);
+    }
 }
 
 void FaultManager::update(Fault f, bool bad, uint32_t t_ms) {

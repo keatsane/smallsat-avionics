@@ -320,4 +320,64 @@ TEST_SUITE("FAULT MANAGEMENT REQUIREMENTS") {
                   80 - kLogCapacity);  // oldest 48 dropped -> front is t_ms 48
         }
     }
+
+    TEST_CASE("REQ-FAULT-012") {
+        SUBCASE("An inhibited critical fault still latches but does not force SAFE") {
+            FaultManager fm;
+            fm.inhibit(Fault::UNDERVOLTAGE, true);
+
+            fm.set(Fault::UNDERVOLTAGE, 10);
+
+            CHECK(fm.is_active(Fault::UNDERVOLTAGE));                     // still latched
+            CHECK((fm.active() & fault_bit(Fault::UNDERVOLTAGE)) != 0u);  // still in telemetry
+            CHECK(fm.log().back().fault == Fault::UNDERVOLTAGE);          // still logged
+            CHECK_FALSE(fm.should_enter_safe());                          // response suppressed
+        }
+
+        SUBCASE("Inhibiting one fault does not suppress another") {
+            FaultManager fm;
+            fm.inhibit(Fault::UNDERVOLTAGE, true);
+
+            fm.set(Fault::UNDERVOLTAGE, 10);
+            CHECK_FALSE(fm.should_enter_safe());
+
+            fm.set(Fault::OVERVOLTAGE, 20);  // not inhibited, also Critical
+            CHECK(fm.should_enter_safe());
+        }
+
+        SUBCASE("An inhibit can be lifted") {
+            FaultManager fm;
+            fm.inhibit(Fault::UNDERVOLTAGE, true);
+            fm.set(Fault::UNDERVOLTAGE, 10);
+            REQUIRE_FALSE(fm.should_enter_safe());
+
+            fm.inhibit(Fault::UNDERVOLTAGE, false);
+            CHECK(fm.should_enter_safe());  // the latch was never lost, only its response
+        }
+
+        SUBCASE("The inhibited set is reportable") {
+            FaultManager fm;
+            CHECK(fm.inhibited() == 0u);
+
+            fm.inhibit(Fault::COMMAND_LINK_LOSS, true);
+            fm.inhibit(Fault::WHEEL_DROPOUT, true);
+
+            CHECK(fm.inhibited() ==
+                  (fault_bit(Fault::COMMAND_LINK_LOSS) | fault_bit(Fault::WHEEL_DROPOUT)));
+            CHECK(fm.is_inhibited(Fault::COMMAND_LINK_LOSS));
+            CHECK_FALSE(fm.is_inhibited(Fault::OVERVOLTAGE));
+        }
+
+        SUBCASE("response_active folds the latch and the inhibit together") {
+            FaultManager fm;
+
+            CHECK_FALSE(fm.response_active(Fault::WHEEL_DROPOUT));  // not latched
+            fm.set(Fault::WHEEL_DROPOUT, 10);
+            CHECK(fm.response_active(Fault::WHEEL_DROPOUT));  // latched, not inhibited
+
+            fm.inhibit(Fault::WHEEL_DROPOUT, true);
+            CHECK(fm.is_active(Fault::WHEEL_DROPOUT));              // still latched
+            CHECK_FALSE(fm.response_active(Fault::WHEEL_DROPOUT));  // but must not act
+        }
+    }
 }

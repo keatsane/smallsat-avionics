@@ -20,6 +20,11 @@ enum class Severity : uint8_t {
     Critical,  // a capability was lost with no fallback - force SAFE
 };
 
+// the order is load-bearing, not cosmetic: the safing mask and the status array's severity ladder
+// both compare severities with <, so reordering this enum silently reorders both
+static_assert(Severity::Warning < Severity::Degraded && Severity::Degraded < Severity::Critical,
+              "Severity must stay ordered low to high");
+
 // per-fault policy, indexed by the fault's id (its position in FSW_FAULT_LIST in state.hpp)
 struct FaultSpec {
     Severity severity;    // Critical -> SAFE, Degraded -> documented fallback, else report only
@@ -71,6 +76,28 @@ class FaultManager {
     /** @brief true when any latched fault is Critical, so the mode manager should command SAFE */
     bool should_enter_safe() const;
 
+    /**
+     * @brief  inhibit or re-enable a fault's automatic response (REQ-FAULT-012)
+     * @param  f   the fault
+     * @param  on  true to inhibit its response, false to restore it
+     *
+     * an inhibited fault still debounces, latches, logs, and reports in telemetry - only the
+     * autonomous response is suppressed. that split is deliberate: a bench run with a subsystem
+     * physically absent should not be forced into SAFE by its absence, but the log of that run
+     * must never be mistakable for a clean one
+     */
+    void inhibit(Fault f, bool on);
+
+    /** @brief true if this fault's response is inhibited */
+    bool is_inhibited(Fault f) const { return (inhibited_ & fault_bit(f)) != 0; }
+
+    /** @brief the set of inhibited faults, one bit per fault id - reported so a run is
+     * self-describing */
+    uint32_t inhibited() const { return inhibited_; }
+
+    /** @brief true if the fault is latched AND allowed to act - the test every response uses */
+    bool response_active(Fault f) const { return is_active(f) && !is_inhibited(f); }
+
     /** @brief look up a fault's static policy - severity, debounce, owning requirement */
     const FaultSpec& fault_spec(Fault f) const;
 
@@ -79,6 +106,7 @@ class FaultManager {
 
    private:
     uint32_t active_ = 0;                // latched faults, one bit per fault id
+    uint32_t inhibited_ = 0;             // faults whose response is suppressed (REQ-FAULT-012)
     uint16_t streak_[kFaultCount] = {};  // consecutive bad-sample count per fault (debounce state)
     FaultLog log_;                       // alongside active_ and streak_
 };

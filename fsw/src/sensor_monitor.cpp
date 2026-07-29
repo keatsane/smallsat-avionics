@@ -12,16 +12,27 @@ namespace {
 // imu-specific - a slow source (temperature) would want a much longer window
 constexpr uint32_t kImuStaleWindowMs = 500;
 
-// power thresholds - the ina228 watches the 5 V logic rail today (~150 mA avionics draw). planned:
-// move it to the battery feed at phase 8 for state-of-charge, which shifts these to the lipo range
-constexpr uint32_t kBusUnderMv = 4500;      // 4.5 V (-10%)
-constexpr uint32_t kBusOverMv = 5500;       // 5.5 V (+10%)
-constexpr int32_t kBusOverCurrentMa = 300;  // above the idle draw, tune to ~2x measured baseline
+// power thresholds - the ina228 sits high-side on the main 4s lipo bus, so bus voltage reads
+// state of charge (16.8 V full, 14.8 V nominal)
+constexpr uint32_t kBusUnderMv = 13600;      // 3.4 V/cell - low, but short of damage
+constexpr uint32_t kBusOverMv = 17000;       // just over a full charge
+constexpr int32_t kBusOverCurrentMa = 1500;  // ~200 mA logic + ~500 mA motor, under the ptc hold
 
 // temperature limits, signed milli-degrees C (the sensor reads below zero). conservative avionics
 // bounds - tunable; drop the over-limit to ~35000 to trip overtemperature by hand on the bench
 constexpr int32_t kTempUnderMc = 0;     // 0 degC - freezing, out of the operating range
 constexpr int32_t kTempOverMc = 60000;  // 60 degC - avionics running too hot
+
+// the esc beacons its status every 250 ms, so four missed in a row is a dead link rather than
+// one dropped frame. with the debounce of 3 that latches WHEEL_DROPOUT about 1.3 s after the
+// last frame
+constexpr uint32_t kWheelTimeoutMs = 1000;
+
+// the esc spends several seconds aligning foc from cold and says nothing until it finishes
+// (~5 s measured on the bench), so the first frame gets a longer window. without it every boot
+// would latch a dropout that clears itself, which is how a fault gets trained into background
+// noise. after the grace expires an esc that never came up latches like any other dead link
+constexpr uint32_t kWheelAcquireMs = 8000;
 
 // true if cur has not differed from prev for longer than the stale window; remembers the latest
 // reading and the time it last changed as a side effect
@@ -41,6 +52,8 @@ void SensorMonitor::evaluate(const Inputs& inputs, FaultManager& fm, uint32_t t_
     evaluate_imu(inputs.imu, fm, t_ms);
     evaluate_power(inputs.power, fm, t_ms);
     evaluate_temp(inputs.temp, fm, t_ms);
+    evaluate_wheel(inputs.wheel, fm, t_ms);
+    evaluate_camera(inputs.camera, fm, t_ms);
 }
 
 void SensorMonitor::evaluate_imu(const std::optional<imu_data_t>& imu, FaultManager& fm,
@@ -113,6 +126,32 @@ void SensorMonitor::evaluate_temp(const std::optional<temp_data_t>& temp, FaultM
     // value-based faults straight off the sample
     fm.update(Fault::UNDERTEMPERATURE, temp->temp_mc < kTempUnderMc, t_ms);
     fm.update(Fault::OVERTEMPERATURE, temp->temp_mc > kTempOverMc, t_ms);
+}
+
+void SensorMonitor::evaluate_wheel(const std::optional<wheel_status_t>& wheel, FaultManager& fm,
+                                   uint32_t t_ms) {
+    // the odd one out: the sensors are sampled every cycle, so for them a missing sample is no
+    // opinion. the wheel talks on its own schedule, so silence is the whole measurement and an
+    // arriving frame is only the thing that resets the clock. the flags it carries say whether
+    // the wheel can be driven, which is a separate question from whether the link is up
+    if (wheel.has_value()) {
+        wheel_seen_ms_ = t_ms;
+        wheel_acquired_ = true;
+    }
+
+    const uint32_t window = wheel_acquired_ ? kWheelTimeoutMs : kWheelAcquireMs;
+    fm.update(Fault::WHEEL_DROPOUT, (t_ms - wheel_seen_ms_) > window, t_ms);
+}
+
+void SensorMonitor::evaluate_camera(const std::optional<camera_data_t>& camera, FaultManager& fm,
+                                    uint32_t t_ms) {
+    if (!camera.has_value()) {
+        return;  // no camera reading this cycle
+    }
+
+    // back on the sampled-every-cycle pattern: the arducam's test register is polled on the same
+    // cadence as the other devices, so validity is a property of the sample and not of silence
+    fm.update(Fault::CAMERA_DROPOUT, (camera->flags & kCameraFlagValid) == 0U, t_ms);
 }
 
 }  // namespace fsw

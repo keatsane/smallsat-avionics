@@ -53,6 +53,24 @@ class SensorMonitor {
      */
     void evaluate_temp(const std::optional<temp_data_t>& temp, FaultManager& fm, uint32_t t_ms);
 
+    /**
+     * @brief  judge the wheel link's silence and update WHEEL_DROPOUT
+     * @param  wheel  wheel status, set only on the cycles one arrived
+     * @param  fm     fault manager to feed
+     * @param  t_ms   platform time
+     */
+    void evaluate_wheel(const std::optional<wheel_status_t>& wheel, FaultManager& fm,
+                        uint32_t t_ms);
+
+    /**
+     * @brief  evaluate payload camera health and update CAMERA_DROPOUT
+     * @param  camera camera health sample
+     * @param  fm     fault manager to feed
+     * @param  t_ms   platform time
+     */
+    void evaluate_camera(const std::optional<camera_data_t>& camera, FaultManager& fm,
+                         uint32_t t_ms);
+
     // last reading per source and when it last changed
     // imu
     int16_t prev_accel_[3] = {};
@@ -61,6 +79,10 @@ class SensorMonitor {
     uint32_t accel_changed_ms_ = 0;
     uint32_t gyro_changed_ms_ = 0;
     uint32_t mag_changed_ms_ = 0;
+    // wheel link - when the esc last answered, and whether it ever has (the first frame gets a
+    // longer window, since the esc aligns foc before it can talk)
+    uint32_t wheel_seen_ms_ = 0;
+    bool wheel_acquired_ = false;
 };
 
 }  // namespace fsw
