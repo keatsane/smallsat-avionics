@@ -78,7 +78,7 @@ def test_encode_command_roundtrip():
 
 
 def test_heartbeat_roundtrip():
-    payload = struct.pack("<IBIH", 123456, 1, 0x04, 42)
+    payload = struct.pack("<IBIIH", 123456, 1, 0x04, 0, 42)
     assert _decode_all(encode(MSG_HEARTBEAT, payload)) == (MSG_HEARTBEAT, payload)
 
 
@@ -107,7 +107,7 @@ def test_resync_after_garbage():
 
 
 def test_format_heartbeat():
-    text = format_frame(MSG_HEARTBEAT, struct.pack("<IBIH", 5000, 0, 0, 5))
+    text = format_frame(MSG_HEARTBEAT, struct.pack("<IBIIH", 5000, 0, 0, 0, 5))
     assert "HEARTBEAT" in text
     assert "seq=5" in text
 
@@ -119,9 +119,15 @@ def test_format_command_ack():
 
 
 def test_decode_heartbeat_fields():
-    payload = struct.pack("<IBIH", 123456, 5, 0x400, 42)
+    payload = struct.pack("<IBIIH", 123456, 5, 0x400, 0, 42)
     hb = decode_heartbeat(payload)
-    assert hb == {"uptime_ms": 123456, "mode": "SAFE", "faults": 0x400, "seq": 42}
+    assert hb == {
+        "uptime_ms": 123456,
+        "inhibited": 0,
+        "mode": "SAFE",
+        "faults": 0x400,
+        "seq": 42,
+    }
 
 
 def test_mode_name_out_of_range():
@@ -139,7 +145,7 @@ def test_fault_names_unknown_bit():
 
 
 def test_format_heartbeat_decodes_faults():
-    text = format_frame(MSG_HEARTBEAT, struct.pack("<IBIH", 5000, 5, 0x11, 4))
+    text = format_frame(MSG_HEARTBEAT, struct.pack("<IBIIH", 5000, 5, 0x11, 0, 4))
     assert "mode=SAFE" in text
     assert "faults={COMMAND_LINK_LOSS, UNDERVOLTAGE}" in text
 

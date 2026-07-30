@@ -159,9 +159,10 @@ def fault_names(faults: int) -> str:
 
 def decode_heartbeat(payload: bytes) -> dict:
     """Unpack a heartbeat_t payload (msg.hpp) into a dict."""
-    uptime_ms, mode, faults, seq = struct.unpack("<IBIH", payload)
+    uptime_ms, mode, faults, inhibited, seq = struct.unpack("<IBIIH", payload)
     return {
         "uptime_ms": uptime_ms,
+        "inhibited": inhibited,
         "mode": mode_name(mode),
         "faults": faults,
         "seq": seq,
@@ -345,11 +346,14 @@ def format_frame(msg_id: int, payload: bytes) -> str:
         d = decode_command_ack(payload)
         verdict = "accepted" if d["accepted"] else f"rejected (reason={d['reason']})"
         return f"{'COMMAND_ACK':<12} cmd={command_name(d['cmd_id'])}  seq={d['seq']}  {verdict}"
-    if msg_id == MSG_HEARTBEAT and len(payload) == 11:
+    if msg_id == MSG_HEARTBEAT and len(payload) == 15:
         d = decode_heartbeat(payload)
+        # inhibited is shown only when it is non-empty: on a flight build it always is empty, and
+        # a permanent "inhibited={}" would train the eye to skip the field that matters
+        inhibited = f"  inhibited={fault_names(d['inhibited'])}" if d["inhibited"] else ""
         return (
             f"{'HEARTBEAT':<12} t={d['uptime_ms']} ms  mode={d['mode']}  "
-            f"faults={fault_names(d['faults'])}  seq={d['seq']}"
+            f"faults={fault_names(d['faults'])}{inhibited}  seq={d['seq']}"
         )
     if msg_id == MSG_UART_STATUS and len(payload) == 16:
         overrun, framing, noise, dropped = struct.unpack("<IIII", payload)

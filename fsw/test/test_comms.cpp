@@ -407,11 +407,15 @@ TEST_SUITE("COMMS REQUIREMENTS") {
         SUBCASE("Heartbeat carries the cycle state") {
             TelemetryProducer tp;
 
-            heartbeat_t hb = tp.heartbeat(1234, Mode::POINTING, fault_bit(Fault::UNDERVOLTAGE));
+            heartbeat_t hb = tp.heartbeat(1234, Mode::POINTING, fault_bit(Fault::UNDERVOLTAGE),
+                                          fault_bit(Fault::WHEEL_DROPOUT));
 
             CHECK(uint32_t{hb.uptime_ms} == 1234);
             CHECK(hb.mode == static_cast<uint8_t>(Mode::POINTING));
             CHECK(uint32_t{hb.faults} == fault_bit(Fault::UNDERVOLTAGE));
+            // carried separately from faults, so a reader can tell a latched fault that acted
+            // from one whose response was suppressed (REQ-FAULT-012)
+            CHECK(uint32_t{hb.inhibited} == fault_bit(Fault::WHEEL_DROPOUT));
             CHECK(uint16_t{hb.seq} == 0);  // first heartbeat
         }
 
@@ -422,7 +426,7 @@ TEST_SUITE("COMMS REQUIREMENTS") {
             CHECK_FALSE(tp.heartbeat_due(kHeartbeatIntervalMs - 1));
             CHECK(tp.heartbeat_due(kHeartbeatIntervalMs));
 
-            tp.heartbeat(kHeartbeatIntervalMs, Mode::BOOT, 0);
+            tp.heartbeat(kHeartbeatIntervalMs, Mode::BOOT, 0, 0);
 
             CHECK_FALSE(tp.heartbeat_due(2 * kHeartbeatIntervalMs - 1));
             CHECK(tp.heartbeat_due(2 * kHeartbeatIntervalMs));
@@ -434,7 +438,7 @@ TEST_SUITE("COMMS REQUIREMENTS") {
 
         // the sequence increments by exactly one per heartbeat, so the ground can count drops
         for (uint16_t i = 0; i < 5; i++) {
-            heartbeat_t hb = tp.heartbeat(i, Mode::BOOT, 0);
+            heartbeat_t hb = tp.heartbeat(i, Mode::BOOT, 0, 0);
             CHECK(uint16_t{hb.seq} == i);
         }
     }

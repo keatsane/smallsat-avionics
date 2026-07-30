@@ -94,7 +94,7 @@ void Executive::cycle(const Inputs& inputs, uint32_t t_ms) {
 
     // heartbeat
     if (tp_.heartbeat_due(t_ms)) {
-        send(MsgId::Heartbeat, tp_.heartbeat(t_ms, mm_.mode(), fm_.active()));
+        send(MsgId::Heartbeat, tp_.heartbeat(t_ms, mm_.mode(), fm_.active(), fm_.inhibited()));
     }
 
     // imu data

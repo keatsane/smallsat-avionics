@@ -26,7 +26,7 @@ class TelemetryProducer {
      * @param  faults bitmask of active faults (1 << fault id from state.hpp)
      * @return the generated heartbeat message
      */
-    heartbeat_t heartbeat(uint32_t t_ms, Mode mode, uint32_t faults);
+    heartbeat_t heartbeat(uint32_t t_ms, Mode mode, uint32_t faults, uint32_t inhibited);
 
     /**
      * @brief  determines if a heartbeat is due

@@ -87,6 +87,7 @@ struct __attribute__((packed)) heartbeat_t {
     uint32_t uptime_ms;  // milliseconds since boot
     uint8_t mode;        // current mode (fsw::Mode in state.hpp)
     uint32_t faults;     // bitmask of active faults (1 << fault id from state.hpp)
+    uint32_t inhibited;  // same bit layout - faults whose response is suppressed (REQ-FAULT-012)
     uint16_t seq;        // increments each heartbeat, so drops are visible
 };
 
@@ -206,7 +207,7 @@ struct __attribute__((packed)) task_health_t {
 // packed attribute or a changed field fails the build instead of silently breaking the link
 static_assert(sizeof(command_t) == 4, "command_t wire layout changed");
 static_assert(sizeof(command_ack_t) == 5, "command_ack_t wire layout changed");
-static_assert(sizeof(heartbeat_t) == 11, "heartbeat_t wire layout changed");
+static_assert(sizeof(heartbeat_t) == 15, "heartbeat_t wire layout changed");
 static_assert(sizeof(uart_status_t) == 16, "uart_status_t wire layout changed");
 // static_assert(sizeof(lora_status_t) == ?, "lora_status_t wire layout changed");
 // static_assert(sizeof(nrf24_status_t) == ?, "nrf24_status_t wire layout changed");
