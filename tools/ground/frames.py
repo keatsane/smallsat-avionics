@@ -265,7 +265,10 @@ TASK_NAMES = (
 TASK_STATES = ("run", "rdy", "blk", "susp", "del")
 
 TASK_HEALTH_MAX = 7  # kTaskHealthMaxTasks in msg.hpp
-TASK_HEALTH_LEN = 5 + 6 * TASK_HEALTH_MAX  # t_ms + count, then one 6-byte entry per slot
+TASK_HEALTH_LEN = 6 + 6 * TASK_HEALTH_MAX  # t_ms, count, flags, then one 6-byte entry per slot
+
+# kTaskHealthFlagWatchdogFed in msg.hpp - clear means the watchdog was deliberately not serviced
+TASK_FLAG_WATCHDOG_FED = 0x01
 
 # a check-in age the obc could not report: never checked in, or the task does not check in at all
 TASK_CHECKIN_NONE = 0xFFFF
@@ -292,11 +295,11 @@ def decode_task_health(payload: bytes) -> dict:
     and the count decides how many entries mean anything. A short payload raises rather than
     decoding partially - a truncated report is not a report.
     """
-    fields = struct.unpack("<IB" + "BBHH" * TASK_HEALTH_MAX, payload)
-    t_ms, count = fields[0], fields[1]
+    fields = struct.unpack("<IBB" + "BBHH" * TASK_HEALTH_MAX, payload)
+    t_ms, count, flags = fields[0], fields[1], fields[2]
     tasks = []
     for i in range(min(count, TASK_HEALTH_MAX)):
-        task_id, state, stack_free_words, checkin_age_ms = fields[2 + 4 * i : 6 + 4 * i]
+        task_id, state, stack_free_words, checkin_age_ms = fields[3 + 4 * i : 7 + 4 * i]
         tasks.append(
             {
                 "id": task_id,
@@ -306,7 +309,7 @@ def decode_task_health(payload: bytes) -> dict:
                 "checkin_age_ms": checkin_age_ms,
             }
         )
-    return {"t_ms": t_ms, "count": count, "tasks": tasks}
+    return {"t_ms": t_ms, "count": count, "flags": flags, "tasks": tasks}
 
 
 def format_task_health(payload: bytes) -> str:
@@ -322,7 +325,10 @@ def format_task_health(payload: bytes) -> str:
         if t["checkin_age_ms"] != TASK_CHECKIN_NONE:
             fields.append(f"{t['checkin_age_ms']}ms")
         parts.append(f"{t['name']}: {' '.join(fields)}")
-    return f"{'TASKS':<12} t={d['t_ms']} ms  " + " | ".join(parts)
+    # only ever said when it is false - a watchdog being serviced is the routine case, and the
+    # line is already long. "WATCHDOG UNFED" means the spacecraft is about to reset itself
+    wdg = "" if d["flags"] & TASK_FLAG_WATCHDOG_FED else "  WATCHDOG UNFED"
+    return f"{'TASKS':<12} t={d['t_ms']} ms  " + " | ".join(parts) + wdg
 
 
 def format_frame(msg_id: int, payload: bytes) -> str:

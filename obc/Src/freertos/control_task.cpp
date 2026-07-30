@@ -295,5 +295,8 @@ void control_task_create(bool camera_present) {
 
     const TaskHandle_t h = xTaskCreateStatic(control_task, "control", TASK_STACK_CONTROL, nullptr,
                                              TASK_PRIO_CONTROL, s_stack, &s_tcb);
-    task_health_register(TASK_ID_CONTROL, h);
+    // five missed cycles. tight enough that a wedged control loop resets the vehicle quickly,
+    // loose enough that the worst jitter measured on the bench (~10 ms during a downlink) is
+    // nowhere near it
+    task_health_register(TASK_ID_CONTROL, h, 500U);
 }

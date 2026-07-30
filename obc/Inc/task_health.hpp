@@ -30,10 +30,13 @@ enum TaskId : uint8_t {
 /**
  * @brief  claim a slot in the report for a task
  * call from the task's create function, before the scheduler starts
- * @param  id    which slot
- * @param  task  the handle, for stack and state queries
+ * @param  id           which slot
+ * @param  task         the handle, for stack and state queries
+ * @param  deadline_ms  longest this task may go without checking in before the watchdog stops
+ *                      being serviced; 0 means it is reported but never judged, which is right
+ *                      for a task that does not check in at all
  */
-void task_health_register(TaskId id, TaskHandle_t task);
+void task_health_register(TaskId id, TaskHandle_t task, uint32_t deadline_ms);
 
 /**
  * @brief  record that this task just finished a pass

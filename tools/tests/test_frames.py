@@ -218,11 +218,11 @@ def test_format_temp_data():
     assert "flags=0x01" in text
 
 
-def _task_health_payload(entries: list) -> bytes:
-    """Pack a task_health_t: t_ms, count, then every slot, unused ones left zero."""
+def _task_health_payload(entries: list, flags: int = frames.TASK_FLAG_WATCHDOG_FED) -> bytes:
+    """Pack a task_health_t: t_ms, count, flags, then every slot, unused ones left zero."""
     padded = entries + [(0, 0, 0, 0)] * (frames.TASK_HEALTH_MAX - len(entries))
     body = b"".join(struct.pack("<BBHH", *e) for e in padded)
-    return struct.pack("<IB", 12000, len(entries)) + body
+    return struct.pack("<IBB", 12000, len(entries), flags) + body
 
 
 def test_task_health_roundtrip():
@@ -269,6 +269,14 @@ def test_format_task_health():
     assert "control: blk 812w 100ms" in text
     assert "idle: rdy 96w" in text
     assert "65535" not in text  # the sentinel must never reach the screen as a number
+    assert "WATCHDOG" not in text  # a fed watchdog is the routine case and stays quiet
+
+
+def test_format_task_health_flags_an_unfed_watchdog():
+    # the one state that must never be missed: a task is past its deadline, so the health task
+    # withheld the pet and the board is about to reset itself
+    payload = _task_health_payload([(0, 2, 812, 900)], flags=0)
+    assert "WATCHDOG UNFED" in format_frame(frames.MSG_TASK_HEALTH, payload)
 
 
 def test_task_health_len_matches_msg_hpp():

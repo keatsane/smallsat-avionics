@@ -186,6 +186,10 @@ struct __attribute__((packed)) task_entry_t {
     uint16_t checkin_age_ms;    // since this task last finished a pass; 0xFFFF = never, or n/a
 };
 
+// task_health_t.flags bit - clear means the watchdog was deliberately left unfed this pass, which
+// is the spacecraft announcing it is about to reset itself
+inline constexpr uint8_t kTaskHealthFlagWatchdogFed = 0x01;
+
 // MsgId::TaskHealth - liveness and stack margin for every task (REQ-RT-003).
 //
 // platform telemetry, not flight-software state: the fsw is single-threaded by design and never
@@ -194,6 +198,7 @@ struct __attribute__((packed)) task_entry_t {
 struct __attribute__((packed)) task_health_t {
     uint32_t t_ms;  // when the snapshot was taken
     uint8_t count;  // valid entries in tasks
+    uint8_t flags;  // kTaskHealthFlag* bits - bit 0 the watchdog was serviced this pass
     task_entry_t tasks[kTaskHealthMaxTasks];
 };
 
@@ -212,7 +217,7 @@ static_assert(sizeof(camera_data_t) == 9, "camera_data_t wire layout changed");
 static_assert(sizeof(payload_data_t) == 64, "payload_data_t wire layout changed");
 static_assert(sizeof(payload_data_t) <= kFrameMaxPayload, "payload_data_t no longer fits a frame");
 static_assert(sizeof(task_entry_t) == 6, "task_entry_t wire layout changed");
-static_assert(sizeof(task_health_t) == 47, "task_health_t wire layout changed");
+static_assert(sizeof(task_health_t) == 48, "task_health_t wire layout changed");
 static_assert(sizeof(task_health_t) <= kFrameMaxPayload, "task_health_t no longer fits a frame");
 
 }  // namespace fsw

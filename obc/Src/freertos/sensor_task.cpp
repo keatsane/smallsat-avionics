@@ -104,7 +104,8 @@ void sensor_task_create(bool imu_ok, bool power_ok, bool temp_ok) {
 
     const TaskHandle_t h = xTaskCreateStatic(sensor_task, "sensors", TASK_STACK_SENSORS, nullptr,
                                              TASK_PRIO_SENSORS, s_stack, &s_tcb);
-    task_health_register(TASK_ID_SENSORS, h);
+    task_health_register(TASK_ID_SENSORS, h,
+                         500U);  // five missed samples, same as the control task
 }
 
 bool sensor_task_take(sensor_set_t* out) { return xQueueReceive(s_queue, out, 0) == pdTRUE; }
