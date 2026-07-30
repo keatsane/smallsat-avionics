@@ -294,12 +294,13 @@ BOOT means "powered on and still self-checking" - a state the vehicle enters by 
 
 **REQ-WDG-001** - An independent hardware watchdog shall reset the on-board computer if the flight software stops servicing it within the watchdog window.  
 **Type**: Functional  
-**Status**: planned  
-**Verification**: HIL (demonstrated reset)
+**Status**: bench-verified (the IWDG starts after board bring-up with a guaranteed floor of 3 s, and is serviced from the health task only when every task registered with a liveness deadline has checked in inside it - control and sensors at 500 ms, five missed cycles each. The bite was demonstrated by removing the control task's check-in: the console reported `WATCHDOG UNFED` alongside that task's missing check-in for four consecutive seconds, the board reset itself, and the next banner read `reset=iwdg-watchdog`. The withheld pet appearing in telemetry before the reset is what makes the reset attributable rather than mysterious)  
+**Verification**: HIL (demonstrated reset)  
+**Artifact**: obc/Src/drivers/iwdg.c, obc/Src/freertos/health_task.cpp
 
 **REQ-WDG-002** - After any reset the flight software shall report the reset cause - including a watchdog reset - in a boot telemetry packet.  
 **Type**: Functional  
-**Status**: in progress (the reset-cause read and console boot-banner report are bench-demonstrated - a pin reset read back live as `BOOT: reset=pin`; the power-on / brownout / software / watchdog causes share the same decode path. Carrying it in the framed boot telemetry packet and demonstrating the watchdog-reset cause remain owed with phase 6)  
+**Status**: in progress (the reset-cause read and console boot-banner report are bench-demonstrated - a pin reset read back live as `BOOT: reset=pin`; the power-on / brownout / software / watchdog causes share the same decode path. The watchdog cause is now demonstrated too: a starved control task reset the board and the next banner read `BOOT: reset=iwdg-watchdog`. What remains owed is carrying the cause in the framed boot telemetry packet rather than only the console banner, so a ground station that missed the text still learns why the vehicle restarted)  
 **Verification**: HIL  
 **Artifact**: obc/Src/drivers/reset.c, obc/Inc/drivers/reset.h, obc/Src/main.cpp
 
