@@ -26,6 +26,7 @@ from pathlib import Path
 
 from ground.commands import CommandError, parse, usage
 from ground.console import make_session
+from ground.filters import KINDS, PER_CYCLE_KINDS, Filters
 from ground.frames import (
     MSG_PAYLOAD_DATA,
     FrameDecoder,
@@ -37,16 +38,31 @@ from ground.link import find_port, open_port
 from ground.payload import Assembler, looks_like_jpeg
 
 KEEPALIVE_S = 2.0  # under the flight software's 5 s command-loss timeout
+
+# how long a scripted run keeps listening after its piped commands are sent. long enough for an
+# ack and the next heartbeat, short enough that it never becomes the process nobody knows is
+# holding the port
+SCRIPT_DRAIN_S = 2.5
 NOOP_ID = 0  # first entry of FSW_COMMAND_LIST
 
-# the obc emits these every control cycle - four kinds at 10 Hz is forty lines a second, which
-# scrolls anything you actually wanted to read off the screen before you can read it. hidden by
-# default and announced at startup, because silently dropping telemetry would be worse
-PER_CYCLE_KINDS = ("IMU", "POWER", "TEMP", "CAMERA")
 
 # a downlinking image is ~130 frames; one line each would bury everything else, so progress is
 # reported on completion and at intervals rather than per chunk
 PAYLOAD_PROGRESS_EVERY = 25
+
+
+def directives() -> str:
+    """The console's own commands - local, never transmitted."""
+    return (
+        "\n  console directives (local, never sent to the spacecraft):\n"
+        "    /all                    show every kind\n"
+        "    /quiet                  hide the per-cycle stream (the startup default)\n"
+        "    /only HEARTBEAT,POWER   show nothing else\n"
+        "    /show IMU,TEMP          stop hiding these\n"
+        "    /hide IMU               hide these\n"
+        "    /filters                what is showing right now\n"
+        f"    kinds: {', '.join(KINDS)}"
+    )
 
 
 def main() -> int:
@@ -78,10 +94,10 @@ def main() -> int:
     hide = {s.strip().upper() for s in args.hide.split(",")} if args.hide else set()
 
     # quiet by default so the readable traffic - heartbeats, acks, firmware text - stays readable.
-    # naming a filter explicitly means you know what you want, so the default gets out of the way
+    # naming a filter explicitly means you know what you want, so the default gets out of the way.
+    # changeable at the prompt afterwards with /show, /hide, /only, /all, /quiet
     default_quiet = not (args.all or only or hide)
-    if default_quiet:
-        hide = set(PER_CYCLE_KINDS)
+    filters = Filters.quiet() if default_quiet else Filters(only=only, hide=hide)
 
     # color the kind when writing to a terminal (piped output stays plain): heartbeat stands out,
     # commands/status are flagged, firmware text is dimmed, the high-rate sensor lines stay default
@@ -99,6 +115,7 @@ def main() -> int:
         "PAYLOAD": "\x1b[35m",  # magenta - bulk data, distinct from the health stream
         "TASKS": "\x1b[36m",  # cyan, plainer than the heartbeat's - same cadence, less to read
         "LINKERR": "\x1b[1;31m",  # bold red - a frame arrived corrupt, which is never routine
+        "FILTER": "\x1b[1;34m",  # bold blue - console state, not anything the spacecraft said
     }
 
     # rebound to prompt_toolkit's printer once the prompt owns the terminal (see console.py)
@@ -108,13 +125,8 @@ def main() -> int:
     def show(line: str) -> None:
         # a line's kind is its leading token (HEARTBEAT, POWER, TEXT, ...)
         kind = line.split(maxsplit=1)[0] if line.strip() else ""
-        # the local side of the conversation is never filtered - hiding what you just typed
-        # because of a --only flag is how you sit there wondering why nothing happened
-        if kind not in ("SENT", "REJECT"):
-            if only and kind not in only:
-                return
-            if kind in hide:
-                return
+        if not filters.visible(kind):
+            return
         color = kind_color.get(kind)
         emit(f"{color}{line}\x1b[0m" if use_color and color else line)
 
@@ -131,13 +143,38 @@ def main() -> int:
             ser.write(encode_command(cmd_id, arg, seq))
             show(f"{'SENT':<12} {label}  seq={seq}")
 
-    def submit(line: str) -> None:
-        """One typed or piped line -> a command on the wire, or a local rejection."""
-        line = line.strip()
-        if not line:
-            return
+    def local_directive(line: str) -> bool:
+        """Handle a console directive. Returns True if the line was one.
+
+        Directives start with '/' so they can never be confused with a spacecraft command, now or
+        when the command catalog grows. Filtering has to be changeable while running: which lines
+        are worth seeing changes minute to minute, and quitting to pass a different flag loses the
+        session - the link, any reassembly in progress, and the scrollback.
+        """
         if line in ("?", "help"):
             print(usage())
+            print(directives())
+            return True
+        if not line.startswith("/"):
+            return False
+
+        parts = line[1:].split(maxsplit=1)
+        verb = parts[0].lower() if parts else ""
+        kinds = {k.strip().upper() for k in parts[1].split(",")} if len(parts) > 1 else set()
+
+        if verb in ("?", "help"):
+            print(directives())
+        elif not filters.apply(verb, kinds):
+            show(f"{'REJECT':<12} unknown directive {line!r} - /? lists them")
+            return True
+
+        show(f"{'FILTER':<12} {filters.describe()}")
+        return True
+
+    def submit(line: str) -> None:
+        """One typed or piped line -> a console directive, a command on the wire, or a rejection."""
+        line = line.strip()
+        if not line or local_directive(line):
             return
         try:
             cmd_id, arg = parse(line)
@@ -215,10 +252,9 @@ def main() -> int:
     if interactive:
         # a pinned prompt needs a terminal - patch_stdout keeps the reader thread's output
         # scrolling above the input line instead of overwriting what is half typed
-        session, emit, patch_stdout = (
-            make_session()
-        )  # show() closes over emit, so this rebind takes
-        print("tab completes, up-arrow recalls, ? lists commands")
+        # show() closes over emit, so this rebind takes
+        session, emit, patch_stdout = make_session(KINDS)
+        print("tab completes, up-arrow recalls, ? lists commands and /? the console directives")
 
     threading.Thread(target=reader, daemon=True).start()
 
@@ -232,7 +268,10 @@ def main() -> int:
         else:
             for line in sys.stdin:  # piped in - same syntax, no prompt
                 submit(line)
-            stop.wait()
+            # drain briefly so the acks for what was just sent arrive, then exit. waiting forever
+            # here would leave a scripted run holding the port with nothing left to do, and the
+            # next session finds the link busy with no terminal to blame
+            stop.wait(SCRIPT_DRAIN_S)
     except (EOFError, KeyboardInterrupt):
         pass
     finally:
