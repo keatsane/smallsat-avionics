@@ -39,7 +39,7 @@ CI installs from that same file, so a dependency that is not declared there fail
 
 Two boards run firmware, and each has its own recipes - `just` with no arguments lists them grouped by node.
 
-**On-board computer** (Nucleo-F446RE, `obc/` + `fsw/`) is an STM32CubeIDE project. Open it in CubeIDE to develop, or build and flash from the command line over the onboard ST-Link. The board's UART comes back over the same USB cable as a virtual COM port.
+**On-board computer** (Nucleo-F446RE, `obc/` + `fsw/`) builds with CMake and the `arm-none-eabi` toolchain, and flashes over the onboard ST-Link. CubeIDE can still open and build the project, but it is kept as a debugger rather than as the authority on the image - see the note under Tests. The board's UART comes back over the same USB cable as a virtual COM port.
 
 ```bash
 just obc-build           # build the image
@@ -96,7 +96,7 @@ Scripting uses the same syntax without the prompt - pipe commands in: `echo SET_
 
 ## SIL scenarios
 
-The SIL harness runs declared fault-injection scenarios against the flight software on the host - no hardware involved. See [scenarios.md](scenarios.md) for the catalog and [vv.md](vv.md) for how the harness fits the verification approach.
+The SIL harness runs declared fault-injection scenarios against the flight software on the host - no hardware involved. See [verification.md](verification.md) for the harness, the evidence ladder, and the scenario catalog.
 
 ```bash
 just sil                              # run the whole scenario suite, reports to docs/reports/sil/
