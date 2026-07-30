@@ -38,10 +38,10 @@ obc-build:
 obc-flash: obc-build
     & "{{cubeprog}}" -c port=SWD sn={{obc_stlink}} mode=UR reset=HWrst -d "obc/build-arm/obc.elf" -v -rst
 
-# the port is found by the obc's st-link serial, same as the flasher. type `SET_MODE DETUMBLE`
-# or `?` at the prompt. flags after --: --raw, --only, --hide, --keepalive, --read-only
+# the port is found by the obc's st-link serial, same as the flasher. at the prompt: `?` lists
+# the spacecraft commands, `/?` the console directives that filter the stream live
 [group('obc')]
-[doc('ground console - decoded telemetry out, typed commands in')]
+[doc('ground console - telemetry out, commands in; --only/--hide/--all filter, /? at the prompt')]
 obc-monitor *flags:
     python tools/uart_monitor.py --stlink {{obc_stlink}} {{flags}}
 
@@ -69,10 +69,9 @@ esc-flash:
 esc-probe:
     & "{{pio}}" run -d esc -e probe -t upload
 
-# the port is found automatically when the esc is the only board plugged in, else pass --port.
-# add --hold to keep the target alive past the node's 500 ms dead-man
+# the port is found automatically when the esc is the only board plugged in, else pass --port
 [group('esc')]
-[doc('drive the wheel from the bench - volts on the q axis, or --watch to only listen')]
+[doc('drive the wheel - volts on the q axis; --watch listens only, --hold holds past the dead-man')]
 esc-wheel *args:
     python tools/wheel.py {{args}}
 
@@ -86,8 +85,10 @@ fsw-build:
 
 # ---------------------------------------------------------------- across the nodes
 
-# build every node that builds without hardware attached
+# nothing here needs a board attached - only flashing does. fsw is not a node: it is the
+# portable flight software built for the host, and it is also cross-compiled into the obc image
 [group('build')]
+[doc('build all three - the host flight software, the obc image, and the esc node')]
 build-all: fsw-build obc-build esc-build
 
 # ---------------------------------------------------------------- testing
@@ -106,6 +107,12 @@ _unit-fsw detail="": fsw-build
 
 _unit-tools detail="":
     pytest {{ if detail == "verbose" { "-v" } else { "-q" } }}
+
+# runs inside `just test` too, as a pytest case - this recipe is for the readable report
+[group('testing')]
+[doc('check the requirement trace both ways - artifacts exist, cited REQ ids are real')]
+trace *flags:
+    python tools/traceability.py {{flags}}
 
 # run SIL scenarios (scenario: all, a number, a name, or a path); add "verbose" for every check
 [group('testing')]

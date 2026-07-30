@@ -121,9 +121,9 @@ The live fault catalog (command-link loss, IMU dropouts, power-monitor dropout, 
 
 **REQ-FAULT-002** - A latched Critical fault shall command SAFE, and only after its debounce window so a transient sample cannot force it.  
 **Type**: Functional  
-**Status**: SIL-verified  
-**Verification**: unit test, then SIL scenario (undervoltage -> SAFE, phase 3)  
-**Artifact**: fsw/test/test_fault_manager.cpp, docs/reports/sil/SIL-001.md (scenario SIL-001)
+**Status**: bench-verified (the bench supply was walked down from 14.8 V; UNDERVOLTAGE latched at 13.6 V and the vehicle entered SAFE within one heartbeat, with the mode and fault beads following)  
+**Verification**: unit test, SIL scenario (undervoltage -> SAFE), then a bench sweep  
+**Artifact**: fsw/test/test_fault_manager.cpp, docs/reports/sil/SIL-001.md (scenario SIL-001), docs/journal.md
 
 **REQ-FAULT-003** - Each fault shall have a defined policy - severity, debounce threshold, and owning requirement - held in a single fault table that is the only place fault policy is written; a compile-time check shall keep that table sized to the fault catalog.  
 **Type**: Constraint  
@@ -195,11 +195,13 @@ The active retreats - POINTING/DETUMBLE -> STANDBY on ACCEL_GYRO_DROPOUT and on 
 
 **REQ-FAULT-012** - It shall be possible to inhibit an individual fault's autonomous response for ground testing. An inhibited fault shall still debounce, latch, log, and report in telemetry; only the mode change it would command shall be suppressed. The inhibited set shall be reported, so that a run with inhibits in force cannot be mistaken for one without.  
 **Type**: Functional  
-**Status**: unit-verified (compile-time inhibit list declared at the platform boundary and announced in the boot banner; ground-commandable inhibits wait on the ground station in Phase 8)  
+**Status**: unit-verified (compile-time inhibit list declared at the platform boundary, announced in the boot banner, and carried in every heartbeat; ground-commandable inhibits wait on the ground station in Phase 8)  
 **Verification**: unit test  
-**Artifact**: fsw/src/fault_manager.cpp, fsw/src/executive.cpp, fsw/test/test_fault_manager.cpp, obc/Src/main.cpp
+**Artifact**: fsw/src/fault_manager.cpp, fsw/src/executive.cpp, fsw/test/test_fault_manager.cpp, fsw/test/test_comms.cpp, common/protocol/msg.hpp, tools/ground/frames.py
 
 Inhibits exist because the bench rig is routinely missing subsystems the flight configuration assumes: with no ground station, COMMAND_LINK_LOSS safes the vehicle about five seconds after every boot, and with the ESC unplugged WHEEL_DROPOUT latches on top of it. Suppressing the *response* while keeping the *evidence* is the standard fault-protection inhibit used during spacecraft commissioning, and it is why the fault still appears in every heartbeat.
+
+The inhibited set rides in the heartbeat as its own bitmask, in the same bit layout as the active-fault mask. Announcing it once in the boot banner is not enough: a console attached mid-run, or a log read later, shows two latched faults with the banner long out of scrollback and nothing on the wire saying their responses were suppressed. The status array distinguishes them by colour, but only to someone in the room. Carrying it in telemetry is what makes a saved log self-describing.
 
 ## Executive
 
@@ -273,7 +275,7 @@ BOOT means "powered on and still self-checking" - a state the vehicle enters by 
 **Type**: Constraint  
 **Status**: in progress  
 **Verification**: inspection and HIL  
-**Artifact**: dual UART (USART2 console, USART6 downlink); LoRa transport (phase 8)
+**Artifact**: common/protocol/frame.cpp (the format, unchanged per transport), fsw/platform/stm32/platform_stm32.cpp (writes both UARTs behind one call), obc/Src/drivers/uart.c; the LoRa transport lands in phase 8
 
 **REQ-TLM-005** - The spacecraft shall indicate current mode, worst latched fault severity with a count of latched faults, and command-link state on a local status display, carrying the same information as the heartbeat packet so the two can be read against each other.  
 **Type**: Functional  
@@ -286,13 +288,13 @@ BOOT means "powered on and still self-checking" - a state the vehicle enters by 
 **Type**: Performance  
 **Status**: bench-verified  
 **Verification**: demonstration and inspection  
-**Artifact**: obc SysTick driver; millis() passed into each fsw cycle
+**Artifact**: obc/Src/drivers/systick.c, obc/Src/freertos/control_task.cpp (passes millis into each cycle)
 
 **REQ-RT-002** - The decision paths shall run at a fixed, bounded rate and shall allocate no memory dynamically (fixed-capacity containers only).  
 **Type**: Constraint  
 **Status**: HIL-verified (HIL-003 measured 59 heartbeat periods at a mean of 1.000 s, spread 0.985-1.015 s, where the spread is host-side USB arrival jitter rather than the board. The super-loop this replaced measured 1020 ms, a structural 2% slow. The rate also held unbroken through a 128-chunk payload downlink, and no cycle overran its period - including the one a capture completes on, where the JPEG end-marker scan costs ~16 ms of the 100 ms budget. Static allocation only, so a dynamic task or queue fails to link)  
 **Verification**: inspection and analysis, plus HIL (measure heartbeat spacing idle and under downlink load)  
-**Artifact**: no-heap rule, ETL containers, `configSUPPORT_DYNAMIC_ALLOCATION 0` in obc/Inc/FreeRTOSConfig.h; the control task's `xTaskDelayUntil` in obc/Src/freertos/control_task.cpp; docs/reports/hil/HIL-003.md
+**Artifact**: fsw/include/fsw/inputs.hpp and fsw/include/fsw/fault_manager.hpp (fixed-capacity ETL containers, no heap), `configSUPPORT_DYNAMIC_ALLOCATION 0` in obc/Inc/FreeRTOSConfig.h, the control task's `xTaskDelayUntil` in obc/Src/freertos/control_task.cpp, docs/reports/hil/HIL-003.md
 
 **REQ-RT-003** - Under concurrent workloads the flight software shall run as prioritized tasks with the control loop at the highest priority, and shall report task health (liveness and stack high-water).  
 **Type**: Performance  
@@ -356,7 +358,7 @@ BOOT means "powered on and still self-checking" - a state the vehicle enters by 
 **Type**: Functional  
 **Status**: bench-verified (three chained WS2812 beads on the comms plate, driven from PA8 by TIM1_CH1 + DMA; bead 0 carries mode by color, bead 1 the fault ladder, and bead 2 the uplink as three distinct states - amber before the first command is ever received, green in contact, red once COMMAND_LINK_LOSS acts, so a never-acquired link is never reported as a healthy one. The single-wire bit timing was scope-confirmed at 0.4 us / 0.8 us highs on a 1.25 us period)  
 **Verification**: demonstration (observe the array follow a commanded mode change and a latched fault)  
-**Artifact**: obc/Src/drivers/pwm_dma.c, obc/Src/devices/ws2812.c, obc/Src/main.cpp
+**Artifact**: obc/Src/drivers/pwm_dma.c, obc/Src/devices/ws2812.c, obc/Src/main.cpp, docs/journal.md (the dated observation)
 
 ### Mode bead colors
 
@@ -476,6 +478,8 @@ The per-cycle bound is a real-time budget rather than a preference: the UART's t
 
 **REQ-VV-004** - Every requirement shall trace forward to at least one verifying artifact, and code and tests shall trace back to a requirement id; the trace shall be kept current as the system evolves.  
 **Type**: Constraint  
-**Status**: in progress  
-**Verification**: inspection  
-**Artifact**: this document, plus the REQ ids carried in code, tests, and the transition log
+**Status**: unit-verified (checked automatically both ways on every test run, so the trace cannot rot silently between reviews)  
+**Verification**: automated check  
+**Artifact**: tools/traceability.py, tools/tests/test_traceability.py, plus the REQ ids carried in code, tests, and the transition log
+
+The check runs in two directions because they catch different decay. Forward: a requirement whose status claims verification must name an artifact, and every path it names must exist - this catches evidence deleted, moved, or renamed out from under a claim. Backward: every REQ id cited anywhere in the tree must exist in this document - this catches typos and ids left behind when a requirement is renumbered or dropped. Artifacts that are prose rather than a file are reported as unchecked rather than passed, so the report states what it could not verify instead of implying it did.
