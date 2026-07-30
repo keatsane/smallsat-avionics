@@ -2,6 +2,20 @@
 
 Running requirements for the avionics stack. Each requirement has an ID, a statement, a status, and a verification method (test, analysis, inspection, or demonstration); once there is evidence, the artifact is listed too. Requirements are written ahead of the code they govern, so many start as planned until their phase lands. The status, not the existence of the requirement, tracks reality: planned -> in progress -> unit-verified -> SIL-verified -> bench-verified -> HIL-verified. A requirement whose verification line lists methods beyond its current status still owes that evidence.
 
+| Section | Covers |
+| ------- | ------ |
+| [Mode management](#mode-management) | the six modes, the legal transitions between them, and the transition log |
+| [Fault management](#fault-management) | the detect - debounce - latch - respond pipeline, severities, and the degraded fallbacks |
+| [Executive](#executive) | the once-per-cycle ordering, including which side wins a same-cycle conflict |
+| [Comms - command uplink and telemetry downlink](#comms---command-uplink-and-telemetry-downlink) | command validation and acknowledgment, the heartbeat, and the command-loss timer |
+| [Real-time execution and recovery](#real-time-execution-and-recovery) | the fixed-rate control cycle, task health, stack margins, and the watchdog |
+| [Sensors and data validity](#sensors-and-data-validity) | validity flags, staleness, and disagreement between redundant sources |
+| [Status indication](#status-indication) | the three-bead WS2812 array - mode, fault severity, and link health |
+| [Attitude control (ADCS)](#attitude-control-adcs) | detumble and pointing against the reaction wheel |
+| [Payload](#payload) | image capture, the camera dropout fault, and the chunked downlink |
+| [Platform abstraction and portability](#platform-abstraction-and-portability) | the boundary that lets the same flight software run on the host and on the STM32 |
+| [Verification and traceability](#verification-and-traceability) | the scenario harnesses and the requirement-to-artifact chain |
+
 ## Mode management
 
 The spacecraft operates in exactly one of six modes at any time. Their intent:
@@ -344,6 +358,23 @@ BOOT means "powered on and still self-checking" - a state the vehicle enters by 
 **Verification**: demonstration (observe the array follow a commanded mode change and a latched fault)  
 **Artifact**: obc/Src/drivers/pwm_dma.c, obc/Src/devices/ws2812.c, obc/Src/main.cpp
 
+### Mode bead colors
+
+Bead 0 carries the mode, one color each, no blinking - a spinning platform is read at a glance and a blink code is not.
+
+| Mode | Color |
+| ---- | ----- |
+| BOOT | white |
+| STANDBY | green |
+| DETUMBLE | blue |
+| POINTING | cyan |
+| DOWNLINK | magenta |
+| SAFE | red |
+
+Bead 2 carries the uplink in three states: **amber** before any command has ever arrived, **green** once the ground is in contact, **red** once COMMAND_LINK_LOSS is acting. Amber is a real distinction rather than a hedge - an un-latched loss fault before first contact only means the dead-man timer has not expired yet, which is unknown, not healthy.
+
+The whole array runs at level 4 of 255. The beads sit behind printed plastic and bleed through the walls at anything brighter, and 4 is the floor: the mixed colors set one channel to a fraction of it, and below that there are not enough steps left to hold the hue.
+
 ### Fault bead ladder
 
 Bead 1 shows the worst rung that applies, highest first:
@@ -435,7 +466,7 @@ The per-cycle bound is a real-time budget rather than a preference: the UART's t
 **Type**: Constraint  
 **Status**: SIL-verified  
 **Verification**: inspection  
-**Artifact**: fsw/sil/scenarios/, fsw/hil/scenarios/, docs/reports/, docs/scenarios.md
+**Artifact**: fsw/sil/scenarios/, fsw/hil/scenarios/, docs/reports/, docs/verification.md
 
 **REQ-VV-003** - The HIL harness shall consume live STM32 telemetry, detect link loss against a heartbeat timeout, and capture packet timing.  
 **Type**: Functional  

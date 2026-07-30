@@ -14,7 +14,7 @@ SIL shim (host exe,           STM32 HIL node
 injected time + faults)       (bare-metal UART packets first; sensors and watchdog later)
 ```
 
-On the SIL side, scenarios in `fsw/sil/scenarios/` drive the unmodified flight-software library through a small shim executable, and the runner grades the observed behavior and writes reports to `docs/reports/` (the details live in [vv.md](vv.md)). A physics plant model joins when real sensor and attitude dynamics matter - NASA's 42 simulator in the ADCS phase.
+On the SIL side, scenarios in `fsw/sil/scenarios/` drive the unmodified flight-software library through a small shim executable, and the runner grades the observed behavior and writes reports to `docs/reports/` (the details live in [verification.md](verification.md)). A physics plant model joins when real sensor and attitude dynamics matter - NASA's 42 simulator in the ADCS phase.
 
 ## Language split
 
@@ -121,3 +121,27 @@ The distinction is about what upstream is for. A submodule pins a whole project 
 | `vendor/arducam` | checked in | OmniVision's OV2640 register tables by way of ArduCAM's library, plus the small shim that lets them compile outside Arduino |
 
 Everything under `vendor/` is excluded from the formatters, so vendored files stay byte-identical to upstream.
+
+## Stack architecture - three-plate stack on the lazy-susan (revised 2026-07-17, supersedes the four-wall cube)
+
+Three plates on standoffs, stacked and spinning as one on the lazy-susan bearing below - bottom to top: **gimbal plate, compute plate, comms plate**. This supersedes the four-wall-cube-around-a-central-battery plan (2026-06-25): in the actual build the electronics consolidated onto a single middle plate instead of four separate walls. Plates stack on corner standoffs with open sides; wires run straight up through pass-through holes left in each plate. (Harnessing is per-plate, and the single morpho slice rides the Nucleo on the compute plate - see wiring.md for the pin map, the ten connectors, and the disconnect points.)
+
+**Gimbal plate (bottom):** the reaction-wheel motor (GBM4108-120T) with the flywheel on it, the AS5600 encoder on the motor shaft end below, and the lazy-susan bearing under the plate. The motor stator bolts to this plate; the flywheel is the free-spinning reaction wheel, and the whole stack counter-rotates on the bearing. Coaxial with the Z pivot axis - the movement layer (the tolerances are in [hardware.md](hardware.md)'s placement rules).
+
+**Compute plate (middle):** every electronic part on one plate.
+- **Sensor protoboard (7x9 cm):** IMU (ICM-20948), TMP117, ArduCAM OV2640, and the INA228 (all soldered on 2026-06-25; the INA's shunt is inline with the 3V3 feed reading logic-rail draw for now - moves to the battery feed for total draw at Phase 8). Camera at the outer edge behind a window; TMP reachable (you warm it for the overtemp demo) and away from buck heat. The IMU can read yaw rate from anywhere on the rigid plate (future to-do: an axis-remap so its mounted orientation reads as yaw in ADCS) - but keep it as far from the ESC and the motor below as the plate allows (see EMI).
+- **OBC:** the Nucleo-F446RE, the hub that fans out to everything. Its **USB edge must face a frame opening** for flash/debug. On standoffs; signals leave off the Morpho pins.
+- **ESC:** the B-G431B-ESC1, bolted down by its own holes (no protoboard). Wire it directly: battery power in, the 3 motor phases down to the gimbal plate, the AS5600 I2C (short, to the encoder below), and the control link (USART1 - TX PA9, RX PA10, GND - to the OBC).
+- **Power:** battery -> **master switch + fuse** (LiPo safety) -> **INA228** (at the main bus for total battery draw, Phase 8) -> distribution to the 5 V buck, the 3V3 buck (radio rail), and the ESC feed. The single-point (**star) ground** lives here; both bucks share it. Battery-input protection part specs are under Power architecture below.
+
+**Comms plate (top, Phase 8):** the two radios (RFM95 LoRa + nRF24L01), the status LED(s), and the antennas. Not built yet - the plate is reserved with wire pass-through holes so SPI3 + control + a dedicated 3V3 feed run up from the compute plate later. Each radio's **SMA whip bends 90 deg and lies flat along a top edge**, the pair tracing the perimeter so nothing pokes out; the **LED(s) sit centre**, visible from above at any spin angle. The LED is the one comms-plate part wired now (3V3, GND, DIN PA8).
+
+**Battery (Phase 8, placement open):** not in the current build - the bench PSU stands in. Where the 4S LiPo mounts is the main open mechanical question, and mass balance decides it: it's the heaviest item, so its position sets whether the rotating CG lands on the Z axis (the mass-balance master rule under Placement rules). Likely a central column through the plates (as in the old plan) or low under the compute plate with a counterweight - settle it when the untethered build starts, together with the master-switch mounting. The rocker is a panel part, not a plate part - it doesn't compete for plate space; a small printed bezel on the frame rails near the base is preferred (short high-current lead, clear of the antennas), with the top plate an acceptable fallback if the base can't host it (at the cost of an up-and-down battery lead and keeping the fat DC wires away from the antenna whips).
+
+**Buses (shared, multi-drop):** **I2C1** (SDA PB9, SCL PB8) carries TMP + INA + the camera's SCCB; **SPI3** (SCK PC10, MISO PC11, MOSI PC12) carries the camera + LoRa + nRF24, each with its own CS/control; the **IMU** sits alone on **SPI2** (PB13/14/15, CS PB12). On the compute plate the sensor protoboard cables to the Nucleo through three connectors: (1) power + I2C - 3V3/GND/SDA/SCL; (2) IMU SPI2 - GND/SCK/MISO/MOSI/CS; (3) camera SPI3 - GND/SCK/MISO/MOSI/CS (SPI3 also forks up to the radios on the comms plate at Phase 8).
+
+**EMI - the cost of consolidating (watch this):** the four-wall plan deliberately put the sensors opposite the ESC, because the ESC's phase switching is the worst noise source and the IMU's magnetometer the most sensitive part. The 3-plate stack drops them onto the same middle plate, and the IMU now also sits directly above the motor's magnets on the gimbal plate - so that separation is gone and has to be won back by layout:
+- On the compute plate, put the IMU at the far edge/corner, as far from the ESC and the motor's Z axis as the board allows; cluster the ESC and its fat phase wires at the opposite side.
+- Maximize the IMU's vertical gap and lateral offset from the motor/flywheel below (motor magnets corrupt the magnetometer - the placement rules want 30-50 mm+).
+- Route motor phase wires and battery leads hugging the ESC side, never past the IMU or the INA228 sense.
+This is the main technical tradeoff of the consolidation; the keep-away matrix in [hardware.md](hardware.md) still governs, it is just harder to satisfy on one plate.
