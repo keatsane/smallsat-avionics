@@ -14,6 +14,7 @@
 #include "drivers/clock.h"
 #include "drivers/gpio.h"
 #include "drivers/i2c.h"
+#include "drivers/iwdg.h"
 #include "drivers/panic.h"
 #include "drivers/reset.h"
 #include "drivers/systick.h"
@@ -104,6 +105,13 @@ int main(void) {
     init();
 
     uart_locks_init();  // first kernel call in the program, and after the console can report it
+
+    // after bring-up, before the scheduler. starting it earlier would have the dog counting
+    // through the sensor inits, which deliberately spend time waiting on hardware; starting it
+    // later would leave a window where a scheduler that never starts hangs the board silently.
+    // 3 s is a guaranteed floor - roughly 3x the health task's 1 Hz service period at the fastest
+    // plausible lsi, and longer on a typical part (REQ-WDG-001)
+    iwdg_init(3000U);
 
     // nothing runs until the scheduler starts, so creation order is not a startup order - each
     // task's own file owns its stack, its priority, and whatever it needs to be told at init
