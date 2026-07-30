@@ -9,7 +9,7 @@ import struct
 
 import pytest
 
-from ground.frames import MSG_COMMAND_ACK, MSG_HEARTBEAT
+from ground.frames import MSG_COMMAND_ACK, MSG_HEARTBEAT, MSG_TASK_HEALTH
 from hil_runner import LinkMonitor, grade, load_scenario
 
 
@@ -114,9 +114,27 @@ def _ev(name, t=0.0, **extra):
 
 
 def _stats(
-    count=10, mn: float | None = 0.95, mean: float | None = 1.02, mx: float | None = 1.12, crc=0
+    count=10,
+    mn: float | None = 0.95,
+    mean: float | None = 1.02,
+    mx: float | None = 1.12,
+    crc=0,
+    reports=10,
+    unfed=0,
+    tasks=("control", "health", "idle", "sensors"),
+    stack_free_min=104,
 ):
-    return {"count": count, "min": mn, "mean": mean, "max": mx, "crc_rejects": crc}
+    return {
+        "count": count,
+        "min": mn,
+        "mean": mean,
+        "max": mx,
+        "crc_rejects": crc,
+        "health_reports": reports,
+        "health_unfed": unfed,
+        "task_names": sorted(tasks),
+        "stack_free_min": stack_free_min,
+    }
 
 
 def test_grade_link_up_pass():
@@ -156,6 +174,58 @@ def test_grade_seq_gaps_and_crc():
     events = [_ev("link_up"), _ev("seq_gap", missed=2)]
     checks = grade({"seq_gaps": 0, "crc_rejects": 0}, events, _stats())
     assert [c.passed for c in checks] == [False, True]
+
+
+# --- scheduler smoke (REQ-RT-003) ---
+
+
+def _task_health(flags=1, tasks=((0, 2, 300, 0), (6, 1, 104, 0xFFFF))):
+    """A task_health_t payload: t_ms, count, flags, then all seven slots."""
+    padded = list(tasks) + [(0, 0, 0, 0)] * (7 - len(tasks))
+    body = b"".join(struct.pack("<BBHH", *t) for t in padded)
+    return struct.pack("<IBB", 5000, len(tasks), flags) + body
+
+
+def test_task_health_feeds_the_smoke_stats():
+    mon = LinkMonitor(timeout_s=5.0)
+    mon.on_frame(1.0, MSG_TASK_HEALTH, _task_health())
+    mon.on_frame(2.0, MSG_TASK_HEALTH, _task_health(tasks=((0, 2, 288, 0),)))
+    s = mon.stats()
+    assert s["health_reports"] == 2
+    assert s["health_unfed"] == 0
+    assert s["task_names"] == ["control", "idle"]
+    assert s["stack_free_min"] == 104  # the worst any task reported, across every report
+
+
+def test_task_health_does_not_feed_the_link_timer():
+    # only heartbeats define the link; a board still reporting health while its heartbeat
+    # stopped is exactly the failure the link timeout must still catch
+    mon = LinkMonitor(timeout_s=5.0)
+    assert mon.on_frame(1.0, MSG_TASK_HEALTH, _task_health()) == []
+    assert mon.state == "no_link"
+
+
+def test_grade_watchdog_fed():
+    assert grade({"watchdog": "fed"}, [], _stats())[0].passed
+    assert not grade({"watchdog": "fed"}, [], _stats(unfed=1))[0].passed
+    # no reports at all is a failure, not a vacuous pass - it means the stream went missing
+    assert not grade({"watchdog": "fed"}, [], _stats(reports=0))[0].passed
+
+
+def test_grade_tasks_reported_is_exact():
+    want = {"tasks_reported": ["control", "health", "idle", "sensors"]}
+    assert grade(want, [], _stats())[0].passed
+    # a task that never reported fails, and so does an unexpected extra one
+    assert not grade(want, [], _stats(tasks=("control", "health", "idle")))[0].passed
+    assert not grade(want, [], _stats(tasks=("control", "health", "idle", "sensors", "uplink")))[
+        0
+    ].passed
+
+
+def test_grade_stack_free_min():
+    assert grade({"stack_free_min": 64}, [], _stats())[0].passed
+    assert not grade({"stack_free_min": 64}, [], _stats(stack_free_min=40))[0].passed
+    assert not grade({"stack_free_min": 64}, [], _stats(stack_free_min=None))[0].passed
 
 
 def test_load_scenario_rejects_unknown_expect_key(tmp_path):

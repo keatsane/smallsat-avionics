@@ -1,0 +1,25 @@
+# HIL-003: the scheduler smoke test phase 6 owes. leave the board alone and watch the task-health
+# stream: every task the build creates must appear in every report, none may blow its stack, and
+# the board must feed its own watchdog on every pass.
+#
+# the watchdog check is the interesting one. the host does not re-derive liveness - only the board
+# knows each task's deadline, so a report carrying "watchdog fed" is that judgement already made,
+# and a run of 60 of them is 60 consecutive frames of the board asserting every task is alive. a
+# single unfed report fails the scenario, because the next thing that happens is a reset.
+#
+# stack_free_min is a regression guard rather than a measurement: the stacks were sized from a
+# bench run at 4-5x the observed peak, so anything dipping under 64 free words means a task's work
+# grew and the sizing needs redoing (REQ-RT-003).
+id: HIL-003
+title: scheduler smoke - every task alive, stacks intact, watchdog fed
+verifies: [REQ-RT-002, REQ-RT-003, REQ-WDG-001]
+duration_s: 60
+operator: none - leave the board and link untouched for the whole window
+expect:
+  link: up
+  seq_gaps: 0
+  crc_rejects: 0
+  period_s: { min: 0.9, max: 1.15 }
+  tasks_reported: [control, health, idle, sensors]
+  watchdog: fed
+  stack_free_min: 64

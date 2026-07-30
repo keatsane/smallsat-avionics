@@ -125,9 +125,9 @@ The live fault catalog (command-link loss, IMU dropouts, power-monitor dropout, 
 
 **REQ-FAULT-005** - A fault of Warning or Degraded severity shall not by itself command SAFE; a Degraded fault shall switch to its documented fallback behavior (see Degraded fallback behaviors below), and every such fault shall be latched and reported in telemetry.
 **Type**: Functional
-**Status**: in progress (no-SAFE, latch, and report are SIL-verified; the WHEEL_DROPOUT -> STANDBY retreat is unit-verified, and the ACCEL_GYRO_DROPOUT and POWER_DROPOUT retreats are implemented but their active-mode scenarios are still owed)
+**Status**: SIL-verified (no-SAFE, latch, and report in SIL-003; the retreats themselves in SIL-009, gyro dropout out of POINTING, and SIL-010, power dropout out of DOWNLINK - the mode no scenario had previously entered with a fault active, and the only one of the three fallbacks that covers it. The WHEEL_DROPOUT retreat is unit-verified rather than scenario-verified: it is the same code path from the same two modes as the gyro retreat, so a third scenario would restate SIL-009 with one name changed)
 **Verification**: unit test and SIL  
-**Artifact**: fsw/src/executive.cpp, fsw/src/sensor_monitor.cpp, fsw/test/test_fault_manager.cpp, fsw/test/test_executive.cpp, fsw/test/test_sensor_monitor.cpp, docs/reports/sil/SIL-003.md
+**Artifact**: fsw/src/executive.cpp, fsw/src/sensor_monitor.cpp, fsw/test/test_fault_manager.cpp, fsw/test/test_executive.cpp, fsw/test/test_sensor_monitor.cpp, docs/reports/sil/SIL-003.md, docs/reports/sil/SIL-009.md, docs/reports/sil/SIL-010.md
 
 ### Degraded fallback behaviors
 
@@ -276,14 +276,15 @@ BOOT means "powered on and still self-checking" - a state the vehicle enters by 
 
 **REQ-RT-002** - The decision paths shall run at a fixed, bounded rate and shall allocate no memory dynamically (fixed-capacity containers only).  
 **Type**: Constraint  
-**Status**: bench-verified (heartbeats landed exactly 1000 ms apart for 34 s of idle running and unbroken through a 128-chunk payload downlink - the absolute wake-up holds the period regardless of the cycle's work. The super-loop it replaced measured 1020 ms, a structural 2% slow. No cycle overran its period, including the one a capture completes on: the JPEG end-marker scan costs that cycle ~16 ms of its 100 ms budget, which is visible only because the heartbeat's timestamp is taken after it. Static allocation only, so a dynamic task or queue fails to link)  
-**Verification**: inspection and analysis, plus demonstration (measure heartbeat spacing idle and under downlink load)  
-**Artifact**: no-heap rule, ETL containers, `configSUPPORT_DYNAMIC_ALLOCATION 0` in obc/Inc/FreeRTOSConfig.h; the control task's `xTaskDelayUntil` in obc/Src/main.cpp
+**Status**: HIL-verified (HIL-003 measured 59 heartbeat periods at a mean of 1.000 s, spread 0.985-1.015 s, where the spread is host-side USB arrival jitter rather than the board. The super-loop this replaced measured 1020 ms, a structural 2% slow. The rate also held unbroken through a 128-chunk payload downlink, and no cycle overran its period - including the one a capture completes on, where the JPEG end-marker scan costs ~16 ms of the 100 ms budget. Static allocation only, so a dynamic task or queue fails to link)  
+**Verification**: inspection and analysis, plus HIL (measure heartbeat spacing idle and under downlink load)  
+**Artifact**: no-heap rule, ETL containers, `configSUPPORT_DYNAMIC_ALLOCATION 0` in obc/Inc/FreeRTOSConfig.h; the control task's `xTaskDelayUntil` in obc/Src/freertos/control_task.cpp; docs/reports/hil/HIL-003.md
 
 **REQ-RT-003** - Under concurrent workloads the flight software shall run as prioritized tasks with the control loop at the highest priority, and shall report task health (liveness and stack high-water).  
 **Type**: Performance  
-**Status**: in progress (the task model runs on the bench - control at the highest priority, sensor sampling below it behind a queue, no stack overflow and no fault over a 51 s run covering every mode, a capture, and a downlink. Sensor telemetry stayed valid throughout, so the queue delivers a set every cycle. Health reporting is bench-verified: every task checks in at the end of each pass and a 1 Hz report carries each one's state, check-in age, and stack high-water mark down as `MsgId::TaskHealth`, decoded by the ground console. A 22 s run reported all four tasks every second with no overflow. Margins so far are idle-mode only - control 842 words free of 1024, sensors 410 of 512, health 177 of 256, idle 104 of 128 - and are not yet the basis for trimming, since that run neither captured nor downlinked. Note the kernel's high-water figures read slightly optimistic: they count a fill pattern, and a written byte holding that pattern lets the count pass the true frontier)  
+**Status**: HIL-verified (HIL-003, a 60 s untouched window: all four tasks present in all 60 reports, the board fed its own watchdog on every one of them, and the worst stack margin any task reported was 104 free words against a 64-word floor. Control runs at the highest priority with sensor sampling below it behind a queue. Stacks were sized from measured peaks taken during a capture and a 131-chunk downlink - control 181 words used, sensors 101, health 80, idle 23 - each now provisioned at roughly 2.5x that, generous rather than tight because the kernel's high-water figure reads optimistic: it counts a fill pattern, and a written byte holding that pattern lets the count run past the true frontier)  
 **Verification**: HIL (scheduler-smoke run)  
+**Artifact**: the task table in obc/Inc/rtos_tasks.h; obc/Src/freertos/; `task_health_t` in common/protocol/msg.hpp; docs/reports/hil/HIL-003.md
 **Artifact**: the task table in obc/Inc/rtos_tasks.h; obc/Src/freertos/; `task_health_t` in common/protocol/msg.hpp with its ground decoder and 6 pytest cases
 
 **REQ-RT-004** - An unhandled processor fault exception (hard fault, memory-management, bus, or usage fault) shall be caught by a dedicated handler that captures the fault context and performs a controlled reset, rather than leaving the processor halted in a default infinite loop.  
@@ -294,7 +295,7 @@ BOOT means "powered on and still self-checking" - a state the vehicle enters by 
 
 **REQ-WDG-001** - An independent hardware watchdog shall reset the on-board computer if the flight software stops servicing it within the watchdog window.  
 **Type**: Functional  
-**Status**: bench-verified (the IWDG starts after board bring-up with a guaranteed floor of 3 s, and is serviced from the health task only when every task registered with a liveness deadline has checked in inside it - control and sensors at 500 ms, five missed cycles each. The bite was demonstrated by removing the control task's check-in: the console reported `WATCHDOG UNFED` alongside that task's missing check-in for four consecutive seconds, the board reset itself, and the next banner read `reset=iwdg-watchdog`. The withheld pet appearing in telemetry before the reset is what makes the reset attributable rather than mysterious)  
+**Status**: HIL-verified (both halves. Service: HIL-003 observed the board feed its own watchdog in all 60 reports of a 60 s window, each one gated on every task with a liveness deadline having checked in - control and sensors at 500 ms, five missed cycles each. Bite: demonstrated on the bench by removing the control task's check-in, after which the console reported `WATCHDOG UNFED` alongside that task's missing check-in for four consecutive seconds, the board reset itself, and the next banner read `reset=iwdg-watchdog`. The withheld pet appearing in telemetry before the reset is what makes the reset attributable rather than mysterious. The IWDG starts after board bring-up with a guaranteed floor of 3 s)  
 **Verification**: HIL (demonstrated reset)  
 **Artifact**: obc/Src/drivers/iwdg.c, obc/Src/freertos/health_task.cpp
 

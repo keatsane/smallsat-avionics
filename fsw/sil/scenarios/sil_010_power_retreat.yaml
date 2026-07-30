@@ -1,0 +1,30 @@
+# POWER_DROPOUT is the only fallback that covers three modes - POINTING, DETUMBLE and DOWNLINK -
+# and DOWNLINK was the one no test had ever entered with a fault active. it is also the mode where
+# the retreat matters most: a contact pass draws the most power of anything the vehicle does, and
+# the monitor going blind means running it with no visibility of brownout or overcurrent.
+#
+# the vehicle is walked all the way up to DOWNLINK before the power monitor drops out, so this
+# fails if the fallback ever gets narrowed to the two attitude modes - which is an easy edit to
+# make by accident, since the gyro and wheel fallbacks next to it both cover exactly those two
+id: SIL-010
+title: power dropout retreats DOWNLINK to STANDBY
+verifies: [REQ-FAULT-005]
+timeline:
+  - { t: 100, cmd: { name: SET_MODE, arg: 1, seq: 1 } }
+  - { t: 200, cmd: { name: SET_MODE, arg: 2, seq: 2 } }
+  - { t: 300, cmd: { name: SET_MODE, arg: 3, seq: 3 } }
+  - { t: 400, cmd: { name: SET_MODE, arg: 4, seq: 4 } }
+  - { t: 500, fault: { name: POWER_DROPOUT, bad: 1 } }
+  - { t: 600, fault: { name: POWER_DROPOUT, bad: 1 } }
+  - { t: 700, fault: { name: POWER_DROPOUT, bad: 1 } }
+  - { t: 900 }
+expect:
+  mode_log:
+    - { to: POINTING, trigger: Command, req: REQ-CMD-001 }
+    - { to: DOWNLINK, trigger: Command, req: REQ-CMD-001 }
+    - { to: STANDBY, trigger: FaultEntry, req: REQ-FAULT-005 }
+  acks:
+    - { seq: 4, accepted: true }
+  final:
+    mode: STANDBY
+    faults_set: [POWER_DROPOUT]

@@ -8,8 +8,9 @@ decision core: it owns no clock and no serial port, so all of its behavior is
 unit-tested with injected time; the serial pump around it is deliberately dumb
 plumbing whose proof is the bench.
 
-Run: python tools/hil_runner.py COM5       (the whole campaign, prompts between scenarios)
-     python tools/hil_runner.py COM5 2     (one scenario - number, name, or path)
+Run: python tools/hil_runner.py         (the whole campaign, prompts between scenarios)
+     python tools/hil_runner.py 2       (one scenario - number, name, or path)
+     python tools/hil_runner.py --port COM5 2   (override the port the ST-Link serial resolves)
 """
 
 import argparse
@@ -20,7 +21,14 @@ from pathlib import Path
 
 import yaml  # pip install pyyaml
 
-from ground.frames import MSG_HEARTBEAT, FrameDecoder, decode_heartbeat
+from ground.frames import (
+    MSG_HEARTBEAT,
+    MSG_TASK_HEALTH,
+    TASK_FLAG_WATCHDOG_FED,
+    FrameDecoder,
+    decode_heartbeat,
+    decode_task_health,
+)
 from ground.runner import (
     EXIT_PASS,
     REPO_ROOT,
@@ -32,7 +40,16 @@ from ground.runner import (
     write_report,
 )
 
-EXPECT_KEYS = {"link", "seq_gaps", "crc_rejects", "period_s", "outage_s"}
+EXPECT_KEYS = {
+    "link",
+    "seq_gaps",
+    "crc_rejects",
+    "period_s",
+    "outage_s",
+    "tasks_reported",
+    "watchdog",
+    "stack_free_min",
+}
 
 
 class LinkMonitor:
@@ -49,9 +66,30 @@ class LinkMonitor:
         self.period_sum = 0.0
         self.period_min = None
         self.period_max = None
+        # task health, accumulated the same incremental way (REQ-RT-003)
+        self.health_reports = 0
+        self.health_unfed = 0  # reports where the board withheld the watchdog pet
+        self.task_names = set()  # every task that appeared in any report
+        self.stack_free_min = None  # worst margin any task reported, in words
+
+    def on_task_health(self, payload) -> None:
+        """A task-health report arrived - fold it into the scheduler-smoke evidence."""
+        d = decode_task_health(payload)
+        self.health_reports += 1
+        if not (d["flags"] & TASK_FLAG_WATCHDOG_FED):
+            self.health_unfed += 1
+        for task in d["tasks"]:
+            self.task_names.add(task["name"])
+            free = task["stack_free_words"]
+            self.stack_free_min = (
+                free if self.stack_free_min is None else min(self.stack_free_min, free)
+            )
 
     def on_frame(self, t, msg_id, payload) -> list:
         """A decoded frame arrived at time t; returns the events it caused."""
+        if msg_id == MSG_TASK_HEALTH:
+            self.on_task_health(payload)
+            return []
         if msg_id != MSG_HEARTBEAT:
             return []  # other messages don't feed the link timer
         seq = decode_heartbeat(payload)["seq"]
@@ -102,6 +140,10 @@ class LinkMonitor:
             "mean": self.period_sum / self.period_count if self.period_count else None,
             "max": self.period_max,
             "crc_rejects": self.crc_rejects,
+            "health_reports": self.health_reports,
+            "health_unfed": self.health_unfed,
+            "task_names": sorted(self.task_names),
+            "stack_free_min": self.stack_free_min,
         }
 
 
@@ -254,6 +296,47 @@ def grade(expect: dict, events: list, stats: dict) -> list:
         )
         checks.append(Check("period_s", f"{want['min']}..{want['max']} s", observed, ok))
 
+    # scheduler smoke (REQ-RT-003). the board's own liveness verdict is the evidence rather than
+    # the host re-deriving it: only the board knows each task's deadline, and a report that says
+    # the watchdog was fed is that judgement already made
+    if "tasks_reported" in expect:
+        want = sorted(expect["tasks_reported"])
+        got = stats["task_names"]
+        checks.append(
+            Check(
+                "tasks_reported",
+                ", ".join(want),
+                ", ".join(got) if got else "no task-health reports",
+                got == want and stats["health_reports"] > 0,
+            )
+        )
+
+    if "watchdog" in expect:
+        want = expect["watchdog"]
+        if want != "fed":
+            die(f"unknown expect.watchdog '{want}' (allowed: fed)")
+        ok = stats["health_reports"] > 0 and stats["health_unfed"] == 0
+        checks.append(
+            Check(
+                "watchdog",
+                "fed in every report",
+                f"{stats['health_unfed']} unfed of {stats['health_reports']} reports",
+                ok,
+            )
+        )
+
+    if "stack_free_min" in expect:
+        want = expect["stack_free_min"]
+        got = stats["stack_free_min"]
+        checks.append(
+            Check(
+                "stack_free_min",
+                f">= {want} words",
+                f"{got} words" if got is not None else "no task-health reports",
+                got is not None and got >= want,
+            )
+        )
+
     if "outage_s" in expect:
         recs = [e for e in events if e["event"] == "recovery"]
         ok = len(recs) == 1 and recs[0]["outage_s"] >= expect["outage_s"]["min"]
@@ -288,12 +371,16 @@ def run_scenario(sc: HilScenario, port: str, baud: int, verbose: bool) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="run HIL scenarios against the live board")
-    ap.add_argument("port", nargs="?", help="serial port; omit to find it automatically")
     ap.add_argument(
         "scenarios",
         nargs="*",
         help="scenario refs: 'all' (default), a number (2), a name (link_loss), or a path",
     )
+    # the port is a flag, not a positional. it used to be an optional positional ahead of the
+    # scenarios, which meant `hil_runner.py 3` read the 3 as a port and silently ran the whole
+    # campaign against a port that does not exist - the argument you passed being consumed by a
+    # parameter you did not mean is exactly what an override should not be able to do
+    ap.add_argument("--port", help="serial port; omit to find it by ST-Link serial")
     ap.add_argument("--stlink", help="pin the port by ST-Link serial number")
     ap.add_argument("-b", "--baud", type=int, default=115200)
     ap.add_argument(

@@ -26,10 +26,10 @@ format:
 # ---------------------------------------------------------------- obc node
 # on-board computer - nucleo-f446re, obc/ firmware + fsw/ flight software
 
-# build the obc firmware image (obc firmware + the flight software cross-compiled into it).
 # configures every time on purpose - that is what re-globs the source tree, so a newly added file
 # is in the image without anyone remembering a step. needs arm-none-eabi-gcc on PATH
 [group('obc')]
+[doc('build the obc firmware image - firmware plus the flight software cross-compiled in')]
 obc-build:
     cmake -S obc -B obc/build-arm -G "Unix Makefiles" && cmake --build obc/build-arm
 
@@ -38,22 +38,18 @@ obc-build:
 obc-flash: obc-build
     & "{{cubeprog}}" -c port=SWD sn={{obc_stlink}} mode=UR reset=HWrst -d "obc/build-arm/obc.elf" -v -rst
 
-# ground console - decoded telemetry out, typed commands in. the port is found by the obc's
-# st-link serial, same as the flasher. type `SET_MODE DETUMBLE` or `?` at the prompt.
-# flags after --: --raw, --only, --hide, --keepalive, --read-only
+# the port is found by the obc's st-link serial, same as the flasher. type `SET_MODE DETUMBLE`
+# or `?` at the prompt. flags after --: --raw, --only, --hide, --keepalive, --read-only
 [group('obc')]
+[doc('ground console - decoded telemetry out, typed commands in')]
 obc-monitor *flags:
     python tools/uart_monitor.py --stlink {{obc_stlink}} {{flags}}
 
-# kept as the name ci and the docs use for the firmware compile+link check. it is the same build
-# as obc-build now that there is only one, which is the point
+# kept as the name ci and the docs use. it is the same build as obc-build now that there is only
+# one, which is the point
 [group('obc')]
+[doc('alias for obc-build - the firmware compile+link check ci runs')]
 obc-check: obc-build
-
-# list the serial ports and what is on them
-[group('obc')]
-list-ports:
-    python -m serial.tools.list_ports -v
 
 # ---------------------------------------------------------------- esc node
 # reaction wheel - b-g431b-esc1 (stm32g431), simplefoc in torque mode
@@ -73,10 +69,10 @@ esc-flash:
 esc-probe:
     & "{{pio}}" run -d esc -e probe -t upload
 
-# drive the wheel from the bench: volts on the q axis, or --watch to only listen. the port
-# is found automatically when the esc is the only board plugged in, else name it.
+# the port is found automatically when the esc is the only board plugged in, else pass --port.
 # add --hold to keep the target alive past the node's 500 ms dead-man
 [group('esc')]
+[doc('drive the wheel from the bench - volts on the q axis, or --watch to only listen')]
 esc-wheel *args:
     python tools/wheel.py {{args}}
 
@@ -88,8 +84,10 @@ esc-wheel *args:
 fsw-build:
     cmake -S fsw -B fsw/build -G "Unix Makefiles" -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ && cmake --build fsw/build
 
+# ---------------------------------------------------------------- across the nodes
+
 # build every node that builds without hardware attached
-[group('fsw')]
+[group('build')]
 build-all: fsw-build obc-build esc-build
 
 # ---------------------------------------------------------------- testing
@@ -125,6 +123,11 @@ hil-scope test name:
     $n = '{0:000}' -f [int]"{{test}}"; python tools/scope_shot.py "docs/reports/hil/img/HIL-$n-{{name}}.png"
 
 # ---------------------------------------------------------------- bench + setup
+
+# list the serial ports and what is on them - which board is which, before anything is flashed
+[group('bench')]
+list-ports:
+    python -m serial.tools.list_ports -v
 
 # save the scope's screen over usb (siglent sds; needs pyvisa + a visa backend)
 [group('bench')]

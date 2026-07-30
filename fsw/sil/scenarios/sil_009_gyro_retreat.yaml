@@ -1,0 +1,32 @@
+# the other half of REQ-FAULT-005. SIL-003 proves a Degraded fault does not command SAFE; this
+# proves it does not just sit there either - in an active mode the documented fallback runs.
+#
+# the vehicle is walked up the ladder to POINTING, then the gyro path drops out. holding an
+# attitude without body-rate feedback is the case the fallback exists for, so the retreat to
+# STANDBY must be logged with trigger FaultEntry and REQ-FAULT-005 - a retreat that happened for
+# some other reason, or a mode that changed with no log row, both fail here.
+#
+# note the fault stays latched after the retreat: recovery is ground-commanded (REQ-FAULT-010),
+# so a spacecraft that retreated must not quietly promote itself back
+id: SIL-009
+title: gyro dropout retreats POINTING to STANDBY
+verifies: [REQ-FAULT-005]
+timeline:
+  - { t: 100, cmd: { name: SET_MODE, arg: 1, seq: 1 } }
+  - { t: 200, cmd: { name: SET_MODE, arg: 2, seq: 2 } }
+  - { t: 300, cmd: { name: SET_MODE, arg: 3, seq: 3 } }
+  - { t: 400, fault: { name: ACCEL_GYRO_DROPOUT, bad: 1 } }
+  - { t: 500, fault: { name: ACCEL_GYRO_DROPOUT, bad: 1 } }
+  - { t: 600, fault: { name: ACCEL_GYRO_DROPOUT, bad: 1 } }
+  - { t: 800 }
+expect:
+  mode_log:
+    - { to: STANDBY, trigger: Command, req: REQ-CMD-001 }
+    - { to: DETUMBLE, trigger: Command, req: REQ-CMD-001 }
+    - { to: POINTING, trigger: Command, req: REQ-CMD-001 }
+    - { to: STANDBY, trigger: FaultEntry, req: REQ-FAULT-005 }
+  acks:
+    - { seq: 3, accepted: true }
+  final:
+    mode: STANDBY
+    faults_set: [ACCEL_GYRO_DROPOUT]

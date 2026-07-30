@@ -23,8 +23,11 @@ KEEPALIVE_S = 0.2  # under the node's 500 ms dead-man
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("port", nargs="?", help="serial port; omit to find it automatically")
     ap.add_argument("volts", nargs="?", type=float, help="q-axis target in volts")
+    # a flag, not a positional ahead of volts - see the same fix in hil_runner.py. an optional
+    # positional in front of a real argument silently eats it, so `wheel.py 3.5` set no target
+    # and tried to open a serial port called "3.5"
+    ap.add_argument("--port", help="serial port; omit to find it by ST-Link serial")
     ap.add_argument("--stlink", help="pin the port by ST-Link serial number")
     ap.add_argument("--baud", type=int, default=115200)
     ap.add_argument("--hold", action="store_true", help="keep resending so the target persists")
