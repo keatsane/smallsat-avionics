@@ -7,6 +7,7 @@ is why the assembler is written around a dict of chunks rather than an append-on
 """
 
 import re
+from collections import deque
 from pathlib import Path
 
 IMAGE_NAME = re.compile(r"^image_(\d+)\.jpg$")
@@ -55,8 +56,21 @@ class Assembler:
         self.out_dir = out_dir
         self.images: dict[int, Image] = {}
 
+        # (image_id, chunk count) pairs already completed, so a repeat pass does not produce a
+        # second identical file. the satellite sends every image three times because the link is
+        # lossy and one-way, and the later passes exist to fill gaps - once there are none left to
+        # fill they are the same picture arriving again.
+        #
+        # bounded rather than kept forever, because image ids restart at 1 when the obc reboots. a
+        # few entries is enough to cover the passes of one image while being far too short to
+        # still be holding an id from before a reset
+        self.done: deque[tuple[int, int]] = deque(maxlen=4)
+
     def push(self, d: dict) -> tuple[Image | None, str]:
         """Take one chunk. Returns (completed image or None, a one-line progress note)."""
+        if (d["image_id"], d["chunks"]) in self.done:
+            return None, ""  # a repeat pass of a finished image says nothing worth printing
+
         img = self.images.get(d["image_id"])
         if img is None or img.chunks != d["chunks"]:
             img = Image(d["image_id"], d["chunks"])
@@ -70,7 +84,22 @@ class Assembler:
             return None, note + (" (duplicate)" if duplicate else "")
 
         del self.images[img.image_id]
+        self.done.append((img.image_id, img.chunks))
         return img, f"image {img.image_id}: complete, {len(img.data())} bytes"
+
+    def pending(self) -> tuple[int, int, list[int]] | None:
+        """The incomplete image most worth chasing: (image_id, chunks, missing indices).
+
+        The newest id, because an older incomplete image is one whose frame the vehicle has
+        already overwritten - requesting its chunks would be asking for data that no longer
+        exists anywhere.
+        """
+        if not self.images:
+            return None
+        image_id = max(self.images)
+        img = self.images[image_id]
+        missing = [i for i in range(img.chunks) if i not in img.parts]
+        return (image_id, img.chunks, missing) if missing else None
 
     def save(self, img: Image) -> Path:
         """Write a completed image out. JPEG is what the sensor produces, so that is the suffix.

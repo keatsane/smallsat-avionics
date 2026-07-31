@@ -14,12 +14,24 @@
 #ifndef DOWNLINK_TASK_HPP
 #define DOWNLINK_TASK_HPP
 
+#include "protocol/msg.hpp"
+
 /**
  * @brief  start or stop draining the payload buffer
  * @param  active  true while the vehicle is in DOWNLINK
  * Called every control cycle, so dropping out of DOWNLINK stops the stream within one cycle.
  */
 void downlink_task_set_active(bool active);
+
+/**
+ * @brief  queue a ground request for specific chunks of the current image
+ * @param  req  the decoded request off the uplink
+ *
+ * Called from the uplink task; the indices cross to this task through a queue, so no lock is
+ * shared. A full queue drops the overflow - the ground repeats its request until the image
+ * completes, so a dropped index costs one round trip and nothing else.
+ */
+void downlink_task_request(const fsw::chunk_request_t& req);
 
 /**
  * @brief  create the task

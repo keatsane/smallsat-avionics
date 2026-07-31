@@ -29,6 +29,10 @@ struct display_counts_t {
     uint32_t nrf_frames;
     bool lora_up;
     bool nrf_up;
+
+    // the payload link is carrying an image right now. the screens cost packets while it is, so
+    // this cuts the redraw down to the one panel worth watching during a pass
+    bool downlinking;
 };
 
 /** @brief bring up whichever panels answer; false if not even the status one did */
@@ -45,6 +49,9 @@ void display_heartbeat(const fsw::heartbeat_t& hb);
 
 /** @brief take the newest decoded downlink progress report */
 void display_downlink(const fsw::downlink_status_t& d);
+
+/** @brief take the newest decoded attitude report */
+void display_attitude(const fsw::attitude_status_t& a);
 
 /** @brief redraw - call from the loop, it rate-limits itself */
 void display_service(const display_counts_t& c);

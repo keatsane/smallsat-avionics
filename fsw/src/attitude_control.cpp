@@ -46,11 +46,29 @@ float AttitudeControl::detumble(float rate_rads) const {
 
 void AttitudeControl::enter_pointing() {
     heading_err_ = 0.0F;
+    target_ = 0.0F;  // a fresh entry holds where it started until the ground says otherwise
     saturated_ = false;
 }
 
+// the error the controller acts on, wrapped to the short way round. without this a target of
+// 216 degrees from a heading of -9 read as an error of -225 - the controller drove the long way,
+// through 226 degrees of travel, when +134 the other way reaches the same bearing. a circle has
+// two ways round and the raw subtraction always picks whichever side of zero the arithmetic
+// landed on, not the shorter
+float AttitudeControl::wrapped_error() const {
+    constexpr float kTwoPi = 6.28318530718F;
+    float err = heading_err_ - target_;
+    while (err > kTwoPi / 2.0F) {
+        err -= kTwoPi;
+    }
+    while (err < -kTwoPi / 2.0F) {
+        err += kTwoPi;
+    }
+    return err;
+}
+
 bool AttitudeControl::pointing_in_band() const {
-    return std::fabs(heading_err_) < g_.pointing_band;
+    return std::fabs(wrapped_error()) < g_.pointing_band;
 }
 
 float AttitudeControl::point(float rate_rads, float dt_s) {
@@ -67,7 +85,7 @@ float AttitudeControl::point(float rate_rads, float dt_s) {
 
     // PD. same sign convention as detumble - the wheel is commanded and the platform feels the
     // reaction, so both terms follow their error rather than opposing it
-    return limit((g_.k_angle * heading_err_) + (g_.k_damp * rate_rads));
+    return limit((g_.k_angle * wrapped_error()) + (g_.k_damp * rate_rads));
 }
 
 }  // namespace fsw

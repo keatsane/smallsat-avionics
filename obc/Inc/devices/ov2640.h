@@ -44,6 +44,38 @@ bool ov2640_init(void);
  */
 bool ov2640_capture_start(void);
 
+// the output sizes the driver can be switched between, smallest first. the ids are the wire values
+// carried by CAPTURE_IMAGE's argument, so their order is part of the ground interface
+typedef enum {
+    OV2640_RES_320x240 = 0,
+    OV2640_RES_800x600 = 1,
+    OV2640_RES_1600x1200 = 2,
+    OV2640_RES_COUNT
+} ov2640_res_t;
+
+/**
+ * @brief  switch the sensor's output size
+ * @param  res  which size
+ * @return false on an unknown size, or if the sccb writes did not take
+ *
+ * Rewrites one vendored table, which is all a size change is. Refused while a capture is in
+ * flight: the arduchip is latching a frame whose dimensions the sensor is being asked to change.
+ */
+bool ov2640_set_resolution(ov2640_res_t res);
+
+/** @brief the size the next capture will use */
+ov2640_res_t ov2640_resolution(void);
+
+/**
+ * @brief  put the read pointer back at the start of the frame already in the fifo
+ * @return false if there is no frame to rewind to
+ *
+ * Reading the fifo moves a pointer; it does not consume anything, and the frame stays put until
+ * the next capture overwrites it. So the same image can be downlinked more than once, which is how
+ * a lossy one-way link eventually delivers all of it.
+ */
+bool ov2640_rewind(void);
+
 /**
  * @brief  advance the capture state machine - call once per control cycle
  * @param  t_ms  platform time, for the capture timeout

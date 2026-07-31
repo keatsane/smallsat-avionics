@@ -51,6 +51,11 @@
 #define FIFO_MAX_BYTES 0x100000U
 
 static ov2640_state_t state = OV2640_IDLE;
+
+// 320x240 until the ground asks otherwise. small on purpose as the power-on default: it is the
+// size that downlinks inside one short pass, and a vehicle that reboots mid-contact should come
+// back doing the cheap thing rather than the expensive one
+static ov2640_res_t res_now = OV2640_RES_320x240;
 static uint32_t capture_start_ms = 0U;
 static uint32_t frame_bytes = 0U;  // size latched when the capture completed
 static uint32_t frame_read = 0U;   // how much of it has been handed out
@@ -111,6 +116,18 @@ static bool sccb_write_table(const ov2640_reg_t* table) {
         }
     }
     return true;
+}
+
+static const ov2640_reg_t* size_table(ov2640_res_t res) {
+    switch (res) {
+        case OV2640_RES_800x600:
+            return ov2640_800x600;
+        case OV2640_RES_1600x1200:
+            return ov2640_1600x1200;
+        case OV2640_RES_320x240:
+        default:
+            return ov2640_320x240;
+    }
 }
 
 // ---- fifo ----
@@ -217,13 +234,56 @@ bool ov2640_init(void) {
         return false;
     }
 
-    if (!sccb_write_table(ov2640_320x240)) {
+    if (!sccb_write_table(size_table(res_now))) {
         return false;
     }
 
     fifo_flush();  // upstream clears the done flag once here before the first capture
     configured = true;
     return true;
+}
+
+bool ov2640_set_resolution(ov2640_res_t res) {
+    if (res >= OV2640_RES_COUNT || !configured) {
+        return false;
+    }
+    if (res == res_now) {
+        return true;
+    }
+
+    const bool l = cam_lock();
+    bool ok = false;
+    // a size change while the arduchip is latching a frame would leave the fifo holding half an
+    // image at each of two sizes, so the request waits for the next idle moment rather than
+    // corrupting the one in flight
+    if (state != OV2640_CAPTURING) {
+        burst_close();
+        ok = sccb_write_table(size_table(res));
+        if (ok) {
+            res_now = res;
+        }
+    }
+    cam_unlock(l);
+    return ok;
+}
+
+ov2640_res_t ov2640_resolution(void) { return res_now; }
+
+bool ov2640_rewind(void) {
+    const bool l = cam_lock();
+    bool ok = false;
+    // the frame is still in the arduchip's fifo - reading it moves a pointer rather than consuming
+    // anything, and FIFO_RDPTR_RST puts that pointer back at the start. scan_jpeg_length has
+    // relied on this since the driver was written, which is what makes it safe to lean on here
+    if (frame_bytes > 0U && (state == OV2640_READY || state == OV2640_IDLE)) {
+        burst_close();
+        chip_write(ARDUCHIP_FIFO, FIFO_RDPTR_RST_MASK);
+        frame_read = 0U;
+        state = OV2640_READY;
+        ok = true;
+    }
+    cam_unlock(l);
+    return ok;
 }
 
 static bool capture_start_locked(void) {
@@ -329,10 +389,11 @@ static size_t read_chunk_locked(uint8_t* buf, size_t n) {
     // costs one byte per 56-byte chunk, under 2%, against a whole class of bus corruption
     burst_close();
 
+    // the frame is left in the fifo rather than forgotten, so it can be sent again - a downlink
+    // that arrives 88% complete is not an image, and a second pass over the same frame is far
+    // cheaper than a second capture of a scene that has moved
     if (frame_read >= frame_bytes) {
         state = OV2640_IDLE;
-        frame_bytes = 0U;
-        frame_read = 0U;
     }
     return n;
 }

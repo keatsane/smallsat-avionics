@@ -6,6 +6,23 @@
 #include "fsw/executive.hpp"
 
 namespace fsw {
+namespace {
+
+// radians to the wire's milliradians, clamped rather than wrapped: a heading that has run past
+// +/-32 rad is a vehicle that has spun 5 times, and pinning the dial at the edge says that more
+// honestly than a number that silently wraps round
+int16_t to_mrad(float rad) {
+    const float mr = rad * 1000.0F;
+    if (mr > 32767.0F) {
+        return 32767;
+    }
+    if (mr < -32768.0F) {
+        return -32768;
+    }
+    return static_cast<int16_t>(mr);
+}
+
+}  // namespace
 
 void Executive::cycle(const Inputs& inputs, uint32_t t_ms) {
     // ingest inputs
@@ -85,10 +102,15 @@ void Executive::cycle(const Inputs& inputs, uint32_t t_ms) {
             case Command::CLEAR_FAULT:
                 fm_.clear(static_cast<Fault>(inputs.command->arg), t_ms);
                 break;
+            case Command::SET_HEADING:
+                // a binary angle over the wire, radians in here - the conversion belongs at the
+                // edge, like every other unit that crosses this boundary
+                ac_.set_target(static_cast<float>(inputs.command->arg) * kHeadingStepRad);
+                break;
             case Command::CAPTURE_IMAGE:
                 // fire-and-forget - the frame lands in the camera's fifo and is reported back as
                 // camera telemetry, so nothing here waits on the payload (REQ-PAY-001)
-                platform::capture_image();
+                platform::capture_image(inputs.command->arg);
                 break;
         }
     }
@@ -117,13 +139,13 @@ void Executive::cycle(const Inputs& inputs, uint32_t t_ms) {
     last_t_ms_ = t_ms;
     ran_ = true;
 
+    float torque_nm = 0.0F;
     if (inputs.body_rate_rads && mode_now == Mode::DETUMBLE) {
-        platform::set_wheel_torque_nm(ac_.detumble(*inputs.body_rate_rads));
+        torque_nm = ac_.detumble(*inputs.body_rate_rads);
     } else if (inputs.body_rate_rads && mode_now == Mode::POINTING) {
-        platform::set_wheel_torque_nm(ac_.point(*inputs.body_rate_rads, dt_s));
-    } else {
-        platform::set_wheel_torque_nm(0.0F);
+        torque_nm = ac_.point(*inputs.body_rate_rads, dt_s);
     }
+    platform::set_wheel_torque_nm(torque_nm);
 
     // boot info - offered on the first cycle only, so this fires once per reset (REQ-WDG-002).
     // sent ahead of the heartbeat deliberately: a ground station reading the log top-down should
@@ -132,9 +154,21 @@ void Executive::cycle(const Inputs& inputs, uint32_t t_ms) {
         send(MsgId::BootInfo, *inputs.boot);
     }
 
-    // heartbeat
+    // heartbeat, and the pointing picture alongside it. the same cadence deliberately: they are
+    // both "where is the vehicle right now", and a dial updating at a different rate to the mode
+    // beside it reads as one of them being stale
     if (tp_.heartbeat_due(t_ms)) {
         send(MsgId::Heartbeat, tp_.heartbeat(t_ms, mm_.mode(), fm_.active(), fm_.inhibited()));
+
+        attitude_status_t a{};
+        a.t_ms = t_ms;
+        a.heading_mrad = to_mrad(ac_.heading());
+        a.target_mrad = to_mrad(ac_.target());
+        a.rate_mrads = to_mrad(inputs.body_rate_rads ? *inputs.body_rate_rads : 0.0F);
+        a.torque_mnm = static_cast<int16_t>(torque_nm * 1000.0F);
+        a.flags = static_cast<uint8_t>((ac_.pointing_in_band() ? kAttitudeFlagInBand : 0U) |
+                                       (ac_.saturated() ? kAttitudeFlagSaturated : 0U));
+        send(MsgId::AttitudeStatus, a);
     }
 
     // imu data

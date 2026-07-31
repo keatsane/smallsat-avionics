@@ -16,8 +16,13 @@ constexpr uint8_t kAutoAllowed[kModeCount] = {
     /* from BOOT     */ mode_bit(Mode::STANDBY) | mode_bit(Mode::DETUMBLE) | mode_bit(Mode::SAFE),
     /* from STANDBY  */ mode_bit(Mode::DETUMBLE) | mode_bit(Mode::SAFE),
     /* from DETUMBLE */ mode_bit(Mode::STANDBY) | mode_bit(Mode::POINTING) | mode_bit(Mode::SAFE),
-    /* from POINTING */ mode_bit(Mode::STANDBY) | mode_bit(Mode::DOWNLINK) | mode_bit(Mode::SAFE),
-    /* from DOWNLINK */ mode_bit(Mode::STANDBY) | mode_bit(Mode::POINTING) | mode_bit(Mode::SAFE),
+    // DETUMBLE is reachable from both active modes, not only from STANDBY: it is the recovery
+    // from unwanted rates, and rates do not wait for the vehicle to pass through idle first.
+    // requiring the STANDBY hop added a command and a cycle of delay and bought nothing
+    /* from POINTING */ mode_bit(Mode::STANDBY) | mode_bit(Mode::DETUMBLE) |
+        mode_bit(Mode::DOWNLINK) | mode_bit(Mode::SAFE),
+    /* from DOWNLINK */ mode_bit(Mode::STANDBY) | mode_bit(Mode::DETUMBLE) |
+        mode_bit(Mode::POINTING) | mode_bit(Mode::SAFE),
     /* from SAFE     */ 0,  // no autonomous exit from SAFE - only a ground command climbs out
 };
 static_assert(sizeof(kAutoAllowed) / sizeof(kAutoAllowed[0]) == kModeCount,

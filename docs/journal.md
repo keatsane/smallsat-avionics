@@ -31,6 +31,15 @@ pushes.
 is what returns the radio to receive; behind `!pending ||` it ran once a second and the vehicle
 was deaf almost continuously. Side effects do not belong in conditions.
 
+**A one-way link needs repetition, not a better error rate.** 88% packet delivery sounds like a
+working link and delivered zero images: a frame spans three packets, an image needs every frame,
+and there is no ack to retransmit against. Losses fall in different places each pass, so sending
+the same frame three times is worth far more than the arithmetic suggests.
+
+**Two PA+LNA radios a foot apart is a receiver problem, not a range problem.** At full transmit
+power delivery was 39%; at minimum it was 88%. An overloaded low-noise amplifier does not degrade
+gracefully, it stops decoding, so the symptom looks like a weak link and the fix is less power.
+
 **A receiver's fifo depth is a rate limit on the transmitter.** The nRF24 holds three packets and
 a frame spans three, so anything the ground could not collect in time took a whole frame with it -
 588 packets sent, 379 received, one frame decoded. Independent packet loss would have left a
@@ -82,6 +91,23 @@ Dated evidence, newest first.
 
 ### Phase 8 - wireless link and ground station
 
+- **2026-07-30** - The downlink became a protocol. Blind three-pass repetition replaced with
+  selective repeat: one pass, then the ground names its missing chunks over the LoRa uplink and
+  the vehicle resends exactly those out of the fifo it never consumed. Same audit fixed the
+  pointing error not wrapping (a 216-degree command drove the long way round), made DETUMBLE
+  commandable from both active modes, and stopped the console mangling what it echoes.
+- **2026-07-30** - **First image down over the air**: 800x600 commanded over LoRa, 398 chunks over
+  the nRF24, 22240 bytes reassembled with intact markers at 96% packet delivery. Three passes over
+  the same frame is what closed it.
+- **2026-07-30** - Payload link fixed and images reaching the ground station. Minimum transmit
+  power took delivery from 39% to 88%: two PA+LNA modules a foot apart were overloading the
+  receiver's front end, not struggling to reach it. 88% still delivers no image, because a frame
+  spans three packets and an image needs every frame - so a downlink now makes three passes over
+  the same frame, rewinding the ArduChip's read pointer rather than recapturing.
+- **2026-07-30** - `CAPTURE_IMAGE` takes a size (320x240, 800x600, 1600x1200), `SET_HEADING` aims
+  POINTING at a bearing, and `attitude_status_t` feeds a dial on the second panel. The payload
+  radio dropped to minimum transmit power: two PA+LNA modules a foot apart delivered 224 of 570
+  packets at full output, which is an overloaded receiver rather than a weak link.
 - **2026-07-30** - Payload link proven, and the first real numbers off it. Strapping the second
   OLED to 0x3D exposed that `Adafruit_SSD1306::begin` reports a panel on an address with nothing
   on it, so the bus is probed directly now. With the link up, an image downlink put 588 packets on

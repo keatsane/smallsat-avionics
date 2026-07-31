@@ -94,11 +94,31 @@ class AttitudeControl {
      */
     float point(float rate_rads, float dt_s);
 
-    /** @brief accumulated heading error since enter_pointing, in radians */
-    float heading_error() const { return heading_err_; }
+    /**
+     * @brief  aim at a bearing relative to where POINTING was entered
+     * @param  rad  target, measured from the entry heading
+     *
+     * Relative because there is nothing absolute to measure against: the gyro gives rate and the
+     * magnetometer sits beside a motor full of magnets. So a commanded heading means "this far
+     * round from where you were when the mode started", which is honest about what the vehicle
+     * can actually know (REQ-ADCS-002).
+     */
+    void set_target(float rad) { target_ = rad; }
+
+    /** @brief the bearing being held, relative to the entry heading */
+    float target() const { return target_; }
+
+    /** @brief heading relative to where POINTING was entered, in radians */
+    float heading() const { return heading_err_; }
+
+    /** @brief how far the vehicle is from the bearing it was told to hold, the short way round */
+    float heading_error() const { return wrapped_error(); }
 
     /** @brief true while the heading error is inside the band REQ-ADCS-002 asks for */
     bool pointing_in_band() const;
+
+    /** @brief heading error wrapped to [-pi, pi] - a circle has two ways round, take the shorter */
+    float wrapped_error() const;
 
     /**
      * @brief  did the last command hit the actuator limit
@@ -117,6 +137,10 @@ class AttitudeControl {
 
     // heading relative to wherever POINTING was entered, integrated from the rate
     float heading_err_ = 0.0F;
+
+    // the bearing to hold, in the same frame. zero until the ground says otherwise, which makes
+    // an uncommanded POINTING exactly the attitude hold it was before this existed
+    float target_ = 0.0F;
 };
 
 }  // namespace fsw

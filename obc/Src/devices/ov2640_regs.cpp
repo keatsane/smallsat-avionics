@@ -32,3 +32,7 @@ const ov2640_reg_t* const ov2640_yuv422 = reinterpret_cast<const ov2640_reg_t*>(
 const ov2640_reg_t* const ov2640_jpeg_enable = reinterpret_cast<const ov2640_reg_t*>(OV2640_JPEG);
 const ov2640_reg_t* const ov2640_320x240 =
     reinterpret_cast<const ov2640_reg_t*>(OV2640_320x240_JPEG);
+const ov2640_reg_t* const ov2640_800x600 =
+    reinterpret_cast<const ov2640_reg_t*>(OV2640_800x600_JPEG);
+const ov2640_reg_t* const ov2640_1600x1200 =
+    reinterpret_cast<const ov2640_reg_t*>(OV2640_1600x1200_JPEG);

@@ -16,7 +16,20 @@
     X(NOOP)          /* link keep-alive / test */                    \
     X(SET_MODE)      /* request a mode transition (arg = mode id) */ \
     X(CLEAR_FAULT)   /* clear a latched fault (arg = fault id) */    \
-    X(CAPTURE_IMAGE) /* take a photo with the payload camera */
+    X(CAPTURE_IMAGE) /* take a photo (arg = resolution id) */        \
+    X(SET_HEADING)   /* aim POINTING at a bearing (arg = binary angle) */
+
+// SET_HEADING's argument is a binary angle: one byte spanning a full turn, so a step is 360/256 =
+// 1.406 degrees. a byte cannot hold degrees and this is the standard way round it - the same
+// encoding flight software has used for bearings since long before anyone had a spare byte
+inline constexpr float kHeadingStepRad = 6.283185307F / 256.0F;
+
+// image sizes CAPTURE_IMAGE can ask for - X(name, label). the order here is the wire value of the
+// command's argument, so appending is safe and reordering is not
+#define FSW_RESOLUTION_LIST(X) \
+    X(R320x240, "320x240")     \
+    X(R800x600, "800x600")     \
+    X(R1600x1200, "1600x1200")
 
 // fault ids - X(name). a fault's order here is its id and its bit in heartbeat_t.faults
 #define FSW_FAULT_LIST(X)                                                    \
@@ -69,6 +82,12 @@ enum class Command : uint8_t {
 #undef FSW_COMMAND_X
 };
 
+enum class ImageResolution : uint8_t {
+#define FSW_RESOLUTION_X(name, label) name,
+    FSW_RESOLUTION_LIST(FSW_RESOLUTION_X)
+#undef FSW_RESOLUTION_X
+};
+
 enum class Fault : uint8_t {
 #define FSW_FAULT_X(name) name,
     FSW_FAULT_LIST(FSW_FAULT_X)
@@ -92,6 +111,11 @@ inline constexpr uint8_t kCommandCount =
 #define FSW_COMMAND_X(name) +1
     FSW_COMMAND_LIST(FSW_COMMAND_X);
 #undef FSW_COMMAND_X
+
+inline constexpr uint8_t kResolutionCount =
+#define FSW_RESOLUTION_X(name, label) +1
+    FSW_RESOLUTION_LIST(FSW_RESOLUTION_X);
+#undef FSW_RESOLUTION_X
 
 inline constexpr uint8_t kFaultCount =
 #define FSW_FAULT_X(name) +1
@@ -129,6 +153,16 @@ inline const char* command_name(uint8_t id) {
 #define FSW_COMMAND_X(name) #name,
         FSW_COMMAND_LIST(FSW_COMMAND_X)
 #undef FSW_COMMAND_X
+    };
+    return id < sizeof(names) / sizeof(names[0]) ? names[id] : "UNKNOWN";
+}
+
+/** @brief image size label for @p id, or "UNKNOWN" if out of range */
+inline const char* resolution_name(uint8_t id) {
+    static const char* const names[] = {
+#define FSW_RESOLUTION_X(name, label) label,
+        FSW_RESOLUTION_LIST(FSW_RESOLUTION_X)
+#undef FSW_RESOLUTION_X
     };
     return id < sizeof(names) / sizeof(names[0]) ? names[id] : "UNKNOWN";
 }

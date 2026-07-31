@@ -19,6 +19,7 @@ QUIET_KINDS = PER_CYCLE_KINDS + ("GROUND",)
 # every line kind the console can show. the local-echo kinds at the end never come off the wire
 KINDS = (
     "HEARTBEAT",
+    "ATTITUDE",
     "TASKS",
     "BOOT",
     "LORA",
@@ -30,6 +31,7 @@ KINDS = (
     "PAYLOAD",
     "DOWNLINK",
     "LINK",
+    "REQUEST",
     "GROUND",
     "UART",
     "COMMAND",

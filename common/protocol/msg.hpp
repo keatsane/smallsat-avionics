@@ -35,6 +35,11 @@ enum class MsgId : uint8_t {
     DownlinkStatus = 0x12,  // how far a payload downlink has got, and what the radio did with it
     GroundStatus = 0x13,    // the ground station talking about itself, not about the spacecraft
 
+    // adcs (0x14 block)
+    AttitudeStatus = 0x14,  // where the vehicle is pointing and where it was told to point
+
+    ChunkRequest = 0x15,  // ground -> spacecraft: resend these payload chunks (selective repeat)
+
     // actuation - the reaction-wheel node, on its own link rather than the ground one (0x20 block)
     WheelCommand = 0x20,  // obc -> esc torque setpoint
     WheelStatus = 0x21,   // esc -> obc wheel state
@@ -225,6 +230,43 @@ struct __attribute__((packed)) ground_status_t {
     uint8_t flags;  // kGroundFlag* bits
 };
 
+// attitude_status_t.flags bits
+inline constexpr uint8_t kAttitudeFlagInBand = 0x01;     // holding the commanded bearing
+inline constexpr uint8_t kAttitudeFlagSaturated = 0x02;  // the wheel is at its limit
+
+// MsgId::AttitudeStatus - the pointing picture, in milliradians.
+//
+// heading is measured from wherever POINTING was entered rather than from anything absolute: the
+// gyro gives rate and the magnetometer sits beside a motor full of magnets, so there is no north
+// on this vehicle. it is integrated rate, which means it drifts, and a display drawing it should
+// be read as "how far round from where it started" rather than as a bearing (REQ-ADCS-002)
+struct __attribute__((packed)) attitude_status_t {
+    uint32_t t_ms;
+    int16_t heading_mrad;  // relative to the entry heading, integrated from the rate
+    int16_t target_mrad;   // what SET_HEADING asked for, in the same frame
+    int16_t rate_mrads;    // measured yaw rate
+    int16_t torque_mnm;    // what the controller commanded the wheel, milli-newton-metres
+    uint8_t flags;         // kAttitudeFlag* bits
+};
+
+// how many chunk indices one request can carry - sized so the struct fills the frame's 64-byte
+// payload budget (2 + 1 + 2*28 = 59)
+inline constexpr uint8_t kChunkRequestMax = 28;
+
+// MsgId::ChunkRequest - the ground asking for the payload chunks it is missing.
+//
+// this is what makes the payload downlink a protocol rather than a hope. the nRF24 path is
+// one-way and lossy, so the vehicle cannot know what arrived - but the LoRa uplink exists, and the
+// ground knows exactly which chunks it lacks. so the image goes out once, the ground names its
+// gaps, and the vehicle resends precisely those: selective repeat, with the request riding the
+// other radio. a lost request costs nothing, because the ground repeats it until the image
+// completes. unused entries beyond `count` are zero and ignored
+struct __attribute__((packed)) chunk_request_t {
+    uint16_t image_id;  // which image, matching payload_data_t.image_id
+    uint8_t count;      // how many entries of chunks[] are meaningful
+    uint16_t chunks[kChunkRequestMax];
+};
+
 // ------- rtos / platform health -------
 
 // how many tasks one report can carry. sized for the whole planned set plus the kernel's idle task,
@@ -298,6 +340,8 @@ static_assert(sizeof(camera_data_t) == 9, "camera_data_t wire layout changed");
 static_assert(sizeof(payload_data_t) == 64, "payload_data_t wire layout changed");
 static_assert(sizeof(downlink_status_t) == 16, "downlink_status_t wire layout changed");
 static_assert(sizeof(ground_status_t) == 18, "ground_status_t wire layout changed");
+static_assert(sizeof(attitude_status_t) == 13, "attitude_status_t wire layout changed");
+static_assert(sizeof(chunk_request_t) == 59, "chunk_request_t wire layout changed");
 static_assert(sizeof(payload_data_t) <= kFrameMaxPayload, "payload_data_t no longer fits a frame");
 static_assert(sizeof(task_entry_t) == 6, "task_entry_t wire layout changed");
 static_assert(sizeof(task_health_t) == 48, "task_health_t wire layout changed");

@@ -21,10 +21,14 @@ float wheel_torque_nm = 0.0F;
 void set_wheel_torque_nm(float torque_nm) { wheel_torque_nm = torque_nm; }
 
 // no camera on the host, so the backend counts the calls instead - dispatch is the thing the
-// unit tests can actually grade (REQ-PAY-001). the tests declare this extern themselves
+// unit tests can actually grade (REQ-PAY-001). the tests declare these extern themselves
 int capture_calls = 0;
+uint8_t capture_resolution = 0;
 
-void capture_image(void) { capture_calls++; }
+void capture_image(uint8_t resolution) {
+    capture_calls++;
+    capture_resolution = resolution;
+}
 
 // no payload on the host, so the backend records the flag rather than moving bytes - whether the
 // executive asked is the part the unit tests can grade (REQ-PAY-004). the tests declare it extern

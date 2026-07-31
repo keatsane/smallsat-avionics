@@ -9,6 +9,7 @@
 #include "fsw/platform.hpp"
 #include "protocol/frame.hpp"
 #include "protocol/msg.hpp"
+#include "protocol/state.hpp"
 #include "telemetry_task.hpp"
 
 namespace fsw::platform {
@@ -31,8 +32,12 @@ void send_telemetry(const uint8_t* frame, uint32_t len) {
     // commanding at all.
     //
     // byte 2 is the message id: the layout is sync(2), id(1), len(1), payload, crc(2)
+    // AttitudeStatus joins them because the ground station draws a dial from it, and a dial with
+    // no data is a circle. it is 19 bytes at the heartbeat's cadence, so it costs one more beacon
+    // slot per second and takes the link from about 6% of air time to about 11%
     if (len >= kFrameOverhead && (frame[2] == static_cast<uint8_t>(MsgId::Heartbeat) ||
-                                  frame[2] == static_cast<uint8_t>(MsgId::CommandAck))) {
+                                  frame[2] == static_cast<uint8_t>(MsgId::CommandAck) ||
+                                  frame[2] == static_cast<uint8_t>(MsgId::AttitudeStatus))) {
         (void)telemetry_out_beacon(frame, len);
     }
 }
@@ -60,7 +65,19 @@ void set_wheel_torque_nm(float torque_nm) {
     uart_write(uart_esc, buf, n);
 }
 
-void capture_image(void) {
+void capture_image(uint8_t resolution) {
+    // the catalog id maps to this sensor's tables here, on the backend side of the boundary. the
+    // enums are declared in the same order deliberately, and the static_assert is what keeps that
+    // from being a coincidence somebody breaks later
+    static_assert(static_cast<uint8_t>(OV2640_RES_COUNT) == fsw::kResolutionCount,
+                  "the camera's sizes and FSW_RESOLUTION_LIST have drifted apart");
+
+    // an out-of-range size leaves the sensor where it was rather than refusing the capture - the
+    // command handler rejects bad arguments before they reach here, so this is belt and braces
+    if (resolution < fsw::kResolutionCount) {
+        (void)ov2640_set_resolution(static_cast<ov2640_res_t>(resolution));
+    }
+
     // a refusal here is not silent - the camera's state comes back through camera_data_t, so a
     // capture that never starts shows up as a frame that never appears
     (void)ov2640_capture_start();

@@ -6,6 +6,7 @@ common/protocol/ (frame.hpp, msg.hpp, state.hpp):
 Shared by the serial monitor and the host tests so the contract lives in one place.
 """
 
+import math
 import struct
 
 SYNC0 = 0xAA
@@ -25,6 +26,8 @@ MSG_PAYLOAD_DATA = 0x10
 MSG_CAMERA_STATUS = 0x11
 MSG_DOWNLINK_STATUS = 0x12
 MSG_GROUND_STATUS = 0x13
+MSG_ATTITUDE_STATUS = 0x14
+MSG_CHUNK_REQUEST = 0x15
 MSG_WHEEL_COMMAND = 0x20
 MSG_WHEEL_STATUS = 0x21
 MSG_TASK_HEALTH = 0x30
@@ -104,8 +107,33 @@ def reject_name(reason: int) -> str:
 
 GROUND_FLAG_LORA_UP = 0x01
 GROUND_FLAG_NRF24_UP = 0x02
+ATTITUDE_FLAG_IN_BAND = 0x01
+ATTITUDE_FLAG_SATURATED = 0x02
+
+# one byte spanning a full turn - SET_HEADING's argument, mirroring kHeadingStepRad in state.hpp
+HEADING_STEPS = 256
+
+
+def heading_arg(degrees: float) -> int:
+    """Degrees -> the binary angle SET_HEADING carries. Wraps, so 370 and 10 are the same aim."""
+    return int(round((degrees % 360.0) * HEADING_STEPS / 360.0)) % HEADING_STEPS
+
+
 GROUND_FLAG_PANEL1 = 0x04
 GROUND_FLAG_PANEL2 = 0x08
+
+
+def decode_attitude_status(payload: bytes) -> dict:
+    """Unpack an attitude_status_t payload (msg.hpp) into a dict, in degrees."""
+    t_ms, heading, target, rate, torque, flags = struct.unpack("<IhhhhB", payload)
+    return {
+        "t_ms": t_ms,
+        "heading_deg": math.degrees(heading / 1000.0),
+        "target_deg": math.degrees(target / 1000.0),
+        "rate_dps": math.degrees(rate / 1000.0),
+        "torque_mnm": torque,
+        "flags": flags,
+    }
 
 
 def decode_ground_status(payload: bytes) -> dict:
@@ -157,7 +185,24 @@ def decode_command_ack(payload: bytes) -> dict:
 
 # commands - mirror FSW_COMMAND_LIST in common/protocol/state.hpp (drift-checked by test_frames).
 # a command's index here is its id on the wire
-COMMANDS = ["NOOP", "SET_MODE", "CLEAR_FAULT", "CAPTURE_IMAGE"]
+COMMANDS = ["NOOP", "SET_MODE", "CLEAR_FAULT", "CAPTURE_IMAGE", "SET_HEADING"]
+
+# image sizes CAPTURE_IMAGE can ask for - mirrors FSW_RESOLUTION_LIST in state.hpp, index is the
+# wire value (drift-checked by test_frames)
+RESOLUTIONS = ["320x240", "800x600", "1600x1200"]
+
+
+def arg_label(cmd_id: int, arg: int) -> str:
+    """A command's argument as the name it was typed as, falling back to the raw number.
+
+    The wire carries an index into a catalog, and printing the index makes a log that has to be
+    decoded by hand against a header. Every catalog is already mirrored here.
+    """
+    name = command_name(cmd_id)
+    catalog = {"SET_MODE": MODES, "CLEAR_FAULT": FAULTS, "CAPTURE_IMAGE": RESOLUTIONS}.get(name)
+    if catalog is None or arg >= len(catalog):
+        return str(arg)
+    return catalog[arg]
 
 
 def command_name(cmd_id: int) -> str:
@@ -264,6 +309,22 @@ def decode_temp_data(payload: bytes) -> dict:
         "temp_mc": temp_mc,
         "flags": flags,
     }
+
+
+CHUNK_REQUEST_MAX = 28  # mirrors kChunkRequestMax in msg.hpp
+
+
+def encode_chunk_request(image_id: int, chunks: list[int]) -> bytes:
+    """Frame a request for up to CHUNK_REQUEST_MAX missing payload chunks.
+
+    This is the ground's half of selective repeat: the vehicle sent the image once, this names
+    the gaps, and the vehicle resends exactly those. The struct is fixed-size on the wire, so
+    unused entries are zero and the count field says how many are real.
+    """
+    chunks = chunks[:CHUNK_REQUEST_MAX]
+    padded = chunks + [0] * (CHUNK_REQUEST_MAX - len(chunks))
+    payload = struct.pack(f"<HB{CHUNK_REQUEST_MAX}H", image_id, len(chunks), *padded)
+    return encode(MSG_CHUNK_REQUEST, payload)
 
 
 def encode_command(cmd_id: int, arg: int, seq: int) -> bytes:
@@ -429,7 +490,9 @@ def format_frame(msg_id: int, payload: bytes) -> str:
     """
     if msg_id == MSG_COMMAND and len(payload) == 4:
         cmd_id, arg, seq = struct.unpack("<BBH", payload)
-        return f"{'COMMAND':<12} cmd={command_name(cmd_id)}  arg={arg}  seq={seq}"
+        return (
+            f"{'COMMAND':<12} cmd={command_name(cmd_id)}  arg={arg_label(cmd_id, arg)}  seq={seq}"
+        )
     if msg_id == MSG_COMMAND_ACK and len(payload) == 5:
         d = decode_command_ack(payload)
         verdict = "accepted" if d["accepted"] else f"rejected (reason={d['reason']})"
@@ -468,6 +531,22 @@ def format_frame(msg_id: int, payload: bytes) -> str:
         return (
             f"{'PAYLOAD':<12} image={d['image_id']}  chunk={d['chunk']}/{d['chunks']}  "
             f"len={d['len']}"
+        )
+    if msg_id == MSG_ATTITUDE_STATUS and len(payload) == 13:
+        d = decode_attitude_status(payload)
+        # the error is what a pointing run is actually judged on, so it is stated rather than left
+        # to be subtracted by eye
+        err = d["heading_deg"] - d["target_deg"]
+        marks = []
+        if d["flags"] & ATTITUDE_FLAG_IN_BAND:
+            marks.append("in band")
+        if d["flags"] & ATTITUDE_FLAG_SATURATED:
+            marks.append("WHEEL SATURATED")
+        tail = ("  " + ", ".join(marks)) if marks else ""
+        return (
+            f"{'ATTITUDE':<12} hdg={d['heading_deg']:+.1f} deg  target={d['target_deg']:+.1f}  "
+            f"err={err:+.1f}  rate={d['rate_dps']:+.1f} deg/s  "
+            f"torque={d['torque_mnm']} mNm{tail}"
         )
     if msg_id == MSG_GROUND_STATUS and len(payload) == 18:
         d = decode_ground_status(payload)

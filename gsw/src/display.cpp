@@ -8,6 +8,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <Wire.h>
+#include <math.h>
 
 #include "protocol/state.hpp"
 
@@ -27,6 +28,12 @@ constexpr uint32_t kRedrawMs = 250;
 // how long the boot splash stays up. long enough to read which panel is which, short enough that
 // nobody wonders whether the box has hung
 constexpr uint32_t kSplashMs = 2500;
+
+// redraw rate while an image is coming down. a panel costs ~25 ms of blocking i2c, which at the
+// burst rate is about ten lost packets - so once a second, and only the payload panel. that is
+// 2.5% of a pass spent drawing the thing that shows the pass, which is a trade worth making now
+// that the image goes round three times
+constexpr uint32_t kBusyRedrawMs = 1000;
 
 // how long without a heartbeat before the link is called lost. three beacons' worth - one missed
 // packet is ordinary at any range, three in a row is a link
@@ -54,6 +61,9 @@ fsw::downlink_status_t dl{};
 bool ever_downlinked = false;
 uint32_t last_dl_ms = 0;
 constexpr uint32_t kDownlinkStaleMs = 5000;
+
+fsw::attitude_status_t att{};
+bool ever_attitude = false;
 
 uint8_t count_bits(uint32_t v) {
     uint8_t n = 0;
@@ -137,6 +147,11 @@ bool display_have_status_panel() { return found_status; }
 
 bool display_have_payload_panel() { return found_payload; }
 
+void display_attitude(const fsw::attitude_status_t& in) {
+    att = in;
+    ever_attitude = true;
+}
+
 void display_downlink(const fsw::downlink_status_t& in) {
     dl = in;
     ever_downlinked = true;
@@ -150,6 +165,34 @@ void display_heartbeat(const fsw::heartbeat_t& in) {
 }
 
 namespace {
+
+// the attitude dial: where the vehicle is pointing, and where it was told to point.
+//
+// a filled tick for the heading and a hollow one for the target, on a circle whose zero is
+// wherever POINTING was entered - there is no north on this vehicle, so drawing a compass would be
+// claiming a reference it does not have. the two ticks converging is the whole of what a pointing
+// run looks like
+void draw_dial(int16_t cx, int16_t cy, int16_t r) {
+    oled2.drawCircle(cx, cy, r, SSD1306_WHITE);
+    oled2.drawPixel(cx, cy - r, SSD1306_WHITE);  // the zero mark, at the top
+
+    if (!ever_attitude) {
+        return;
+    }
+
+    // screen y grows downward and zero is up, so the usual sin/cos are swapped and negated. done
+    // once here rather than in each caller, where getting it wrong makes the dial turn backwards
+    const float hdg = att.heading_mrad / 1000.0F;
+    const float tgt = att.target_mrad / 1000.0F;
+
+    const int16_t hx = cx + static_cast<int16_t>(sinf(hdg) * (r - 2));
+    const int16_t hy = cy - static_cast<int16_t>(cosf(hdg) * (r - 2));
+    oled2.drawLine(cx, cy, hx, hy, SSD1306_WHITE);
+
+    const int16_t tx = cx + static_cast<int16_t>(sinf(tgt) * r);
+    const int16_t ty = cy - static_cast<int16_t>(cosf(tgt) * r);
+    oled2.drawCircle(tx, ty, 2, SSD1306_WHITE);
+}
 
 // the payload panel: how the current downlink is going, and what the payload radio has actually
 // heard. the counters are the useful half - a progress bar climbing while nrf frames stays at zero
@@ -177,12 +220,14 @@ void draw_payload_panel(uint32_t nrf_packets, uint32_t nrf_frames, bool nrf_up) 
 
     // a drawn bar rather than characters - it is the one thing here readable at a glance
     const int16_t bar_y = 34;
-    const int16_t bar_w = kWidth - 4;
+    const int16_t bar_w = kWidth - 48;  // the dial owns the right-hand end of this row
     oled2.drawRect(2, bar_y, bar_w, 10, SSD1306_WHITE);
     if (active && dl.chunks > 0U) {
         const int32_t fill = (static_cast<int32_t>(dl.chunk) * (bar_w - 4)) / dl.chunks;
         oled2.fillRect(4, bar_y + 2, static_cast<int16_t>(fill), 6, SSD1306_WHITE);
     }
+
+    draw_dial(kWidth - 22, 34, 18);
 
     oled2.setCursor(0, 48);
     oled2.print("nrf ");
@@ -292,9 +337,11 @@ void display_service(const display_counts_t& c) {
     if (static_cast<int32_t>(now - next_draw_ms) < 0) {
         return;
     }
-    next_draw_ms = now + kRedrawMs;
+    next_draw_ms = now + (c.downlinking ? kBusyRedrawMs : kRedrawMs);
 
-    if (ready) {
+    // during a pass the status panel is the one to sacrifice: mode and faults are not changing,
+    // and the progress bar is the only thing anybody is watching
+    if (ready && !c.downlinking) {
         draw_status_panel(c);
     }
     if (ready2) {

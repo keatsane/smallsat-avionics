@@ -140,3 +140,59 @@ def test_looks_like_jpeg_rejects_truncation():
     assert not looks_like_jpeg(JPEG[:-2])  # lost the EOI
     assert not looks_like_jpeg(JPEG[2:])  # lost the SOI
     assert not looks_like_jpeg(b"")
+
+
+def test_a_repeated_pass_does_not_save_the_image_twice():
+    # the satellite sends every image three times, because the payload link is one-way and lossy.
+    # once the ground has all of it the later passes are the same picture again, and each one used
+    # to land as its own file
+    parts = _split(JPEG)
+    asm = Assembler()
+    finished = []
+    for _ in range(3):
+        for i, part in enumerate(parts):
+            done, _ = asm.push(_chunk(1, i, len(parts), part))
+            if done:
+                finished.append(done)
+    assert len(finished) == 1
+    assert finished[0].data() == JPEG
+
+
+def test_the_next_capture_still_lands_after_a_repeat():
+    # the guard must key on the image, not simply refuse anything already seen
+    parts = _split(JPEG)
+    asm = Assembler()
+    for _ in range(2):
+        for i, part in enumerate(parts):
+            asm.push(_chunk(1, i, len(parts), part))
+
+    other = _split(JPEG[::-1])
+    done = None
+    for i, part in enumerate(other):
+        got, _ = asm.push(_chunk(2, i, len(other), part))
+        done = got or done
+    assert done is not None
+    assert done.data() == JPEG[::-1]
+
+
+def test_pending_names_exactly_the_missing_chunks():
+    # the ground half of selective repeat: after a lossy pass, this list is what goes back up
+    parts = _split(JPEG)
+    asm = Assembler()
+    for i, part in enumerate(parts):
+        if i in (1, 3):
+            continue  # lost on the air
+        asm.push(_chunk(5, i, len(parts), part))
+
+    got = asm.pending()
+    assert got is not None
+    image_id, total, missing = got
+    assert (image_id, total) == (5, len(parts))
+    assert missing == [1, 3]
+
+    # the resends arrive and the request list empties with them
+    asm.push(_chunk(5, 1, len(parts), parts[1]))
+    done, _ = asm.push(_chunk(5, 3, len(parts), parts[3]))
+    assert done is not None
+    assert asm.pending() is None
+    assert done.data() == JPEG

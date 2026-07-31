@@ -34,11 +34,16 @@ void set_wheel_torque_nm(float torque_nm);
 
 /**
  * @brief  ask the payload camera to take a frame
+ * @param  resolution  which output size, as a catalog id (ImageResolution in state.hpp)
  *
  * fire-and-forget, like set_wheel_torque: the camera's fifo holds the frame and the outcome comes
- * back as camera_data_t on a later cycle, so the fsw never blocks on the sensor
+ * back as camera_data_t on a later cycle, so the fsw never blocks on the sensor.
+ *
+ * the size crosses as a catalog id rather than as pixels, for the same reason torque crosses in
+ * newton-metres rather than volts: which register table produces 800x600 on this sensor is the
+ * backend's business, and the flight software would stop being portable the day the camera changed
  */
-void capture_image(void);
+void capture_image(uint8_t resolution);
 
 /**
  * @brief  say whether the payload buffer should be draining to the ground

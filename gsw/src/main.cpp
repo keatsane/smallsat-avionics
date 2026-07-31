@@ -23,6 +23,7 @@
 #include "display.hpp"
 #include "protocol/frame.hpp"
 #include "protocol/msg.hpp"
+#include "protocol/state.hpp"
 #include "radios.hpp"
 
 namespace {
@@ -67,6 +68,9 @@ fsw::frame_parser_t up_parser;  // uplink, from usb - re-encoded on the way out,
 
 // when the payload link last delivered anything, so the screen can stay out of its way
 uint32_t last_nrf_ms = 0;
+
+// whether the vehicle says it is in DOWNLINK, read off the heartbeat
+bool vehicle_downlinking = false;
 
 void led_flash(uint32_t ms) {
     digitalWrite(kPinLed, HIGH);
@@ -117,7 +121,15 @@ void on_link_rx(link_t& link, const uint8_t* data, size_t len) {
             f->len == sizeof(fsw::heartbeat_t)) {
             fsw::heartbeat_t hb{};
             memcpy(&hb, f->payload, sizeof(hb));
+            // knowing the mode is what lets the screens stay off the bus for a whole pass rather
+            // than only between packets - see the gate in loop()
+            vehicle_downlinking = (hb.mode == static_cast<uint8_t>(fsw::Mode::DOWNLINK));
             display_heartbeat(hb);
+        } else if (f->msg_id == static_cast<uint8_t>(fsw::MsgId::AttitudeStatus) &&
+                   f->len == sizeof(fsw::attitude_status_t)) {
+            fsw::attitude_status_t a{};
+            memcpy(&a, f->payload, sizeof(a));
+            display_attitude(a);
         } else if (f->msg_id == static_cast<uint8_t>(fsw::MsgId::DownlinkStatus) &&
                    f->len == sizeof(fsw::downlink_status_t)) {
             fsw::downlink_status_t d{};
@@ -217,7 +229,7 @@ void setup() {
             delay(100);
             digitalWrite(kPinLed, LOW);
             delay(100);
-            display_service(display_counts_t{0, 0, 0, 0, false, false});
+            display_service(display_counts_t{0, 0, 0, 0, false, false, false});
         }
     }
 }
@@ -239,18 +251,20 @@ void loop() {
     // on the i2c bus
     service_ground_status();
 
-    // the screen stays out of the payload link's way for as long as the downlink lasts. a full
-    // ssd1306 redraw pushes 1 KB over i2c and blocks ~25 ms, and at ~470 packets a second that is
-    // a dozen packets arriving into a fifo three deep.
+    // a redraw is ~25 ms of blocking i2c per panel, and with two panels that is 50 ms during which
+    // nothing drains a three-deep radio fifo. so the screens are told when the payload link is
+    // busy and slow themselves down to one panel once a second, rather than being skipped.
     //
-    // checking "is a packet waiting right now" was not enough - the fifo is momentarily empty
-    // between bursts, the draw starts anyway, and the next 25 ms of packets are lost. so the test
-    // is whether the link has been active recently at all
-    if (nrf_up && (nrf24_pending() || (millis() - last_nrf_ms) < kDownlinkQuietMs)) {
-        return;
-    }
+    // two earlier versions of this were wrong in opposite directions. gating on "is a packet
+    // waiting right now" lost a burst that began just after a draw started - one pass delivered
+    // 88% and the next 33%. gating on the vehicle's mode instead skipped every redraw for the
+    // whole pass, so the progress bar existed and was never drawn. this runs immediately after
+    // nrf24_poll has emptied the fifo, which is the safest moment a draw can start, and the rate
+    // limit inside display_service is what bounds the cost to about 2.5% of a pass
+    const bool busy =
+        nrf_up && (vehicle_downlinking || (millis() - last_nrf_ms) < kDownlinkQuietMs);
 
-    const display_counts_t counts{lora_packets(),  nrf24_packets(), lora_link.frames,
-                                  nrf_link.frames, lora_up,         nrf_up};
+    const display_counts_t counts{
+        lora_packets(), nrf24_packets(), lora_link.frames, nrf_link.frames, lora_up, nrf_up, busy};
     display_service(counts);
 }

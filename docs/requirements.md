@@ -48,8 +48,8 @@ The spacecraft operates in exactly one of six modes at any time. Their intent:
 | BOOT | STANDBY, DETUMBLE, SAFE |
 | STANDBY | DETUMBLE, SAFE |
 | DETUMBLE | STANDBY, POINTING, SAFE |
-| POINTING | STANDBY, DOWNLINK, SAFE |
-| DOWNLINK | STANDBY, POINTING, SAFE |
+| POINTING | STANDBY, DETUMBLE, DOWNLINK, SAFE |
+| DOWNLINK | STANDBY, DETUMBLE, POINTING, SAFE |
 | SAFE | none autonomously (ground-commanded to STANDBY only - see REQ-MODE-006) |
 
 **Type**: Functional  
@@ -275,7 +275,7 @@ The retransmission rule exists because the ground resends: the LoRa link is half
 
 **REQ-TLM-004** - The telemetry transport shall be swappable behind the frame format - UART first, radio later - with no change to the wire format.  
 **Type**: Constraint  
-**Status**: in progress (one encoded frame goes to four transports unchanged: console UART, downlink UART, LoRa beacon, nRF24. LoRa carries heartbeats and acks only - the full stream would want 2.8 s of air time per second. Beacon and uplink demonstrated over the air 2026-07-30. **Owed: an image received over the nRF24**)
+**Status**: bench-verified over the air (2026-07-30 - one encoded frame goes to four transports unchanged: console UART, downlink UART, LoRa beacon, nRF24. An 800x600 capture commanded over LoRa downlinked over the nRF24 as 398 chunks and reassembled to a 22240-byte file with intact JPEG markers, 96% packet delivery across three passes. LoRa carries heartbeats, acks and attitude only - the full stream would want 2.8 s of air time per second. **Owed: the same with no cable to the vehicle**)
 **Verification**: inspection and HIL  
 **Artifact**: common/protocol/frame.cpp (the format, unchanged per transport), fsw/platform/stm32/platform_stm32.cpp (one call, three transports), obc/Src/devices/rfm95.c, obc/Src/freertos/telemetry_task.cpp, obc/Src/drivers/uart.c
 
@@ -408,7 +408,7 @@ An inhibited fault is deliberately excluded from the three alarm rungs and colle
 
 **REQ-ADCS-002** - In POINTING the flight software shall hold a commanded single-axis attitude within a defined error band.  
 **Type**: Functional  
-**Status**: in progress - the control law is unit-verified (PD on heading error, reference captured on entry to POINTING since nothing measures absolute heading). **Not claimed as SIL-verified:** at 10 Hz with rate-only sensing a 0.35 rad/s shove moved the platform 0.117 rad while the gyro read zero at every sample. A sensing limit, not a control limit - see `journal.md`
+**Status**: in progress - the control law is unit-verified (PD on heading error), and `SET_HEADING` now aims it: a bearing relative to wherever POINTING was entered, since nothing on this vehicle measures absolute heading. **Not claimed as SIL-verified:** at 10 Hz with rate-only sensing a 0.35 rad/s shove moved the platform 0.117 rad while the gyro read zero at every sample. A sensing limit, not a control limit
 **Verification**: SIL (single-axis plant model) and HIL (reaction-wheel rig)  
 **Artifact**: fsw/src/attitude_control.cpp, fsw/test/test_attitude_control.cpp
 
@@ -419,6 +419,12 @@ An inhibited fault is deliberately excluded from the three alarm rungs and colle
 **Artifact**: fsw/src/attitude_control.cpp, fsw/test/test_attitude_control.cpp, fsw/sil/scenarios/sil_012_pointing_saturation.yaml, docs/reports/sil/SIL-012.md
 
 ## Payload
+
+**REQ-ADCS-004** - The ground shall be able to command the bearing held in POINTING, and the flight software shall report the held bearing, the commanded bearing, and the measured rate as telemetry.  
+**Type**: Functional  
+**Status**: unit-verified (`SET_HEADING` carries a binary angle - one byte spanning a full turn, 1.4 degrees a step - and `attitude_status_t` reports heading, target, rate and commanded torque at the heartbeat's cadence. The bearing is relative to POINTING entry, which is the only frame this vehicle can honestly offer)  
+**Verification**: unit test, then HIL once the wheel is back  
+**Artifact**: fsw/test/test_comms.cpp, fsw/src/executive.cpp
 
 **REQ-PAY-001** - An accepted CAPTURE_IMAGE command shall start a payload image capture without blocking the control cycle; the capture outcome shall be reported in telemetry rather than returned to the command.  
 **Type**: Functional  
@@ -440,7 +446,7 @@ An inhibited fault is deliberately excluded from the three alarm rungs and colle
 
 **REQ-PAY-004** - In DOWNLINK the flight software shall direct the payload buffer to be emptied to the ground, and the platform shall do so in chunks at a rate bounded by the link and without blocking the control cycle. Each chunk shall identify its image, its index, and the total count, so that a contact pass ending mid-image leaves a resumable set of chunks rather than an unusable partial stream.  
 **Type**: Functional  
-**Status**: bench-verified on the wired link (2026-07-30: a capture commanded in POINTING reassembled to a 6117-byte file with intact markers). The fsw signals whether to downlink and the platform paces it - the chunks-per-cycle bound was a link property sitting on the wrong side of the PAL. **The pacing is now set by the radio rather than the uart**, since an unpaced stream lost two thirds of its packets at the receiver, so the wired downlink is deliberately slower than the ~1 s it used to take. **Owed: the same over the air**  
+**Status**: bench-verified over the air (2026-07-30: an 800x600 capture reassembled to a 22240-byte file with intact markers). The fsw signals whether to downlink and the platform paces it - the chunks-per-cycle bound was a link property sitting on the wrong side of the PAL. Lost chunks are recovered by selective repeat: the image goes out once, the ground names its gaps over the LoRa uplink (`chunk_request_t`), and the vehicle resends exactly those from the frame still held in the camera's fifo  
 **Verification**: unit test and HIL  
 **Artifact**: fsw/src/executive.cpp, fsw/test/test_executive.cpp, obc/Src/freertos/downlink_task.cpp, tools/ground/payload.py, tools/tests/test_payload.py
 

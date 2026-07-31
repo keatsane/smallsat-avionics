@@ -66,8 +66,10 @@ void set_wheel_torque_nm(float torque_nm) {
     std::printf("WHEEL %d\n", static_cast<int>(torque_nm * 1000.0F));
 }
 
-void capture_image(void) {
-    std::printf("CAPTURE\n");  // observable, so a scenario can grade the dispatch
+void capture_image(uint8_t resolution) {
+    // the size is printed too, so a scenario can grade that the argument reached the payload and
+    // not merely that a capture was dispatched
+    std::printf("CAPTURE %u\n", static_cast<unsigned>(resolution));
 }
 
 // no image bytes in SIL - they are hardware, not decision logic. the edges are still observable so

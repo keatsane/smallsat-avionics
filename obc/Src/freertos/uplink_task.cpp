@@ -21,6 +21,7 @@
 
 #include "FreeRTOS.h"
 #include "devices/rfm95.h"
+#include "downlink_task.hpp"
 #include "drivers/uart.h"
 #include "protocol/frame.hpp"
 #include "queue.h"
@@ -42,19 +43,32 @@ QueueHandle_t s_queue;
 StaticQueue_t s_queue_buf;
 uint8_t s_queue_storage[kQueueDepth * sizeof(fsw::command_t)];
 
-// decode whatever is waiting on one uart, queueing every whole command frame found
+// route one decoded frame to whoever owns its kind. commands go to the control task's queue;
+// chunk requests go straight to the downlink task, because they are link traffic rather than
+// something the executive has an opinion about
+void route(const fsw::frame_t& f) {
+    if (f.msg_id == static_cast<uint8_t>(fsw::MsgId::Command) && f.len == sizeof(fsw::command_t)) {
+        fsw::command_t cmd{};
+        std::memcpy(&cmd, f.payload, sizeof(cmd));
+        // drop rather than block: this task must keep draining the rings, and blocking here
+        // to wait for room would stall both uplinks behind one slow consumer
+        (void)xQueueSend(s_queue, &cmd, 0);
+    } else if (f.msg_id == static_cast<uint8_t>(fsw::MsgId::ChunkRequest) &&
+               f.len == sizeof(fsw::chunk_request_t)) {
+        fsw::chunk_request_t req{};
+        std::memcpy(&req, f.payload, sizeof(req));
+        downlink_task_request(req);
+    }
+}
+
+// decode whatever is waiting on one uart, routing every whole frame found
 void drain(uart_t* u, fsw::frame_parser_t* parser) {
     uint8_t b = 0U;
 
     while (uart_read_byte(u, &b)) {
         auto f = fsw::frame_decode(parser, b);
-        if (f && f->msg_id == static_cast<uint8_t>(fsw::MsgId::Command) &&
-            f->len == sizeof(fsw::command_t)) {
-            fsw::command_t cmd{};
-            std::memcpy(&cmd, f->payload, sizeof(cmd));
-            // drop rather than block: this task must keep draining the rings, and blocking here
-            // to wait for room would stall both uplinks behind one slow consumer
-            (void)xQueueSend(s_queue, &cmd, 0);
+        if (f) {
+            route(*f);
         }
     }
 }
@@ -69,11 +83,8 @@ void drain_radio(void) {
     const size_t n = rfm95_receive(packet, sizeof(packet));
     for (size_t i = 0U; i < n; i++) {
         auto f = fsw::frame_decode(&lora_parser, packet[i]);
-        if (f && f->msg_id == static_cast<uint8_t>(fsw::MsgId::Command) &&
-            f->len == sizeof(fsw::command_t)) {
-            fsw::command_t cmd{};
-            std::memcpy(&cmd, f->payload, sizeof(cmd));
-            (void)xQueueSend(s_queue, &cmd, 0);
+        if (f) {
+            route(*f);
         }
     }
 }

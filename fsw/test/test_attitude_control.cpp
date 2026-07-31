@@ -93,6 +93,27 @@ TEST_SUITE("ATTITUDE CONTROL") {
             CHECK(ac.heading_error() == doctest::Approx(0.2F));
         }
 
+        SUBCASE("the error takes the short way round the circle") {
+            AttitudeControl ac;
+            ac.enter_pointing();
+
+            // aim 216 degrees round - the exact case off the bench, where the raw subtraction
+            // read -225.7 degrees of error and the controller drove the long way for it
+            ac.set_target(3.78F);  // ~216.5 deg
+            ac.point(0.0F, 0.0F);
+
+            // the raw error is -3.78 rad (-216.5 deg); wrapped it is +2.50 rad (+143.5 deg),
+            // the short way round. always inside a half turn, whatever was commanded
+            CHECK(ac.heading_error() == doctest::Approx(6.28318F - 3.78F).epsilon(0.01));
+            CHECK(std::fabs(ac.heading_error()) < 3.1415F);
+
+            // positive error commands positive wheel torque, and the platform feels the negative
+            // reaction - heading falls toward the target the short way rather than climbing 216
+            // degrees to it
+            const float cmd = ac.point(0.0F, 0.001F);
+            CHECK(cmd > 0.0F);
+        }
+
         SUBCASE("the reaction pushes back toward the target") {
             AttitudeControl ac;
             ac.enter_pointing();

@@ -8,6 +8,7 @@ using namespace fsw;
 // the host backend records these so dispatch is observable without a camera (platform_host.cpp)
 namespace fsw::platform {
 extern int capture_calls;
+extern uint8_t capture_resolution;
 extern bool payload_downlink_active;
 }  // namespace fsw::platform
 
@@ -214,6 +215,38 @@ TEST_SUITE("EXECUTIVE REQUIREMENTS") {
 
             CHECK_FALSE(exec.commands().log().back().accepted);
             CHECK(platform::capture_calls == before);  // never reached the payload
+        }
+
+        SUBCASE("The requested size reaches the payload, and a bad one never does") {
+            Executive exec;
+
+            Inputs detumble;
+            detumble.command = command_t{static_cast<uint8_t>(Command::SET_MODE),
+                                         static_cast<uint8_t>(Mode::DETUMBLE), 1};
+            exec.cycle(detumble, 10);
+            Inputs pointing;
+            pointing.command = command_t{static_cast<uint8_t>(Command::SET_MODE),
+                                         static_cast<uint8_t>(Mode::POINTING), 2};
+            exec.cycle(pointing, 20);
+            REQUIRE(exec.modes().mode() == Mode::POINTING);
+
+            Inputs big;
+            big.command = command_t{static_cast<uint8_t>(Command::CAPTURE_IMAGE),
+                                    static_cast<uint8_t>(ImageResolution::R1600x1200), 3};
+            exec.cycle(big, 30);
+            CHECK(exec.commands().log().back().accepted);
+            CHECK(platform::capture_resolution ==
+                  static_cast<uint8_t>(ImageResolution::R1600x1200));
+
+            // a size the catalog does not have is refused at validation, so the camera is never
+            // asked for it - the alternative is a sensor left in whatever state a bad table wrote
+            const int before = platform::capture_calls;
+            Inputs bad;
+            bad.command =
+                command_t{static_cast<uint8_t>(Command::CAPTURE_IMAGE), kResolutionCount, 4};
+            exec.cycle(bad, 40);
+            CHECK(exec.commands().log().back().reason == CmdReject::BadArg);
+            CHECK(platform::capture_calls == before);
         }
     }
 

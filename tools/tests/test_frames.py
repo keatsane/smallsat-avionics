@@ -361,6 +361,26 @@ def test_downlink_status_len_matches_msg_hpp():
     assert struct.calcsize("<IHHHIH") == int(match.group(1))
 
 
+def test_chunk_request_round_trips_and_pads():
+    raw = frames.encode_chunk_request(7, [3, 19, 200])
+    out = _decode_all(raw)
+    assert out is not None
+    msg_id, payload = out
+    assert msg_id == frames.MSG_CHUNK_REQUEST
+    image_id, count = struct.unpack_from("<HB", payload)
+    chunks = struct.unpack_from(f"<{frames.CHUNK_REQUEST_MAX}H", payload, 3)
+    assert (image_id, count) == (7, 3)
+    assert chunks[:3] == (3, 19, 200)
+    assert all(c == 0 for c in chunks[3:])  # unused entries are zero on the wire
+
+
+def test_chunk_request_len_matches_msg_hpp():
+    header = REPO_ROOT / "common" / "protocol" / "msg.hpp"
+    match = re.search(r"sizeof\(chunk_request_t\)\s*==\s*(\d+)", header.read_text())
+    assert match is not None
+    assert 3 + 2 * frames.CHUNK_REQUEST_MAX == int(match.group(1))
+
+
 def test_task_health_len_matches_msg_hpp():
     # the python length guard against the C++ sizeof assert - format_frame keys off it, so a
     # mismatch would silently render every report as UNKNOWN
@@ -394,6 +414,12 @@ def test_modes_mirror_state_hpp():
     assert MODES == _xmacro_names(header, "FSW_MODE_LIST")
 
 
+def test_resolutions_mirror_state_hpp():
+    header = REPO_ROOT / "common" / "protocol" / "state.hpp"
+    labels = re.findall(r'X\(\w+,\s*"([^"]+)"\)', header.read_text())
+    assert labels == frames.RESOLUTIONS
+
+
 def test_faults_mirror_state_hpp():
     header = REPO_ROOT / "common" / "protocol" / "state.hpp"
     assert FAULTS == _xmacro_names(header, "FSW_FAULT_LIST")
@@ -422,7 +448,9 @@ def test_mode_ladder_mirrors_mode_manager_cpp():
     from ground.commands import MODE_LADDER
 
     source = (REPO_ROOT / "fsw" / "src" / "mode_manager.cpp").read_text()
-    rows = re.findall(r"/\* from (\w+)\s*\*/([^\n]*)", source)
+    # a row runs until the next row marker or the table's closing brace - rows wrap once a mode
+    # has enough targets that clang-format splits the line
+    rows = re.findall(r"/\* from (\w+)\s*\*/(.*?)(?=/\* from|\};)", source, re.S)
     assert rows, "kAutoAllowed table not found"
 
     expected = {mode: tuple(re.findall(r"Mode::(\w+)", body)) for mode, body in rows}

@@ -94,7 +94,7 @@ TEST_SUITE("MODE MANAGEMENT REQUIREMENTS") {
         SUBCASE("POINTING Transitions") {
             expect_transition(Mode::POINTING, Trigger::Nominal, Mode::BOOT, false);
             expect_transition(Mode::POINTING, Trigger::Nominal, Mode::STANDBY, true);
-            expect_transition(Mode::POINTING, Trigger::Nominal, Mode::DETUMBLE, false);
+            expect_transition(Mode::POINTING, Trigger::Nominal, Mode::DETUMBLE, true);
             expect_transition(Mode::POINTING, Trigger::Nominal, Mode::POINTING, false);
             expect_transition(Mode::POINTING, Trigger::Nominal, Mode::DOWNLINK, true);
             expect_transition(Mode::POINTING, Trigger::Nominal, Mode::SAFE, true);
@@ -103,7 +103,7 @@ TEST_SUITE("MODE MANAGEMENT REQUIREMENTS") {
         SUBCASE("DOWNLINK Transitions") {
             expect_transition(Mode::DOWNLINK, Trigger::Nominal, Mode::BOOT, false);
             expect_transition(Mode::DOWNLINK, Trigger::Nominal, Mode::STANDBY, true);
-            expect_transition(Mode::DOWNLINK, Trigger::Nominal, Mode::DETUMBLE, false);
+            expect_transition(Mode::DOWNLINK, Trigger::Nominal, Mode::DETUMBLE, true);
             expect_transition(Mode::DOWNLINK, Trigger::Nominal, Mode::POINTING, true);
             expect_transition(Mode::DOWNLINK, Trigger::Nominal, Mode::DOWNLINK, false);
             expect_transition(Mode::DOWNLINK, Trigger::Nominal, Mode::SAFE, true);

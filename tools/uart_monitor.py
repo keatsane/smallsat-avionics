@@ -25,19 +25,23 @@ import time
 from pathlib import Path
 
 from ground.colors import LINK_COLORS, colorize_heartbeat, paint
-from ground.commands import CommandError, parse, usage
+from ground.commands import ARG_CATALOG, CommandError, parse, usage
 from ground.console import make_session
 from ground.filters import KINDS, QUIET_KINDS, Filters
 from ground.frames import (
+    CHUNK_REQUEST_MAX,
+    COMMANDS,
     MSG_COMMAND_ACK,
     MSG_DOWNLINK_STATUS,
     MSG_GROUND_STATUS,
     MSG_PAYLOAD_DATA,
     FrameDecoder,
+    arg_label,
     decode_command_ack,
     decode_downlink_status,
     decode_ground_status,
     decode_payload_data,
+    encode_chunk_request,
     encode_command,
     format_frame,
 )
@@ -249,7 +253,19 @@ def main() -> int:
         except CommandError as e:
             show(f"{'REJECT':<12} {e}")  # refused here, never put on the wire
             return
-        send(cmd_id, arg, line.upper())
+        # echo the canonical form rather than the typed line - upper-casing what was typed turned
+        # 800x600 into 800X600, a name that exists nowhere else in the system. catalog arguments
+        # come back as their catalog names; SET_HEADING echoes the degrees as typed, since the
+        # wire value is a binary angle nobody thinks in
+        parts = line.split()
+        name = COMMANDS[cmd_id]
+        if name in ARG_CATALOG:
+            label = f"{name} {arg_label(cmd_id, arg)}"
+        elif len(parts) > 1:
+            label = f"{name} {parts[1]}"
+        else:
+            label = name
+        send(cmd_id, arg, label)
 
     # what each end counted at the start of the current downlink pass, so the end of it can be
     # reported as a delivery rate rather than as two numbers nobody wants to subtract by hand.
@@ -284,6 +300,31 @@ def main() -> int:
         )
         pass_start = None
 
+    # the ground half of selective repeat: while an image sits incomplete and the vehicle is
+    # parked in DOWNLINK, name the missing chunks over the uplink once a second until there are
+    # none. driven off the vehicle's own status frames so a request is only ever sent to a
+    # vehicle that is listening for one
+    last_request = 0.0
+
+    def service_chunk_requests(status: dict) -> None:
+        nonlocal last_request
+        if args.read_only or status["chunks"] != 0:
+            return  # mid-pass - let the first transmission finish before naming gaps
+        want = assembler.pending()
+        if want is None:
+            return
+        image_id, _total, missing = want
+        if time.monotonic() - last_request < 1.0:
+            return
+        last_request = time.monotonic()
+        batch = missing[:CHUNK_REQUEST_MAX]
+        with tx:
+            ser.write(encode_chunk_request(image_id, batch))
+        show(
+            f"{'REQUEST':<12} image {image_id}: resend {len(batch)} of "
+            f"{len(missing)} missing chunks"
+        )
+
     decoder = FrameDecoder()
     text = bytearray()  # printable bytes between frames - firmware debug prints
     stop = threading.Event()
@@ -294,7 +335,7 @@ def main() -> int:
         d = decode_payload_data(payload)
         img, note = assembler.push(d)
         if img is None:
-            if d["chunk"] % PAYLOAD_PROGRESS_EVERY == 0:
+            if note and d["chunk"] % PAYLOAD_PROGRESS_EVERY == 0:
                 show(f"{'PAYLOAD':<12} {note}")
             return
 
@@ -346,7 +387,9 @@ def main() -> int:
                             ground_now["packets"] = g["nrf24_packets"]
                             ground_now["frames"] = g["nrf24_frames"]
                         elif frame[0] == MSG_DOWNLINK_STATUS:
-                            note_pass(decode_downlink_status(frame[1]))
+                            d = decode_downlink_status(frame[1])
+                            note_pass(d)
+                            service_chunk_requests(d)
                         show(format_frame(*frame))
                 elif hunting and decoder.state == "sync0":
                     # stray byte outside any frame: debug text from the firmware

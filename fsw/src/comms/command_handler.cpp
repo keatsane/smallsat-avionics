@@ -19,6 +19,7 @@ constexpr CommandSpec kCommandTable[kCommandCount] = {
     /* SET_MODE      */ {kAllModes, "REQ-CMD-001"},
     /* CLEAR_FAULT   */ {kAllModes, "REQ-FAULT-010"},
     /* CAPTURE_IMAGE */ {mode_bit(Mode::POINTING), "REQ-CMD-001"},
+    /* SET_HEADING   */ {mode_bit(Mode::POINTING), "REQ-ADCS-002"},
 };
 
 static_assert(sizeof(kCommandTable) / sizeof(kCommandTable[0]) == kCommandCount,
@@ -64,7 +65,8 @@ CommandEvent CommandHandler::handle(const command_t& cmd, Mode current_mode, uin
         if ((command_spec(c).legal_modes & mode_bit(current_mode)) == 0) {
             reason = CmdReject::IllegalInMode;
         } else if ((c == Command::SET_MODE && !commandable_mode(cmd.arg)) ||
-                   (c == Command::CLEAR_FAULT && cmd.arg >= kFaultCount)) {
+                   (c == Command::CLEAR_FAULT && cmd.arg >= kFaultCount) ||
+                   (c == Command::CAPTURE_IMAGE && cmd.arg >= kResolutionCount)) {
             reason = CmdReject::BadArg;
         } else if (c == Command::SET_MODE && !mode_transition_legal(current_mode, Trigger::Command,
                                                                     static_cast<Mode>(cmd.arg))) {

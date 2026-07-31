@@ -33,7 +33,9 @@ extern const bool ov2640_tables_vendored;
 extern const ov2640_reg_t* const ov2640_jpeg_init;    // sensor + dsp setup, jpeg pipeline on
 extern const ov2640_reg_t* const ov2640_yuv422;       // yuv422 before the jpeg encoder is enabled
 extern const ov2640_reg_t* const ov2640_jpeg_enable;  // switch the output format to jpeg
-extern const ov2640_reg_t* const ov2640_320x240;      // output size
+extern const ov2640_reg_t* const ov2640_320x240;      // output size - one table per resolution
+extern const ov2640_reg_t* const ov2640_800x600;
+extern const ov2640_reg_t* const ov2640_1600x1200;
 
 #ifdef __cplusplus
 }
