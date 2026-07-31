@@ -31,7 +31,7 @@ The flight logic lives in `fsw/` and is written to be portable. It runs on the h
 Everything between the satellite and the ground rides framed, CRC-checked packets (`common/protocol/`), but it is not one undifferentiated "telemetry" stream - there are two logical links with different jobs.
 
 ```text
-   SATELLITE (OBC)                                   GROUND STATION (host PC / Teensy box)
+   SATELLITE (OBC)                                   GROUND STATION (feather m0 + host pc)
 
    TT&C link - telemetry down + commands up, low-rate, always on (UART / LoRa RFM95)
         commands   <---------------------------------   SET_MODE, CLEAR_FAULT, NOOP, ...                (uplink)
@@ -102,9 +102,9 @@ The OBC is not the only processor in the system, so each node that runs its own 
 | ---- | ---- | ------- |
 | `obc/` + `fsw/` | on-board computer - drivers, flight software | STM32F446 (Nucleo) |
 | `esc/` | reaction-wheel driver - FOC, encoder, torque commands | STM32G431 (B-G431B-ESC1) |
-| `gsw/` | ground station - link decode, display, command entry (planned) | Teensy |
+| `gsw/` | ground station - receives both links, uplinks commands, drives the readout | Feather M0 RFM95 (SAMD21) |
 
-Each node owns its build and toolchain: the OBC builds with CMake and the `arm-none-eabi` toolchain, which is both the image that gets flashed and the check CI runs, with STM32CubeIDE kept as a debugger rather than a second build; the ESC node is an Arduino sketch on top of SimpleFOC, which handles the current control loop and the AS5600 encoder locally. The OBC only sends it torque targets over UART, so the fast inner loop stays off the flight computer. What crosses between nodes is the wire contract in `common/protocol/`, which the ground-station firmware will share when it lands.
+Each node owns its build and toolchain: the OBC builds with CMake and the `arm-none-eabi` toolchain, which is both the image that gets flashed and the check CI runs, with STM32CubeIDE kept as a debugger rather than a second build; the ESC node is an Arduino sketch on top of SimpleFOC, which handles the current control loop and the AS5600 encoder locally. The OBC only sends it torque targets over UART, so the fast inner loop stays off the flight computer. What crosses between nodes is the wire contract in `common/protocol/`, which the ground-station firmware compiles rather than reimplements - three consumers, one definition.
 
 ## Vendored dependencies
 

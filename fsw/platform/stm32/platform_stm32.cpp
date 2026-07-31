@@ -24,11 +24,15 @@ void send_telemetry(const uint8_t* frame, uint32_t len) {
     // duty and comfortable. the full stream is about five frames per 100 ms cycle, which would
     // want 2.8 seconds of air time per second of flight - not a tuning problem, an impossible one.
     //
-    // so LoRa is the beacon: mode, faults and link state, once a second. bulk data has the wired
-    // downlink now and the nRF24 later, which is exactly the dual-link split the architecture
-    // asked for (REQ-TLM-004). the frame is byte-identical on all three - the whole point
+    // so LoRa carries the beacon and the command acks, and nothing else. bulk data goes on the
+    // nRF24, which is the dual-link split the architecture asked for (REQ-TLM-004). an ack is 11
+    // bytes and only happens when the ground actually commands something, so it costs nothing
+    // against the budget - and without it the ground commands blind, which is worse than not
+    // commanding at all.
+    //
     // byte 2 is the message id: the layout is sync(2), id(1), len(1), payload, crc(2)
-    if (len >= kFrameOverhead && frame[2] == static_cast<uint8_t>(MsgId::Heartbeat)) {
+    if (len >= kFrameOverhead && (frame[2] == static_cast<uint8_t>(MsgId::Heartbeat) ||
+                                  frame[2] == static_cast<uint8_t>(MsgId::CommandAck))) {
         (void)telemetry_out_beacon(frame, len);
     }
 }

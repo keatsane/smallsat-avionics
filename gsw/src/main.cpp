@@ -14,6 +14,10 @@
  *
  * The display is the one thing here that decodes a message, and it uses the satellite's own
  * catalogs to do it (see display.cpp).
+ *
+ * Uplink works the same way in reverse: whatever the pc types arrives here as encoded command
+ * frames on usb, and they go out over lora unexamined. `uart_monitor.py` builds them exactly as
+ * it does for the wired console, so commanding over the air needed no ground-tool change at all.
  */
 
 #include <Arduino.h>
@@ -40,7 +44,14 @@ uint32_t next_alive_blink = 0;
 bool lora_up = false;
 bool nrf_up = false;
 
-fsw::frame_parser_t parser;
+fsw::frame_parser_t parser;     // downlink, from the radios
+fsw::frame_parser_t up_parser;  // uplink, from usb
+
+// bytes typed at the pc, held until they form a whole frame. commands are 10 bytes, so this only
+// ever holds one - but transmitting a half frame would put a packet on the air that the vehicle
+// throws away, and the ground would have no idea why
+uint8_t up_buf[fsw::kFrameMaxSize];
+size_t up_len = 0;
 
 void led_flash(uint32_t ms) {
     digitalWrite(kPinLed, HIGH);
@@ -77,6 +88,28 @@ void on_rx(const uint8_t* data, size_t len) {
             fsw::heartbeat_t hb{};
             memcpy(&hb, f->payload, sizeof(hb));
             display_heartbeat(hb);
+        }
+    }
+}
+
+// take whatever the pc sent and put whole frames on the air. anything that is not a frame is
+// dropped rather than transmitted - the decoder is the judge of what counts
+void service_uplink() {
+    while (Serial.available() > 0) {
+        const int b = Serial.read();
+        if (b < 0) {
+            return;
+        }
+
+        if (up_len < sizeof(up_buf)) {
+            up_buf[up_len++] = static_cast<uint8_t>(b);
+        } else {
+            up_len = 0;  // never a frame - resync rather than transmit junk
+        }
+
+        if (fsw::frame_decode(&up_parser, static_cast<uint8_t>(b))) {
+            lora_send(up_buf, up_len);
+            up_len = 0;
         }
     }
 }
@@ -130,6 +163,17 @@ void loop() {
     if (nrf_up) {
         nrf24_poll(on_rx);
     }
+    if (lora_up) {
+        service_uplink();
+    }
     led_service();
+
+    // the screen yields to the radio, always. a full ssd1306 redraw pushes 1 KB over i2c and
+    // blocks for ~25 ms - and at a downlink's ~250 packets a second that is six packets arriving
+    // into a fifo three deep. drawing a pretty screen while dropping image data is exactly the
+    // wrong trade, and it corrupted every downlink until this line existed
+    if (nrf_up && nrf24_pending()) {
+        return;
+    }
     display_service(lora_packets(), nrf24_packets(), lora_up, nrf_up);
 }

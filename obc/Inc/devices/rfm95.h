@@ -58,6 +58,19 @@ bool rfm95_send(const uint8_t* data, size_t len);
 bool rfm95_tx_done(void);
 
 /**
+ * @brief  take one received packet, if the radio has one waiting
+ * @param  buf  destination
+ * @param  max  its size
+ * @return bytes written, 0 when nothing arrived
+ *
+ * The radio sits in receive whenever it is not transmitting, which is better than 90% of every
+ * second - a beacon is 57 ms once a second. Returns 0 while a transmit is in flight: the link is
+ * half duplex, so the vehicle is genuinely deaf for that 57 ms and pretending otherwise would
+ * just hide a lost command. Every command is acked, so an unheard one is visible and resent.
+ */
+size_t rfm95_receive(uint8_t* buf, size_t max);
+
+/**
  * @brief  frames handed to the radio since boot
  */
 uint32_t rfm95_sent(void);

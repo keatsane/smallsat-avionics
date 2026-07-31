@@ -22,7 +22,10 @@ static constexpr uint8_t LR_FRF_MSB = 0x06;
 static constexpr uint8_t LR_FRF_MID = 0x07;
 static constexpr uint8_t LR_FRF_LSB = 0x08;
 static constexpr uint8_t LR_FIFO_ADDR_PTR = 0x0D;
+static constexpr uint8_t LR_FIFO_TX_BASE = 0x0E;
 static constexpr uint8_t LR_FIFO_RX_BASE = 0x0F;
+static constexpr uint8_t LR_PAYLOAD_LENGTH = 0x22;
+static constexpr uint8_t LR_PA_CONFIG = 0x09;
 static constexpr uint8_t LR_FIFO_RX_CURRENT = 0x10;
 static constexpr uint8_t LR_IRQ_FLAGS = 0x12;
 static constexpr uint8_t LR_RX_NB_BYTES = 0x13;
@@ -36,7 +39,10 @@ static constexpr uint8_t LR_VERSION = 0x42;
 
 static constexpr uint8_t LR_LONG_RANGE = 0x80;
 static constexpr uint8_t LR_SLEEP = 0x00;
+static constexpr uint8_t LR_STDBY = 0x01;
+static constexpr uint8_t LR_TX = 0x03;
 static constexpr uint8_t LR_RX_CONTINUOUS = 0x05;
+static constexpr uint8_t LR_IRQ_TX_DONE = 0x08;
 static constexpr uint8_t LR_IRQ_RX_DONE = 0x40;
 static constexpr uint8_t LR_IRQ_CRC_ERROR = 0x20;
 static constexpr uint8_t SX1276_VERSION = 0x12;
@@ -134,8 +140,13 @@ bool lora_begin() {
     lr_write(LR_FRF_MID, static_cast<uint8_t>(kFrf >> 8));
     lr_write(LR_FRF_LSB, static_cast<uint8_t>(kFrf));
 
-    lr_write(LR_FIFO_RX_BASE, 0x00);
+    // split the fifo the same way the satellite does: transmit from 0, receive from 0x80
+    lr_write(LR_FIFO_TX_BASE, 0x00);
+    lr_write(LR_FIFO_RX_BASE, 0x80);
     lr_write(LR_FIFO_ADDR_PTR, 0x00);
+
+    // PA_BOOST at 17 dBm - the feather wires its antenna there, same as the satellite's module
+    lr_write(LR_PA_CONFIG, 0x8F);
 
     // the three that must match the satellite byte for byte
     lr_write(LR_MODEM_CONFIG_1, 0x72);  // bw125, cr4/5, explicit header
@@ -174,6 +185,41 @@ void lora_poll(rx_sink_t sink) {
 }
 
 uint32_t lora_packets() { return lora_count; }
+
+bool lora_send(const uint8_t* data, size_t len) {
+    if (data == nullptr || len == 0 || len > 255) {
+        return false;
+    }
+
+    lr_mode(LR_STDBY);
+    lr_write(LR_IRQ_FLAGS, 0xFF);
+    lr_write(LR_FIFO_ADDR_PTR, 0x00);
+
+    SPI.beginTransaction(spi_settings);
+    digitalWrite(kLoraCs, LOW);
+    SPI.transfer(LR_FIFO | 0x80);
+    for (size_t i = 0; i < len; i++) {
+        SPI.transfer(data[i]);
+    }
+    digitalWrite(kLoraCs, HIGH);
+    SPI.endTransaction();
+
+    lr_write(LR_PAYLOAD_LENGTH, static_cast<uint8_t>(len));
+    lr_mode(LR_TX);
+
+    // waited on here rather than polled from the loop: a command is a rare, small, deliberate
+    // thing, and blocking a few tens of ms for it is simpler than a state machine that has to
+    // remember it was mid-transmit. bounded so a dead radio cannot wedge the ground station
+    const uint32_t deadline = millis() + 500;
+    while ((lr_read(LR_IRQ_FLAGS) & LR_IRQ_TX_DONE) == 0) {
+        if (static_cast<int32_t>(millis() - deadline) >= 0) {
+            break;
+        }
+    }
+    lr_write(LR_IRQ_FLAGS, 0xFF);
+    lr_mode(LR_RX_CONTINUOUS);  // listening is the resting state
+    return true;
+}
 
 // ---- nrf24 ----
 
@@ -272,5 +318,7 @@ void nrf24_poll(rx_sink_t sink) {
         sink(buf, kNrfPayload);
     }
 }
+
+bool nrf24_pending() { return (nrf_read(NRF_FIFO_STATUS) & NRF_FIFO_RX_EMPTY) == 0; }
 
 uint32_t nrf24_packets() { return nrf_count; }

@@ -30,11 +30,23 @@ void lora_poll(rx_sink_t sink);
 /** @brief packets the lora has received since boot */
 uint32_t lora_packets();
 
+/**
+ * @brief  transmit one framed packet, then go straight back to listening
+ * @return true if the radio accepted it
+ *
+ * The link is half duplex, so transmitting is the exception and receiving is the resting state -
+ * on both ends. A command going up costs a few tens of milliseconds of deafness at each side.
+ */
+bool lora_send(const uint8_t* data, size_t len);
+
 /** @brief bring up the nrf24 as a receiver on the satellite's channel and address */
 bool nrf24_begin();
 
 /** @brief poll for received packets, handing any bytes to the sink */
 void nrf24_poll(rx_sink_t sink);
+
+/** @brief true when the nrf24 has packets waiting - draining them beats drawing a screen */
+bool nrf24_pending();
 
 /** @brief packets the nrf24 has received since boot */
 uint32_t nrf24_packets();

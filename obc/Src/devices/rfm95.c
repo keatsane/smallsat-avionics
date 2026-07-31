@@ -22,7 +22,10 @@
 #define REG_PA_CONFIG      0x09U
 #define REG_FIFO_ADDR_PTR  0x0DU
 #define REG_FIFO_TX_BASE   0x0EU
+#define REG_FIFO_RX_BASE   0x0FU
+#define REG_FIFO_RX_CURR   0x10U
 #define REG_IRQ_FLAGS      0x12U
+#define REG_RX_NB_BYTES    0x13U
 #define REG_PAYLOAD_LENGTH 0x22U
 #define REG_MODEM_CONFIG_1 0x1DU
 #define REG_MODEM_CONFIG_2 0x1EU
@@ -37,8 +40,11 @@
 #define MODE_SLEEP      0x00U
 #define MODE_STDBY      0x01U
 #define MODE_TX         0x03U
+#define MODE_RX_CONT    0x05U
 
-#define IRQ_TX_DONE 0x08U
+#define IRQ_TX_DONE   0x08U
+#define IRQ_RX_DONE   0x40U
+#define IRQ_CRC_ERROR 0x20U
 
 #define SX1276_VERSION 0x12U  // what REG_VERSION reads on a working part
 
@@ -117,9 +123,10 @@ bool rfm95_init(void) {
     reg_write(REG_FRF_MID, (uint8_t)(frf >> 8));
     reg_write(REG_FRF_LSB, (uint8_t)frf);
 
-    // the whole fifo given to tx - this link only transmits so far, so splitting it would just
-    // halve the space available to the thing it actually does
+    // the fifo is split now that the link runs both ways: transmit from 0, receive from 0x80.
+    // a shared base would have an inbound command overwrite an outbound beacon mid-air
     reg_write(REG_FIFO_TX_BASE, 0x00U);
+    reg_write(REG_FIFO_RX_BASE, 0x80U);
     reg_write(REG_FIFO_ADDR_PTR, 0x00U);
 
     // 125 kHz bandwidth, 4/5 coding, explicit header; sf7, crc on. sf7 is the fastest spreading
@@ -138,10 +145,15 @@ bool rfm95_init(void) {
     reg_write(REG_PA_CONFIG, 0x8FU);
 
     set_mode(MODE_STDBY);
-
     tx_busy = false;
     tx_sent = 0U;
     configured = (reg_read(REG_OP_MODE) == (MODE_LONG_RANGE | MODE_STDBY));
+
+    // and then listen. the radio spends almost all of its time here - a beacon is 57 ms once a
+    // second, so better than 90% of every second is available to hear the ground
+    if (configured) {
+        set_mode(MODE_RX_CONT);
+    }
     spi_bus_unlock(spi_lora, locked);
     return configured;
 }
@@ -168,6 +180,7 @@ bool rfm95_tx_done(void) {
     if ((reg_read(REG_IRQ_FLAGS) & IRQ_TX_DONE) != 0U) {
         reg_write(REG_IRQ_FLAGS, IRQ_TX_DONE);  // write-1-to-clear
         tx_busy = false;
+        set_mode(MODE_RX_CONT);  // straight back to listening - transmitting is the exception
     }
     spi_bus_unlock(spi_lora, locked);
     return !tx_busy;
@@ -200,6 +213,34 @@ bool rfm95_send(const uint8_t* data, size_t len) {
 
     spi_bus_unlock(spi_lora, locked);
     return true;
+}
+
+size_t rfm95_receive(uint8_t* buf, size_t max) {
+    if (!configured || buf == NULL || max == 0U || tx_busy) {
+        return 0U;  // mid-transmit the radio is not listening, and cannot be asked to
+    }
+
+    const bool locked = spi_bus_lock(spi_lora);
+    size_t n = 0U;
+
+    const uint8_t flags = reg_read(REG_IRQ_FLAGS);
+    if ((flags & IRQ_RX_DONE) != 0U) {
+        reg_write(REG_IRQ_FLAGS, IRQ_RX_DONE | IRQ_CRC_ERROR);
+
+        // the radio's own crc already rejected a corrupt packet, so a bad one is dropped here
+        // rather than handed up - the frame crc behind it would catch it anyway, twice is fine
+        if ((flags & IRQ_CRC_ERROR) == 0U) {
+            const uint8_t len = reg_read(REG_RX_NB_BYTES);
+            reg_write(REG_FIFO_ADDR_PTR, reg_read(REG_FIFO_RX_CURR));
+            n = (len > max) ? max : len;
+            for (size_t i = 0U; i < n; i++) {
+                buf[i] = reg_read(REG_FIFO);
+            }
+        }
+    }
+
+    spi_bus_unlock(spi_lora, locked);
+    return n;
 }
 
 uint32_t rfm95_sent(void) { return tx_sent; }

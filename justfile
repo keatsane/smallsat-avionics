@@ -64,11 +64,6 @@ esc-build:
 esc-flash:
     & "{{pio}}" run -d esc -e esc -t upload
 
-# flash the driver-only probe - isolates 6-pwm init from the rest of the node firmware
-[group('esc')]
-esc-probe:
-    & "{{pio}}" run -d esc -e probe -t upload
-
 # the port is found automatically when the esc is the only board plugged in, else pass --port
 [group('esc')]
 [doc('drive the wheel - volts on the q axis; --watch listens only, --hold holds past the dead-man')]
@@ -104,13 +99,12 @@ gsw-build:
 gsw-flash:
     & "{{pio}}" run -d gsw -e gsw -t upload
 
-# the same console the obc uses, pointed at the feather instead of the st-link. read-only because
-# the lora link is one way for now - the vehicle transmits and nothing uplinks to it, so a prompt
-# would take commands with nowhere to send them
+# the same console the obc uses, pointed at the feather instead of the st-link - and now the same
+# in both directions: typed commands go out over lora, telemetry comes back the same way
 [group('gsw')]
-[doc('ground console over the air - same decoder as obc-monitor; --all shows per-cycle telemetry')]
+[doc('ground console over the air - commands out, telemetry back; --all shows per-cycle telemetry')]
 gsw-monitor *flags:
-    python tools/uart_monitor.py --vid 239A --read-only {{flags}}
+    python tools/uart_monitor.py --vid 239A {{flags}}
 
 # ---------------------------------------------------------------- testing
 

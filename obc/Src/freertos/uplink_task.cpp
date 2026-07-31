@@ -20,6 +20,7 @@
 #include <cstring>
 
 #include "FreeRTOS.h"
+#include "devices/rfm95.h"
 #include "drivers/uart.h"
 #include "protocol/frame.hpp"
 #include "queue.h"
@@ -58,6 +59,25 @@ void drain(uart_t* u, fsw::frame_parser_t* parser) {
     }
 }
 
+// the lora radio, drained the same way and into the same queue. a command that arrived over the
+// air is not a different kind of command, so nothing downstream of here can tell which link it
+// came in on - which is the whole reason the wire format is transport-independent
+void drain_radio(void) {
+    static fsw::frame_parser_t lora_parser;
+    uint8_t packet[fsw::kFrameMaxSize];
+
+    const size_t n = rfm95_receive(packet, sizeof(packet));
+    for (size_t i = 0U; i < n; i++) {
+        auto f = fsw::frame_decode(&lora_parser, packet[i]);
+        if (f && f->msg_id == static_cast<uint8_t>(fsw::MsgId::Command) &&
+            f->len == sizeof(fsw::command_t)) {
+            fsw::command_t cmd{};
+            std::memcpy(&cmd, f->payload, sizeof(cmd));
+            (void)xQueueSend(s_queue, &cmd, 0);
+        }
+    }
+}
+
 void uplink_task(void*) {
     static fsw::frame_parser_t console_parser;
     static fsw::frame_parser_t radio_parser;
@@ -74,6 +94,7 @@ void uplink_task(void*) {
 
         drain(uart_console, &console_parser);
         drain(uart_downlink, &radio_parser);
+        drain_radio();
 
         task_health_checkin(TASK_ID_UPLINK);
     }

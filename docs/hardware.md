@@ -111,7 +111,7 @@ The two ends deliberately do not match, and do not need to: a link needs each en
 
 Caveat if range ever disappoints: a quarter-wave monopole wants a counterpoise, and the Feather's small ground pour is a poor one. Soldering a second 8.2 cm wire to a GND pad pointing the other way makes it a rough dipole, which helps more than swapping antennas would. And per the part constraints above, **solder the wire before the first transmit** - the Feather is the one board here whose antenna is something to remember rather than something already attached.
 
-These live in the 3D-printed ground station, not the spacecraft: the **SSD1306 OLED**, the **LoRa Feather receiver (#3178)**, the **second nRF24**, and the **Teensy host**.
+These live in the 3D-printed ground station, not the spacecraft: the **SSD1306 OLED**, the **second nRF24**, and the **Feather M0 RFM95** - which is both the LoRa radio and the host, so there is no separate host board. A Teensy was the plan until 2026-07-31; the Feather has the radio on it already, leaves SPI free for the nRF24 and I2C free for the display, and is its own USB serial port.
 
 ## 3D-printed parts and CAD (Fusion 360 -> `cad/`)
 
