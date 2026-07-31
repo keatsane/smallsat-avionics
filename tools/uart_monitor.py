@@ -14,6 +14,10 @@ and argument names, and up-arrow recalls what you sent.
 Commands go out on the link the telemetry comes back on, so a command, its ack, and the telemetry
 showing its effect land in one stream in order. Piping commands in instead of typing them scripts
 the same syntax: `echo SET_MODE STANDBY | python tools/uart_monitor.py`.
+
+This file is deliberately just the terminal: argument parsing, the prompt, colors, and a serial
+port. Everything with protocol state - retries, pass accounting, selective repeat - lives in
+ground/session.py, where the tests can reach it.
 """
 
 import argparse
@@ -28,49 +32,18 @@ from ground.colors import LINK_COLORS, colorize_heartbeat, paint
 from ground.commands import ARG_CATALOG, CommandError, parse, usage
 from ground.console import make_session
 from ground.filters import KINDS, QUIET_KINDS, Filters
-from ground.frames import (
-    CHUNK_REQUEST_MAX,
-    COMMANDS,
-    MSG_COMMAND_ACK,
-    MSG_DOWNLINK_STATUS,
-    MSG_GROUND_STATUS,
-    MSG_PAYLOAD_DATA,
-    FrameDecoder,
-    arg_label,
-    decode_command_ack,
-    decode_downlink_status,
-    decode_ground_status,
-    decode_payload_data,
-    encode_chunk_request,
-    encode_command,
-    format_frame,
-)
+from ground.frames import COMMANDS, arg_label
 from ground.link import find_port, open_port
-from ground.payload import Assembler, looks_like_jpeg
+from ground.payload import Assembler
+from ground.session import GroundSession
 
 KEEPALIVE_S = 2.0  # under the flight software's 5 s command-loss timeout
-
-# a command is retransmitted until the vehicle acknowledges it. the lora link is half duplex and
-# the vehicle is deaf for the ~57 ms its beacon is on the air, so a command sent at the wrong
-# moment is simply not heard - on the bench that lost about one in six. the flight software drops
-# a repeated sequence number rather than acting twice, so a resend costs nothing when the command
-# did arrive and only the ack was lost.
-#
-# the interval is deliberately not a multiple of the 1 s beacon: a retry that keeps landing in the
-# same relative slot would keep hitting the same deaf window forever
-RETRY_AFTER_S = 0.7
-RETRY_LIMIT = 4  # gives up after ~2.8 s, well inside the 5 s command-loss timeout
 
 # how long a scripted run keeps listening after its piped commands are sent. long enough for an
 # ack and the next heartbeat, short enough that it never becomes the process nobody knows is
 # holding the port
 SCRIPT_DRAIN_S = 2.5
 NOOP_ID = 0  # first entry of FSW_COMMAND_LIST
-
-
-# a downlinking image is ~130 frames; one line each would bury everything else, so progress is
-# reported on completion and at intervals rather than per chunk
-PAYLOAD_PROGRESS_EVERY = 25
 
 
 def directives() -> str:
@@ -94,8 +67,6 @@ def main() -> int:
     ap.add_argument("--vid", help="pin the port by USB vendor id in hex, e.g. 239A for adafruit")
     ap.add_argument("-b", "--baud", type=int, default=115200)
     ap.add_argument("--raw", action="store_true", help="also echo every raw byte as hex")
-    # kinds: HEARTBEAT, IMU, POWER, TEMP, CAMERA, UART, COMMAND, COMMAND_ACK,
-    # WHEEL_CMD, WHEEL_STATUS, TEXT, SENT, REJECT
     ap.add_argument("--only", help="show only these kinds, comma-separated (e.g. HEARTBEAT,POWER)")
     ap.add_argument("--hide", help="hide these kinds, comma-separated (e.g. IMU,TEXT)")
     ap.add_argument("--no-color", action="store_true", help="plain output, no ANSI color")
@@ -137,9 +108,11 @@ def main() -> int:
         "UART": "\x1b[33m",
         "TEXT": "\x1b[2m",  # dim
         "SENT": "\x1b[1;32m",  # bold green - the local side of the conversation
+        "REQUEST": "\x1b[1;32m",  # ditto - the ground naming the chunks it wants again
         "REJECT": "\x1b[1;31m",  # bold red - refused here, never reached the wire
         "PAYLOAD": "\x1b[35m",  # magenta - bulk data, distinct from the health stream
         "DOWNLINK": "\x1b[1;35m",  # bold magenta - the progress of that bulk data
+        "LINK": "\x1b[1;35m",  # the same, since it is that pass's closing line
         "TASKS": "\x1b[36m",  # cyan, plainer than the heartbeat's - same cadence, less to read
         "LINKERR": "\x1b[1;31m",  # bold red - a frame arrived corrupt, which is never routine
         "FILTER": "\x1b[1;34m",  # bold blue - console state, not anything the spacecraft said
@@ -175,45 +148,42 @@ def main() -> int:
     port = args.port or find_port(args.stlink, args.vid)
     ser = open_port(port, args.baud, timeout=0.1)
 
-    tx = (
-        threading.Lock()
-    )  # the reader thread's keep-alive, its retries, and the prompt all transmit
-    seq = 0
-    outstanding: dict[int, dict] = {}  # seq -> what was sent and when to send it again
+    session = GroundSession(
+        Assembler(Path(args.images)), retry=not args.no_retry, transmit=not args.read_only
+    )
+    port_lock = threading.Lock()  # the reader thread and the prompt both write the port
 
-    def send(cmd_id: int, arg: int, label: str, retry: bool = True) -> None:
-        nonlocal seq
-        with tx:
-            seq = (seq + 1) & 0xFFFF
-            frame = encode_command(cmd_id, arg, seq)
-            ser.write(frame)
-            show(f"{'SENT':<12} {label}  seq={seq}")
-            if retry and not args.no_retry:
-                outstanding[seq] = {
-                    "frame": frame,
-                    "label": label,
-                    "tries": 1,
-                    "due": time.monotonic() + RETRY_AFTER_S,
-                }
+    def deliver(lines: list, tx: list) -> None:
+        """One session result -> the port and the screen."""
+        with port_lock:
+            for frame in tx:
+                ser.write(frame)
+        for line in lines:
+            show(line)
 
-    def service_retries() -> None:
-        """Resend anything still unacknowledged, and say so when one is given up on."""
-        now = time.monotonic()
-        with tx:
-            for s_no, p in list(outstanding.items()):
-                if now < p["due"]:
-                    continue
-                if p["tries"] >= RETRY_LIMIT:
-                    del outstanding[s_no]
-                    show(
-                        f"{'LINKERR':<12} no ack for {p['label']}  seq={s_no} "
-                        f"after {RETRY_LIMIT} tries"
-                    )
-                    continue
-                p["tries"] += 1
-                p["due"] = now + RETRY_AFTER_S
-                ser.write(p["frame"])
-                show(f"{'SENT':<12} {p['label']}  seq={s_no}  (retry {p['tries']})")
+    def submit(line: str) -> None:
+        """One typed or piped line -> a console directive, a command on the wire, or a rejection."""
+        line = line.strip()
+        if not line or local_directive(line):
+            return
+        try:
+            cmd_id, arg = parse(line)
+        except CommandError as e:
+            show(f"{'REJECT':<12} {e}")  # refused here, never put on the wire
+            return
+        # echo the canonical form rather than the typed line - upper-casing what was typed turned
+        # 800x600 into 800X600, a name that exists nowhere else in the system. catalog arguments
+        # come back as their catalog names; SET_HEADING echoes the degrees as typed, since the
+        # wire value is a binary angle nobody thinks in
+        parts = line.split()
+        name = COMMANDS[cmd_id]
+        if name in ARG_CATALOG:
+            label = f"{name} {arg_label(cmd_id, arg)}"
+        elif len(parts) > 1:
+            label = f"{name} {parts[1]}"
+        else:
+            label = name
+        deliver(*session.command(cmd_id, arg, label, time.monotonic()))
 
     def local_directive(line: str) -> bool:
         """Handle a console directive. Returns True if the line was one.
@@ -243,160 +213,28 @@ def main() -> int:
         show(f"{'FILTER':<12} {filters.describe()}")
         return True
 
-    def submit(line: str) -> None:
-        """One typed or piped line -> a console directive, a command on the wire, or a rejection."""
-        line = line.strip()
-        if not line or local_directive(line):
-            return
-        try:
-            cmd_id, arg = parse(line)
-        except CommandError as e:
-            show(f"{'REJECT':<12} {e}")  # refused here, never put on the wire
-            return
-        # echo the canonical form rather than the typed line - upper-casing what was typed turned
-        # 800x600 into 800X600, a name that exists nowhere else in the system. catalog arguments
-        # come back as their catalog names; SET_HEADING echoes the degrees as typed, since the
-        # wire value is a binary angle nobody thinks in
-        parts = line.split()
-        name = COMMANDS[cmd_id]
-        if name in ARG_CATALOG:
-            label = f"{name} {arg_label(cmd_id, arg)}"
-        elif len(parts) > 1:
-            label = f"{name} {parts[1]}"
-        else:
-            label = name
-        send(cmd_id, arg, label)
-
-    # what each end counted at the start of the current downlink pass, so the end of it can be
-    # reported as a delivery rate rather than as two numbers nobody wants to subtract by hand.
-    # both are already on the wire - the satellite's packet count rides the progress frame and the
-    # ground station's rides its own health frame - and the pass is the only place they mean
-    # anything together
-    pass_start: dict | None = None
-    ground_now = {"packets": 0, "frames": 0}
-
-    def note_pass(d: dict) -> None:
-        """Watch a downlink begin and end, and say what fraction of it arrived."""
-        nonlocal pass_start
-        if d["chunks"] > 0:
-            if pass_start is None:
-                pass_start = {
-                    "sent": d["radio_sent"],
-                    "packets": ground_now["packets"],
-                    "frames": ground_now["frames"],
-                    "chunks": d["chunks"],
-                }
-            return
-        if pass_start is None:
-            return  # idle, and it was idle before - nothing to close out
-
-        sent = d["radio_sent"] - pass_start["sent"]
-        got = ground_now["packets"] - pass_start["packets"]
-        frames = ground_now["frames"] - pass_start["frames"]
-        pct = (got * 100 // sent) if sent else 0
-        show(
-            f"{'LINK':<12} pass done  {pass_start['chunks']} chunks  "
-            f"packets {got}/{sent} ({pct}%)  frames {frames}"
-        )
-        pass_start = None
-
-    # the ground half of selective repeat: while an image sits incomplete and the vehicle is
-    # parked in DOWNLINK, name the missing chunks over the uplink once a second until there are
-    # none. driven off the vehicle's own status frames so a request is only ever sent to a
-    # vehicle that is listening for one
-    last_request = 0.0
-
-    def service_chunk_requests(status: dict) -> None:
-        nonlocal last_request
-        if args.read_only or status["chunks"] != 0:
-            return  # mid-pass - let the first transmission finish before naming gaps
-        want = assembler.pending()
-        if want is None:
-            return
-        image_id, _total, missing = want
-        if time.monotonic() - last_request < 1.0:
-            return
-        last_request = time.monotonic()
-        batch = missing[:CHUNK_REQUEST_MAX]
-        with tx:
-            ser.write(encode_chunk_request(image_id, batch))
-        show(
-            f"{'REQUEST':<12} image {image_id}: resend {len(batch)} of "
-            f"{len(missing)} missing chunks"
-        )
-
-    decoder = FrameDecoder()
-    text = bytearray()  # printable bytes between frames - firmware debug prints
     stop = threading.Event()
-    assembler = Assembler(Path(args.images))
-
-    def take_chunk(msg_id: int, payload: bytes) -> None:
-        """One image chunk: reassemble, report sparingly, write the file when it is whole."""
-        d = decode_payload_data(payload)
-        img, note = assembler.push(d)
-        if img is None:
-            if note and d["chunk"] % PAYLOAD_PROGRESS_EVERY == 0:
-                show(f"{'PAYLOAD':<12} {note}")
-            return
-
-        path = assembler.save(img)
-        # the same SOI/EOI check the firmware makes, repeated at the other end of the link - it is
-        # the one thing that proves the bytes survived framing, chunking, and reassembly intact
-        verdict = "JPEG OK" if looks_like_jpeg(img.data()) else "BAD MARKERS"
-        show(f"{'PAYLOAD':<12} {note} -> {path} ({verdict})")
 
     def reader() -> None:
         next_keepalive = 0.0
 
-        def flush_text() -> None:
-            if text:
-                show(f"{'TEXT':<12} {text.decode('ascii')}")
-                text.clear()
-
         while not stop.is_set():
-            if args.keepalive and not args.read_only and time.monotonic() >= next_keepalive:
-                send(NOOP_ID, 0, "NOOP (keepalive)", retry=False)
-                next_keepalive = time.monotonic() + KEEPALIVE_S
+            now = time.monotonic()
+            if args.keepalive and not args.read_only and now >= next_keepalive:
+                deliver(*session.command(NOOP_ID, 0, "NOOP (keepalive)", now, retry=False))
+                next_keepalive = now + KEEPALIVE_S
 
-            if outstanding:
-                service_retries()
+            deliver(*session.tick(now))
 
             data = ser.read(64)
             if not data:
-                flush_text()  # idle - show any half line rather than sitting on it
+                for line in session.idle():
+                    show(line)
                 continue
-            for byte in data:
-                if args.raw:
-                    sys.stdout.write(f"{byte:02X} ")
-                    sys.stdout.flush()
-                hunting = decoder.state == "sync0"
-                crc_before = decoder.crc_errors
-                frame = decoder.push(byte)
-                # a corrupt frame was being counted and never reported, which made a link problem
-                # look like stray debug text. say so the moment it happens
-                if decoder.crc_errors != crc_before:
-                    show(f"{'LINKERR':<12} bad crc - frames dropped={decoder.crc_errors}")
-                if frame is not None:
-                    if frame[0] == MSG_PAYLOAD_DATA:
-                        take_chunk(*frame)
-                    else:
-                        if frame[0] == MSG_COMMAND_ACK:
-                            outstanding.pop(decode_command_ack(frame[1])["seq"], None)
-                        elif frame[0] == MSG_GROUND_STATUS:
-                            g = decode_ground_status(frame[1])
-                            ground_now["packets"] = g["nrf24_packets"]
-                            ground_now["frames"] = g["nrf24_frames"]
-                        elif frame[0] == MSG_DOWNLINK_STATUS:
-                            d = decode_downlink_status(frame[1])
-                            note_pass(d)
-                            service_chunk_requests(d)
-                        show(format_frame(*frame))
-                elif hunting and decoder.state == "sync0":
-                    # stray byte outside any frame: debug text from the firmware
-                    if byte == 0x0A:
-                        flush_text()
-                    elif 0x20 <= byte < 0x7F:
-                        text.append(byte)
+            if args.raw:
+                sys.stdout.write("".join(f"{b:02X} " for b in data))
+                sys.stdout.flush()
+            deliver(*session.feed(data, time.monotonic()))
 
     print(f"listening on {port} at {args.baud} 8N1 (ctrl-c to quit)")
     if default_quiet:
@@ -408,7 +246,7 @@ def main() -> int:
         # a pinned prompt needs a terminal - patch_stdout keeps the reader thread's output
         # scrolling above the input line instead of overwriting what is half typed
         # show() closes over emit, so this rebind takes
-        session, emit, patch_stdout = make_session(KINDS)
+        prompt_session, emit, patch_stdout = make_session(KINDS)
         print("tab completes, up-arrow recalls, ? lists commands and /? the console directives")
 
     threading.Thread(target=reader, daemon=True).start()
@@ -423,7 +261,7 @@ def main() -> int:
         elif interactive:
             with patch_stdout():
                 while True:
-                    submit(session.prompt())
+                    submit(prompt_session.prompt())
         else:
             for line in sys.stdin:  # piped in - same syntax, no prompt
                 submit(line)

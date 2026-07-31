@@ -73,6 +73,8 @@ def make_session(kinds=()):
                         yield Completion(name, start_position=-len(stem))
                 return
 
+            if not parts:
+                return  # all whitespace - " " leads here with len(parts)==0 and text ending in " "
             head = parts[0]
             # a kind list is comma-separated, so complete the fragment after the last comma
             if head.lower() in KIND_DIRECTIVES:
