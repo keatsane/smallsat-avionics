@@ -1,7 +1,8 @@
 # a SET_MODE whose target is unreachable from the current mode is refused at validation, not
-# accepted and then quietly dropped: STANDBY -> POINTING is not in the transition allow-list
-# (REQ-MODE-003), so the ack comes back rejected with IllegalInMode and names why. the unchanged
-# final mode is the proof nothing moved; the ack is the proof the ground was told (REQ-CMD-006).
+# accepted and then quietly dropped. with the operating modes now a clique, the one place a
+# commanded transition can still be unreachable is out of SAFE: the only exit is STANDBY
+# (REQ-MODE-006), so a safed vehicle commanded to DETUMBLE gets a rejection naming why, and the
+# unchanged final mode is the proof nothing moved (REQ-MODE-004, REQ-CMD-006).
 #
 # note what this does NOT claim: acceptance still is not execution. a safing raised in the same
 # cycle overrides an accepted command, which is SIL-008's case. this covers only the narrower one
@@ -11,14 +12,18 @@ title: unreachable mode target refused at validation
 verifies: [REQ-MODE-004, REQ-CMD-006]
 timeline:
   - { t: 100, cmd: { name: SET_MODE, arg: 1, seq: 1 } }
-  - { t: 300, cmd: { name: SET_MODE, arg: 3, seq: 2 } }
-  - { t: 500 }
+  - { t: 1200, fault: { name: UNDERVOLTAGE, bad: 1 } }
+  - { t: 1300, fault: { name: UNDERVOLTAGE, bad: 1 } }
+  - { t: 1400, fault: { name: UNDERVOLTAGE, bad: 1 } }
+  - { t: 1600, cmd: { name: SET_MODE, arg: 2, seq: 2 } }
+  - { t: 1800 }
 expect:
   mode_log:
     - { to: STANDBY, trigger: Command, req: REQ-CMD-001 }
+    - { to: SAFE, trigger: FaultEntry, req: REQ-FAULT-002 }
   acks:
     - { seq: 1, accepted: true }
     - { seq: 2, accepted: false, reason: IllegalInMode }
   final:
-    mode: STANDBY
-    faults_set: []
+    mode: SAFE
+    faults_set: [UNDERVOLTAGE]

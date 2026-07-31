@@ -45,16 +45,20 @@ TEST_SUITE("COMMS REQUIREMENTS") {
             CHECK(ch.handle(cmd, Mode::STANDBY, 0).reason == CmdReject::UnknownId);
         }
 
-        SUBCASE("CAPTURE_IMAGE is legal only while POINTING") {
+        SUBCASE("CAPTURE_IMAGE is refused while spinning or safed, legal elsewhere") {
             CommandHandler ch;
 
             // distinct seq numbers, because a repeat of one is a retransmission and is answered
             // with whatever the first copy got rather than re-judged
-            command_t in_standby{static_cast<uint8_t>(Command::CAPTURE_IMAGE), 0, 3};
-            command_t in_pointing{static_cast<uint8_t>(Command::CAPTURE_IMAGE), 0, 4};
+            command_t c3{static_cast<uint8_t>(Command::CAPTURE_IMAGE), 0, 3};
+            command_t c4{static_cast<uint8_t>(Command::CAPTURE_IMAGE), 0, 4};
+            command_t c5{static_cast<uint8_t>(Command::CAPTURE_IMAGE), 0, 5};
+            command_t c6{static_cast<uint8_t>(Command::CAPTURE_IMAGE), 0, 6};
 
-            CHECK(ch.handle(in_standby, Mode::STANDBY, 0).reason == CmdReject::IllegalInMode);
-            CHECK(ch.handle(in_pointing, Mode::POINTING, 0).accepted);
+            CHECK(ch.handle(c3, Mode::DETUMBLE, 0).reason == CmdReject::IllegalInMode);
+            CHECK(ch.handle(c4, Mode::SAFE, 0).reason == CmdReject::IllegalInMode);
+            CHECK(ch.handle(c5, Mode::STANDBY, 0).accepted);
+            CHECK(ch.handle(c6, Mode::POINTING, 0).accepted);
         }
 
         SUBCASE("Out-of-range arg is rejected") {
@@ -100,21 +104,20 @@ TEST_SUITE("COMMS REQUIREMENTS") {
         SUBCASE("A mode that cannot be reached from here is refused (REQ-CMD-006)") {
             CommandHandler ch;
 
+            // with the operating modes a clique, the only unreachable commanded transitions left
+            // are out of SAFE - which is the one place the restriction earns its keep
             command_t to_pointing{static_cast<uint8_t>(Command::SET_MODE),
                                   static_cast<uint8_t>(Mode::POINTING), 8};
+            const CommandEvent from_safe = ch.handle(to_pointing, Mode::SAFE, 0);
+            CHECK_FALSE(from_safe.accepted);
+            CHECK(from_safe.reason == CmdReject::IllegalInMode);
 
-            // STANDBY -> POINTING is not in the transition table, so the mode manager would refuse
-            // it. validation knows that already, and says so rather than acking a no-op
-            const CommandEvent from_standby = ch.handle(to_pointing, Mode::STANDBY, 0);
-            CHECK_FALSE(from_standby.accepted);
-            CHECK(from_standby.reason == CmdReject::IllegalInMode);
-
-            // the same command one rung up the ladder is legal, so the refusal is about the
+            // the same command from an operating mode is legal, so the refusal is about the
             // transition and not about the command. a new seq, because a repeated one is a
             // retransmission and gets the first answer back
             command_t again{static_cast<uint8_t>(Command::SET_MODE),
                             static_cast<uint8_t>(Mode::POINTING), 9};
-            CHECK(ch.handle(again, Mode::DETUMBLE, 0).accepted);
+            CHECK(ch.handle(again, Mode::STANDBY, 0).accepted);
         }
 
         SUBCASE("The ground can still climb out of SAFE (REQ-MODE-006)") {

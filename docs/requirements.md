@@ -46,11 +46,13 @@ The spacecraft operates in exactly one of six modes at any time. Their intent:
 | From | Legal transitions to |
 | ---- | -------------------- |
 | BOOT | STANDBY, DETUMBLE, SAFE |
-| STANDBY | DETUMBLE, SAFE |
-| DETUMBLE | STANDBY, POINTING, SAFE |
+| STANDBY | DETUMBLE, POINTING, DOWNLINK, SAFE |
+| DETUMBLE | STANDBY, POINTING, DOWNLINK, SAFE |
 | POINTING | STANDBY, DETUMBLE, DOWNLINK, SAFE |
 | DOWNLINK | STANDBY, DETUMBLE, POINTING, SAFE |
 | SAFE | none autonomously (ground-commanded to STANDBY only - see REQ-MODE-006) |
+
+The operating modes form a clique - each reaches every other. An earlier table forced sequencing hops (STANDBY could not reach POINTING without passing through DETUMBLE), which encoded a deployment story this bench rig does not have and cost a command per hop. What stays restricted is the frame of the graph: BOOT is left only by passing self-checks, SAFE only by ground command.
 
 **Type**: Functional  
 **Status**: unit-verified  
@@ -100,6 +102,12 @@ The wait is deliberate rather than an immediate hop on the first cycle. A fault 
 **Status**: SIL-verified (SIL-013 - the vehicle nulls a 1 rad/s spin and steps down on its own, with the Nominal trigger and this requirement id in the log row. SIL-011 ends before the exit can fire and still expects DETUMBLE, so the pair pins both halves: converge first, then leave)
 **Verification**: SIL, then HIL once the wheel is back
 **Artifact**: fsw/src/executive.cpp, docs/reports/sil/SIL-013.md
+
+**REQ-MODE-012** - The flight software shall enter DETUMBLE autonomously from any operating mode other than SAFE when the measured body rate exceeds a configured threshold for three consecutive samples, shall remember the interrupted mode, and shall return to it when the detumble completes. The transitions shall carry the Nominal trigger.
+**Type**: Functional
+**Status**: SIL-verified (SIL-014 - a 2.5 rad/s shove in STANDBY pulls the vehicle into DETUMBLE on its own and it resumes STANDBY when nulled; the resume of an interrupted POINTING is unit-verified. The shove has to beat bearing friction to the threshold, which sheds ~2.9 rad/s per second on its own - on this rig autonomy only sees the upsets friction cannot handle first)
+**Verification**: unit test, SIL, then HIL once the wheel is back
+**Artifact**: fsw/src/executive.cpp, fsw/test/test_executive.cpp, docs/reports/sil/SIL-014.md
 
 **REQ-MODE-009** - The mode transition log shall be a fixed-capacity buffer that allocates no memory dynamically and retains at least the 32 most recent records; when full, the oldest record shall be overwritten.  
 **Type**: Constraint  

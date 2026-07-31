@@ -46,8 +46,17 @@ from ground.payload import Assembler, looks_like_jpeg
 RETRY_AFTER_S = 0.7
 RETRY_LIMIT = 4  # gives up after ~2.8 s, well inside the 5 s command-loss timeout
 
-# selective repeat is asked for at most this often - one request per vehicle status period
-REQUEST_EVERY_S = 1.0
+# selective repeat is asked for at most this often. NOT 1.0 seconds, and the difference is a
+# bench story: requests used to fire on receipt of the vehicle's own 1 Hz status frame, which
+# phase-locked them to the vehicle's transmit schedule - and on the bench eight consecutive
+# requests launched into the exact window where the vehicle's radio was mid-transmit and deaf.
+# a half-duplex link punishes anything synchronised to the other end's clock; 1.3 s drifts the
+# phase by a third of a second every round, so no alignment survives
+REQUEST_EVERY_S = 1.3
+
+# how long after the last idle status frame the vehicle is still assumed to be in DOWNLINK and
+# listening - requests stop when the vehicle leaves rather than being shouted into STANDBY
+DOWNLINK_FRESH_S = 3.0
 
 # a downlinking image is hundreds of frames; one line each would bury everything else, so progress
 # is reported at intervals and on completion rather than per chunk
@@ -74,6 +83,7 @@ class GroundSession:
         self.ground_now = {"packets": 0, "frames": 0}
 
         self.last_request = 0.0
+        self.dl_idle_at = -1e9  # when the vehicle last said "in DOWNLINK, nothing in flight"
         self.text = bytearray()  # printable bytes between frames - firmware debug prints
 
     # ---- transmit side ----
@@ -93,10 +103,13 @@ class GroundSession:
             return [f"{'SENT':<12} {label}  seq={self.seq}"], [frame]
 
     def tick(self, now: float):
-        """Resend anything unacknowledged and overdue; say so when one is given up on."""
+        """Resend anything unacknowledged and overdue; say so when one is given up on. Also the
+        clock for selective-repeat requests, precisely so they are NOT driven by the arrival of
+        the vehicle's frames - see REQUEST_EVERY_S for what that synchronisation cost."""
         lines: list[str] = []
         tx: list[bytes] = []
         with self.lock:
+            self._request_chunks(now, lines, tx)
             for s_no, p in list(self.outstanding.items()):
                 if now < p["due"]:
                     continue
@@ -170,7 +183,8 @@ class GroundSession:
         elif msg_id == MSG_DOWNLINK_STATUS:
             d = decode_downlink_status(payload)
             self._note_pass(d, lines)
-            self._request_chunks(d, now, lines, tx)
+            if d["chunks"] == 0:
+                self.dl_idle_at = now  # idle and listening - requests are worth sending
         lines.append(format_frame(msg_id, payload))
 
     def _take_chunk(self, payload: bytes, lines: list) -> None:
@@ -212,12 +226,12 @@ class GroundSession:
         )
         self.pass_start = None
 
-    def _request_chunks(self, status: dict, now: float, lines: list, tx: list) -> None:
-        """The ground half of selective repeat: name the missing chunks while the vehicle is
-        parked in DOWNLINK, once a second, until there are none. Driven off the vehicle's own
-        status frames so a request only ever goes to a vehicle listening for one."""
-        if not self.transmit or status["chunks"] != 0:
-            return  # mid-pass - let the first transmission finish before naming gaps
+    def _request_chunks(self, now: float, lines: list, tx: list) -> None:
+        """The ground half of selective repeat: name the missing chunks while the vehicle sits
+        idle in DOWNLINK, until there are none. Paced by this side's own clock, deliberately -
+        anything paced by the vehicle's frames launches into the vehicle's transmit window."""
+        if not self.transmit or now - self.dl_idle_at > DOWNLINK_FRESH_S:
+            return  # mid-pass, out of DOWNLINK, or gone quiet - nobody is listening for this
         want = self.assembler.pending()
         if want is None or now - self.last_request < REQUEST_EVERY_S:
             return

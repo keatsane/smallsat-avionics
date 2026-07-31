@@ -240,8 +240,13 @@ void update_status_leds(const fsw::Executive& e, uint32_t t_ms) {
 // against the wheel's is still the thing to confirm on the rig: if a detumble command speeds the
 // platform up rather than slowing it, this is where to negate
 constexpr size_t kYawAxis = 0;
+
+// negated: heading is displayed as a compass, and a compass runs clockwise for an observer
+// looking down at the platform - measured 2026-07-30, a clockwise spin read as decreasing
+// heading without the flip. this is the single place the human convention enters; the compass
+// sign is measured against this downstream, so it follows automatically
 constexpr float kGyroRadsPerCount =
-    1.0F / (ICM20948_GYRO_LSB_PER_DPS * 57.29577951F);  // 1/(LSB per dps * dps per rad/s)
+    -1.0F / (ICM20948_GYRO_LSB_PER_DPS * 57.29577951F);  // 1/(LSB per dps * dps per rad/s)
 
 // gyro bias, learned at rest. an uncalibrated gyro reads a few counts of offset forever, and
 // integrating that walked the heading a quarter degree every ten seconds on the bench - so the
@@ -256,15 +261,86 @@ constexpr uint16_t kBiasSamples = 20;  // 2 s of samples at the 10 Hz sensor rat
 // ignored because the platform never tilts. indoor fields are bent, so this is repeatable rather
 // than true north, which is all a bench rig needs.
 //
+// the raw field is useless without hard-iron calibration, and the first bench run proved it: the
+// z component swung around a centre near +300 counts rather than zero, so the uncorrected angle
+// swept a small arc while the platform turned 180 degrees. the fix is the standard cheap one -
+// track each axis's min and max, take the midpoint as the offset, the half-span as the scale -
+// learned live, which means THE COMPASS NEEDS ONE FULL TURN OF THE PLATFORM AFTER POWER-UP
+// before it speaks. until then no mag heading is offered and the estimate coasts on the gyro,
+// which is the honest degradation.
+//
 // the offset aligns zero with the camera face: point the camera at the direction that should
-// read zero, note what ATTITUDE hdg reports, and set this to minus that reading (in radians).
-// if the heading runs backwards against a spin (mag fighting the gyro in the filter), swap the
-// sign of the atan2 arguments here rather than negating the gyro
+// read zero, note what ATTITUDE hdg reports, and set this to minus that reading (in radians)
 constexpr float kMagMountOffsetRad = 0.0F;
 
-float mag_heading_rad(const fsw::imu_data_t& imu) {
-    return atan2f(static_cast<float>(imu.mag[2]), static_cast<float>(imu.mag[1])) +
-           kMagMountOffsetRad;
+// spans below this mean the platform has not yet turned far enough to expose the field circle,
+// and a heading computed from a sliver of arc is noise dressed as an angle
+constexpr int16_t kMagSpanFloor = 100;
+
+// wrap any angle into [-pi, pi] - local copy, the fsw has its own behind the boundary
+float wrap_angle(float rad) {
+    while (rad > 3.14159265F) {
+        rad -= 6.28318531F;
+    }
+    while (rad < -3.14159265F) {
+        rad += 6.28318531F;
+    }
+    return rad;
+}
+
+bool mag_heading_rad(const fsw::imu_data_t& imu, float gyro_rads, float* out) {
+    static int16_t min_y = INT16_MAX, max_y = INT16_MIN;
+    static int16_t min_z = INT16_MAX, max_z = INT16_MIN;
+
+    const int16_t y = imu.mag[1];
+    const int16_t z = imu.mag[2];
+    min_y = (y < min_y) ? y : min_y;
+    max_y = (y > max_y) ? y : max_y;
+    min_z = (z < min_z) ? z : min_z;
+    max_z = (z > max_z) ? z : max_z;
+
+    const int16_t span_y = static_cast<int16_t>(max_y - min_y);
+    const int16_t span_z = static_cast<int16_t>(max_z - min_z);
+    if (span_y < kMagSpanFloor || span_z < kMagSpanFloor) {
+        return false;  // not calibrated yet - one full turn fixes that
+    }
+
+    // hard iron out (midpoint), soft iron roughly out (normalise by half-span) - an ellipse
+    // becomes a near-circle, which is as far as a bench rig needs to take it
+    const float cy = (static_cast<float>(min_y) + static_cast<float>(max_y)) / 2.0F;
+    const float cz = (static_cast<float>(min_z) + static_cast<float>(max_z)) / 2.0F;
+    const float ny = (static_cast<float>(y) - cy) / (static_cast<float>(span_y) / 2.0F);
+    const float nz = (static_cast<float>(z) - cz) / (static_cast<float>(span_z) / 2.0F);
+    const float raw = atan2f(nz, ny);
+
+    // which way round the compass runs is measured, not assumed. hand-picking the sign went
+    // wrong twice on this bench - each flip fixed one observation and broke the next - so the
+    // firmware now correlates the compass angle's motion against the gyro while the platform
+    // turns, and locks whichever sign agrees. until the evidence is decisive there is no mag
+    // heading and the estimate coasts on the gyro; a full calibration turn settles it at the
+    // same time it fills the hard-iron spans
+    static float prev_raw = 0.0F;
+    static bool have_prev = false;
+    static float corr = 0.0F;
+    static int8_t sign = 0;
+    constexpr float kCorrDecisive = 2.0F;  // rad*rad/s of agreement before the sign locks
+
+    if (have_prev && sign == 0) {
+        corr += gyro_rads * wrap_angle(raw - prev_raw);
+        if (corr > kCorrDecisive) {
+            sign = 1;
+        } else if (corr < -kCorrDecisive) {
+            sign = -1;
+        }
+    }
+    prev_raw = raw;
+    have_prev = true;
+
+    if (sign == 0) {
+        return false;  // direction not yet proven - keep coasting on the gyro
+    }
+    *out = wrap_angle(static_cast<float>(sign) * raw + kMagMountOffsetRad);
+    return true;
 }
 
 void read_sensors(fsw::Inputs& inputs) {
@@ -292,10 +368,14 @@ void read_sensors(fsw::Inputs& inputs) {
             inputs.body_rate_rads = (raw - bias_counts) * kGyroRadsPerCount;
         }
 
-        // the absolute half of the attitude picture, offered only when the mag sample is good -
-        // the estimator treats absence as "coast on the gyro", which is the right degradation
-        if ((set.imu.flags & fsw::kImuFlagMagValid) != 0U) {
-            inputs.mag_heading_rad = mag_heading_rad(set.imu);
+        // the absolute half of the attitude picture, offered only when the mag sample is good
+        // AND the live hard-iron calibration has seen a full turn - the estimator treats absence
+        // as "coast on the gyro", which is the right degradation for both cases
+        if ((set.imu.flags & fsw::kImuFlagMagValid) != 0U && inputs.body_rate_rads) {
+            float hdg = 0.0F;
+            if (mag_heading_rad(set.imu, *inputs.body_rate_rads, &hdg)) {
+                inputs.mag_heading_rad = hdg;
+            }
         }
     }
 

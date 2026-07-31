@@ -46,6 +46,9 @@ float AttitudeControl::detumble(float rate_rads) const {
 
 namespace {
 
+// past this the gyro integral is not being corrected, it is being rescued - see update()
+constexpr float kMagSnapRad = 1.0F;  // ~57 deg
+
 // wrap any angle into [-pi, pi]
 float wrap_pi(float rad) {
     constexpr float kTwoPi = 6.28318530718F;
@@ -64,14 +67,18 @@ void AttitudeControl::update(float rate_rads, float dt_s, const std::optional<fl
     heading_ += rate_rads * dt_s;
 
     if (mag_heading) {
-        if (!have_mag_) {
-            // the first absolute fix snaps the estimate - blending toward it from an arbitrary
-            // zero would spend seconds being deliberately wrong
-            heading_ = *mag_heading;
+        const float err = wrap_pi(*mag_heading - heading_);
+        if (!have_mag_ || std::fabs(err) > kMagSnapRad) {
+            // snap rather than blend: on the first fix because converging from an arbitrary zero
+            // spends seconds being deliberately wrong, and on a large disagreement because that
+            // means the gyro lost the plot (a clipped flick, mostly) - the compass is the one
+            // that knows, and dragging back a 150-degree error at the filter's pace looks
+            // exactly like "stuck on the wrong heading" from the bench
+            heading_ += err;
             have_mag_ = true;
         } else if (dt_s > 0.0F) {
             const float alpha = dt_s / (g_.mag_tau_s + dt_s);
-            heading_ += alpha * wrap_pi(*mag_heading - heading_);
+            heading_ += alpha * err;
         }
     }
 }
@@ -79,7 +86,9 @@ void AttitudeControl::update(float rate_rads, float dt_s, const std::optional<fl
 float AttitudeControl::heading() const { return wrap_pi(heading_); }
 
 void AttitudeControl::enter_pointing() {
-    target_ = heading_;  // hold here until the ground names a bearing
+    if (!target_commanded_) {
+        target_ = heading_;  // never told where to aim - hold here
+    }
     saturated_ = false;
 }
 

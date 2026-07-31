@@ -84,9 +84,12 @@ bool icm20948_init(void) {
     reg_write(USER_CTRL, 0x30U);  // enable I2C master I/F (keep I2C_IF_DIS)
 
     // bank 2 - accel/gyro output rate, full scale, and anti-alias dlpf
-    reg_write(REG_BANK_SEL, 0x20U);        // swap to user bank 2
-    reg_write(GYRO_SMPLRT_DIV, 0x0BU);     // gyro odr 1125/12 = 93.75hz
-    reg_write(GYRO_CONFIG_1, 0x35U);       // +-1000 dps + 5.7hz dlpf
+    reg_write(REG_BANK_SEL, 0x20U);     // swap to user bank 2
+    reg_write(GYRO_SMPLRT_DIV, 0x0BU);  // gyro odr 1125/12 = 93.75hz
+    // +-2000 dps: a hand flick on the lazy susan passes 1000 easily, and a clipped gyro is how
+    // the heading "loses track" - the integral misses whatever the clip ate, and the compass then
+    // has to drag the estimate back. costs resolution nothing here cares about (0.06 dps/count)
+    reg_write(GYRO_CONFIG_1, 0x37U);       // +-2000 dps + 5.7hz dlpf
     reg_write(ACCEL_SMPLRT_DIV_1, 0x00U);  // accel rate divider [11:8]
     reg_write(ACCEL_SMPLRT_DIV_2, 0x0BU);  // accel odr 1125/12 = 93.75hz
     reg_write(ACCEL_CONFIG, 0x31U);        // +-2g + 5.7hz dlpf

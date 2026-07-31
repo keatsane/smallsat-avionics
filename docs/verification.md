@@ -48,6 +48,7 @@ Exit 0 all passed, 1 a scenario failed, 2 harness error. Reports are written eit
 | SIL-011 | detumble nulls a spinning platform without saturating the wheel | REQ-ADCS-001, REQ-ADCS-003 | [SIL-011.md](reports/sil/SIL-011.md) |
 | SIL-012 | a sustained disturbance saturates the wheel and pointing authority is lost | REQ-ADCS-003 | [SIL-012.md](reports/sil/SIL-012.md) |
 | SIL-013 | detumble declares itself done and returns to STANDBY | REQ-MODE-011 | [SIL-013.md](reports/sil/SIL-013.md) |
+| SIL-014 | a spun-up vehicle detumbles itself and resumes | REQ-MODE-012 | [SIL-014.md](reports/sil/SIL-014.md) |
 
 SIL-011 and SIL-012 run against the plant model (`fsw/sil/plant.cpp`), so they are the only ones whose result depends on measured hardware numbers - inertias from CAD, friction fitted to a coast-down. See [architecture.md](architecture.md).
 

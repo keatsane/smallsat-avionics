@@ -22,10 +22,10 @@ typedef struct {
     bool mag_valid;         // mag read ok (ak09916 reported fresh data with no overflow)
 } icm20948_sample_t;
 
-// counts per degree/second at the +-1000 dps full scale the driver configures (GYRO_CONFIG_1 =
+// counts per degree/second at the +-2000 dps full scale the driver configures (GYRO_CONFIG_1 =
 // 0x35). the datasheet's sensitivity table gives 32.8 LSB/dps there. changing the full scale
 // means changing this - they are one decision, so they live next to each other
-#define ICM20948_GYRO_LSB_PER_DPS 32.8F
+#define ICM20948_GYRO_LSB_PER_DPS 16.4F
 
 // a boot bias further from zero than this says the rig was moving while the 64-sample
 // calibration ran, so the offset absorbed real motion and every later reading is over-corrected.

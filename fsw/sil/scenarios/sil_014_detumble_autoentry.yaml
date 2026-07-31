@@ -1,0 +1,59 @@
+# the autonomous half of DETUMBLE (REQ-MODE-012): a vehicle that starts spinning in any operating
+# mode pulls itself into the recovery without being asked, remembers where it was, and returns
+# there when the rate is nulled. here the platform is shoved to 2.5 rad/s while sitting in
+# STANDBY - three consecutive over-threshold samples later the vehicle is detumbling on its own,
+# and one second inside the deadband later it is back in STANDBY.
+#
+# the shove is 2.5 rad/s and not less because the bearing is its own detumbler: kinetic friction
+# alone sheds ~2.9 rad/s per second, so a gentler spin falls under the entry threshold before the
+# three-cycle debounce can finish counting. that is the plant talking, and it is worth knowing -
+# on this rig, autonomy only ever sees the upsets friction cannot handle first.
+#
+# both transitions carry the Nominal trigger and REQ-MODE-012, which is what separates them in
+# the log from a ground command and from a fault response - the vehicle did this because flying
+# itself is its job, not because anything went wrong
+id: SIL-014
+title: a spun-up vehicle detumbles itself and resumes
+verifies: [REQ-MODE-012]
+timeline:
+  - { t: 0, plant: 0.0 }
+  - { t: 100, cmd: { name: SET_MODE, arg: 1, seq: 1 } }
+  - { t: 300, nudge: 2.5 }
+  - { t: 400 }
+  - { t: 500 }
+  - { t: 600 }
+  - { t: 700 }
+  - { t: 800 }
+  - { t: 900 }
+  - { t: 1000 }
+  - { t: 1100 }
+  - { t: 1200 }
+  - { t: 1300 }
+  - { t: 1400 }
+  - { t: 1500 }
+  - { t: 1600 }
+  - { t: 1700 }
+  - { t: 1800 }
+  - { t: 1900 }
+  - { t: 2000 }
+  - { t: 2100 }
+  - { t: 2200 }
+  - { t: 2300 }
+  - { t: 2400 }
+  - { t: 2500 }
+  - { t: 2600 }
+  - { t: 2700 }
+  - { t: 2800 }
+  - { t: 2900 }
+  - { t: 3000 }
+expect:
+  mode_log:
+    - { to: STANDBY, trigger: Command, req: REQ-CMD-001 }
+    - { to: DETUMBLE, trigger: Nominal, req: REQ-MODE-012 }
+    - { to: STANDBY, trigger: Nominal, req: REQ-MODE-012 }
+  acks:
+    - { seq: 1, accepted: true }
+  final:
+    mode: STANDBY
+    faults_set: []
+    plant_rate_below: 0.02

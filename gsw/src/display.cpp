@@ -199,42 +199,48 @@ void draw_dial(int16_t cx, int16_t cy, int16_t r) {
 // is the vehicle transmitting into a receiver that is not there, which is a thing worth seeing
 void draw_payload_panel(uint32_t nrf_packets, uint32_t nrf_frames, bool nrf_up) {
     oled2.clearDisplay();
-    oled2.setCursor(0, 0);
 
+    // fixed regions, none touching: header top-left, dial top-right (x >= 98, y <= 28), the
+    // progress bar as a full-width band in the middle, counters along the bottom. the first
+    // layout let the text rows run under the dial and the overlap was legible from across the
+    // room - in the bad way
+    oled2.setCursor(0, 0);
     oled2.setTextSize(2);
-    oled2.println("PAYLOAD");  // panel 2's permanent header - panel 1 never prints this word
+    oled2.println("PAYLOAD");
     oled2.setTextSize(1);
+
+    draw_dial(kWidth - 16, 15, 13);
 
     const bool active = ever_downlinked && (millis() - last_dl_ms) < kDownlinkStaleMs;
 
+    oled2.setCursor(0, 20);
     if (!active) {
-        oled2.println(ever_downlinked ? "last pass complete" : "idle");
+        oled2.print(ever_downlinked ? "last pass done" : "idle");
     } else {
         oled2.print("img ");
         oled2.print(dl.image_id);
-        oled2.print("  ");
+        oled2.print(" ");
         oled2.print(dl.chunk);
         oled2.print("/");
-        oled2.println(dl.chunks);
+        oled2.print(dl.chunks);
     }
 
-    // a drawn bar rather than characters - it is the one thing here readable at a glance
-    const int16_t bar_y = 34;
-    const int16_t bar_w = kWidth - 48;  // the dial owns the right-hand end of this row
-    oled2.drawRect(2, bar_y, bar_w, 10, SSD1306_WHITE);
+    // a drawn bar rather than characters - the one thing here readable at a glance
+    const int16_t bar_y = 32;
+    const int16_t bar_w = kWidth - 4;
+    oled2.drawRect(2, bar_y, bar_w, 9, SSD1306_WHITE);
     if (active && dl.chunks > 0U) {
         const int32_t fill = (static_cast<int32_t>(dl.chunk) * (bar_w - 4)) / dl.chunks;
-        oled2.fillRect(4, bar_y + 2, static_cast<int16_t>(fill), 6, SSD1306_WHITE);
+        oled2.fillRect(4, bar_y + 2, static_cast<int16_t>(fill), 5, SSD1306_WHITE);
     }
 
-    draw_dial(kWidth - 22, 34, 18);
-
-    oled2.setCursor(0, 48);
+    oled2.setCursor(0, 45);
     oled2.print("nrf ");
     oled2.print(nrf_up ? "up" : "DOWN");
     oled2.print("  pkt ");
-    oled2.println(nrf_packets);
-    oled2.print("frames ");
+    oled2.print(nrf_packets);
+    oled2.setCursor(0, 55);
+    oled2.print("fr ");
     oled2.print(nrf_frames);
     if (ever_downlinked) {
         oled2.print("  drop ");

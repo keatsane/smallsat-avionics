@@ -453,7 +453,19 @@ def test_mode_ladder_mirrors_mode_manager_cpp():
     rows = re.findall(r"/\* from (\w+)\s*\*/(.*?)(?=/\* from|\};)", source, re.S)
     assert rows, "kAutoAllowed table not found"
 
-    expected = {mode: tuple(re.findall(r"Mode::(\w+)", body)) for mode, body in rows}
+    # rows may name modes directly or use the kOperating clique alias; expand the alias from its
+    # own definition, and drop the self-bit a clique row carries - is_legal refuses
+    # self-transitions regardless of the table
+    op_def = re.search(r"kOperating\s*=([^;]*);", source, re.S)
+    operating = tuple(re.findall(r"Mode::(\w+)", op_def.group(1))) if op_def else ()
+
+    def targets(mode: str, body: str) -> tuple:
+        names = tuple(re.findall(r"Mode::(\w+)", body))
+        if "kOperating" in body:
+            names = tuple(m for m in operating if m != mode) + names
+        return names
+
+    expected = {mode: targets(mode, body) for mode, body in rows}
     # SAFE has no autonomous exit, so its row is a bare 0; the one way out is ground-commanded
     # (REQ-MODE-006), which is a carve-out in is_legal rather than a bit in the table
     assert expected["SAFE"] == ()

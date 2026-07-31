@@ -71,6 +71,18 @@ class Executive {
     static constexpr uint16_t kDetumbleDoneCycles = 10;
     uint16_t detumble_done_cycles_ = 0;
 
+    // consecutive over-threshold samples seen outside DETUMBLE - the autonomous entry's debounce
+    // (REQ-MODE-012). three cycles, so a single bumped sample does not yank the vehicle out of a
+    // downlink pass
+    static constexpr uint16_t kDetumbleEnterCycles = 3;
+    uint16_t detumble_enter_cycles_ = 0;
+
+    // where an autonomous DETUMBLE should return to when it finishes. only an *autonomous* entry
+    // resumes - a commanded DETUMBLE exits to STANDBY, because the ground asking for it is the
+    // ground taking over the plan
+    Mode resume_mode_ = Mode::STANDBY;
+    bool resume_valid_ = false;
+
     // wrap a wire message in a frame and hands it to the link
     template <typename T>
     void send(MsgId id, const T& msg) {

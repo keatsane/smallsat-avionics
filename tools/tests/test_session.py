@@ -83,22 +83,32 @@ def test_keepalives_are_never_retried():
 def test_read_only_session_never_requests_chunks():
     s = GroundSession(Assembler(), transmit=False)
     s.feed(_chunk(1, 0, 3, b"\xff\xd8"), now=0.0)  # 1 of 3 - incomplete
-    lines, tx = s.feed(_downlink_status(chunks=0, sent=100), now=5.0)
+    s.feed(_downlink_status(chunks=0, sent=100), now=5.0)
+    lines, tx = s.tick(6.0)
     assert tx == []
 
 
-def test_missing_chunks_are_requested_when_the_vehicle_goes_idle():
+def test_missing_chunks_are_requested_on_this_sides_clock():
+    # requests come from tick(), never from the arrival of a vehicle frame - a request triggered
+    # by the vehicle's own status frame is phase-locked to the vehicle's transmit schedule, and
+    # on the bench eight consecutive requests launched straight into its deaf window
     s = GroundSession(Assembler())
     # two of three chunks arrive; the vehicle finishes its pass and reports idle
     s.feed(_chunk(1, 0, 3, b"\xff\xd8"), now=0.0)
     s.feed(_chunk(1, 2, 3, b"\xff\xd9"), now=0.1)
 
     lines, tx = s.feed(_downlink_status(chunks=0, sent=100), now=5.0)
+    assert tx == []  # the frame itself must trigger nothing
+
+    lines, tx = s.tick(5.4)
     assert len(tx) == 1
     assert any("REQUEST" in ln and "resend 1 of 1" in ln for ln in lines)
 
-    # and no sooner than once a second, so the uplink is not flooded
-    lines, tx = s.feed(_downlink_status(chunks=0, sent=101), now=5.2)
+    # rate-limited on this side's clock
+    assert s.tick(5.9) == ([], [])
+
+    # and once the vehicle has been quiet too long, requests stop - nobody is listening
+    lines, tx = s.tick(30.0)
     assert tx == []
 
 
@@ -106,7 +116,8 @@ def test_no_request_while_a_pass_is_still_running():
     s = GroundSession(Assembler())
     s.feed(_chunk(1, 0, 3, b"\xff\xd8"), now=0.0)
     # chunks != 0 means the first transmission is still going - let it finish first
-    lines, tx = s.feed(_downlink_status(chunks=3, sent=50), now=5.0)
+    s.feed(_downlink_status(chunks=3, sent=50), now=5.0)
+    lines, tx = s.tick(6.0)
     assert tx == []
 
 

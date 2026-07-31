@@ -72,8 +72,8 @@ def parse(line: str) -> tuple[int, int]:
 # learn that STANDBY cannot reach POINTING is to be refused and go read the flight software
 MODE_LADDER = {
     "BOOT": ("STANDBY", "DETUMBLE", "SAFE"),
-    "STANDBY": ("DETUMBLE", "SAFE"),
-    "DETUMBLE": ("STANDBY", "POINTING", "SAFE"),
+    "STANDBY": ("DETUMBLE", "POINTING", "DOWNLINK", "SAFE"),
+    "DETUMBLE": ("STANDBY", "POINTING", "DOWNLINK", "SAFE"),
     "POINTING": ("STANDBY", "DETUMBLE", "DOWNLINK", "SAFE"),
     "DOWNLINK": ("STANDBY", "DETUMBLE", "POINTING", "SAFE"),
     "SAFE": ("STANDBY",),

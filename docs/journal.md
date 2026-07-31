@@ -31,6 +31,12 @@ pushes.
 is what returns the radio to receive; behind `!pending ||` it ran once a second and the vehicle
 was deaf almost continuously. Side effects do not belong in conditions.
 
+**Never pace a half-duplex transmission off the other end's frames.** A request triggered by the
+vehicle's own status frame launches phase-locked to the vehicle's transmit schedule, and if the
+phase is wrong it is wrong every time - eight consecutive selective-repeat requests landed in the
+vehicle's deaf window. The command retries already knew this and used 0.7 s against a 1 s beacon;
+the requests were written a week later and stepped straight into it.
+
 **A signal that is merely plausible is not a signal that is right.** The control path read gyro z
 as yaw for five weeks, and z read plausibly - noise at rest, small wiggles when touched - because
 cross-coupling gives every axis a shadow of the real motion. Only spinning the platform and
@@ -97,6 +103,23 @@ Dated evidence, newest first.
 
 ### Phase 8 - wireless link and ground station
 
+- **2026-07-30** - Selective repeat closed the loop on the bench: two 800x600 images arrived
+  complete over the air, gaps named and refilled. The gyro moved to +-2000 dps after fast spins
+  clipped at 1000 and the heading "lost track"; a compass disagreement past ~57 degrees now snaps
+  the estimate instead of dragging it back. The display convention (clockwise for an observer
+  looking down) enters at exactly one constant, and a commanded SET_HEADING now outlives mode
+  changes rather than being forgotten on re-entering POINTING.
+- **2026-07-30** - The bench falsified two of the day's guesses. The compass sign, hand-picked
+  twice and wrong twice, is now measured: the firmware correlates the mag angle against the gyro
+  during the calibration turn and locks whichever sign agrees. And selective repeat's requests
+  never arrived because they were triggered by the vehicle's own 1 Hz status frame - phase-locked
+  into its transmit window, eight for eight lost. Requests now run on the ground's clock at 1.3 s,
+  so no alignment survives a round.
+- **2026-07-30** - DETUMBLE became autonomous protection: any operating mode that starts spinning
+  pulls itself into the recovery and resumes where it was (REQ-MODE-012, SIL-014). The operating
+  modes became a clique - the sequencing ladder encoded a deployment story the rig does not have.
+  The compass gained live hard-iron calibration after the first bench run showed its field circle
+  centred at +300 counts; it needs one full turn of the platform after power-up before it speaks.
 - **2026-07-30** - The design audit's structural items landed. Heading became absolute: a
   complementary filter blends the gyro integral with a magnetometer compass heading, running in
   every mode, so the dial tracks the platform even in STANDBY and SET_HEADING names a repeatable

@@ -18,7 +18,13 @@ constexpr CommandSpec kCommandTable[kCommandCount] = {
     /* NOOP          */ {kAllModes, "REQ-CMD-001"},
     /* SET_MODE      */ {kAllModes, "REQ-CMD-001"},
     /* CLEAR_FAULT   */ {kAllModes, "REQ-FAULT-010"},
-    /* CAPTURE_IMAGE */ {mode_bit(Mode::POINTING), "REQ-CMD-001"},
+    // not DETUMBLE (a spinning platform photographs smear) and not SAFE (a faulted vehicle
+    // sheds load, it does not sightsee). everywhere else a capture is a payload op, not a
+    // ceremony - requiring POINTING first was sequencing theatre on a rig with no wheel
+    /* CAPTURE_IMAGE */
+    {static_cast<uint8_t>(mode_bit(Mode::STANDBY) | mode_bit(Mode::POINTING) |
+                          mode_bit(Mode::DOWNLINK)),
+     "REQ-CMD-001"},
     /* SET_HEADING   */ {mode_bit(Mode::POINTING), "REQ-ADCS-002"},
 };
 

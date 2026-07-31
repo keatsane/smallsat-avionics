@@ -60,7 +60,9 @@ static uint32_t capture_start_ms = 0U;
 static uint32_t frame_bytes = 0U;  // size latched when the capture completed
 static uint32_t frame_read = 0U;   // how much of it has been handed out
 static bool burst_open = false;    // a burst read is mid-flight, cs still asserted
-static bool configured = false;    // init got all the way through
+static bool configured = false;
+static uint32_t capture_seq =
+    0U;  // increments per capture - see ov2640_capture_count    // init got all the way through
 
 // the camera is reached by two tasks - the control task polls its health, the downlink task
 // drains its fifo - and it shares spi3 with both radios. one lock covers both problems: the spi3
@@ -269,6 +271,8 @@ bool ov2640_set_resolution(ov2640_res_t res) {
 
 ov2640_res_t ov2640_resolution(void) { return res_now; }
 
+uint32_t ov2640_capture_count(void) { return capture_seq; }
+
 bool ov2640_rewind(void) {
     const bool l = cam_lock();
     bool ok = false;
@@ -300,6 +304,7 @@ static bool capture_start_locked(void) {
     chip_write(ARDUCHIP_FIFO, FIFO_START_MASK);
 
     state = OV2640_CAPTURING;
+    capture_seq++;  // each capture is a new frame, however the read pointer gets used later
     capture_start_ms = millis();
     frame_bytes = 0U;
     frame_read = 0U;

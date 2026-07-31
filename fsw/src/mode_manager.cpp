@@ -12,17 +12,21 @@ namespace {
 // (this mode -> to) is a legal autonomous transition; anything not set is illegal, including
 // self-transitions (BOOT->BOOT) and any climb out of SAFE (that's ground-commanded, separate)
 // every operating mode keeps a "-> SAFE" bit so a fault can always force safe mode
+// the operating modes form a clique: each reaches every other. the ladder used to force
+// sequencing hops (STANDBY could not reach POINTING without passing through DETUMBLE), which
+// encoded a deployment story this bench rig does not have and cost a command per hop. what
+// remains restricted is the frame of the graph - BOOT is left only by passing its self-checks,
+// and SAFE is left only by ground command (REQ-MODE-006)
+constexpr uint8_t kOperating = mode_bit(Mode::STANDBY) | mode_bit(Mode::DETUMBLE) |
+                               mode_bit(Mode::POINTING) | mode_bit(Mode::DOWNLINK) |
+                               mode_bit(Mode::SAFE);
+
 constexpr uint8_t kAutoAllowed[kModeCount] = {
     /* from BOOT     */ mode_bit(Mode::STANDBY) | mode_bit(Mode::DETUMBLE) | mode_bit(Mode::SAFE),
-    /* from STANDBY  */ mode_bit(Mode::DETUMBLE) | mode_bit(Mode::SAFE),
-    /* from DETUMBLE */ mode_bit(Mode::STANDBY) | mode_bit(Mode::POINTING) | mode_bit(Mode::SAFE),
-    // DETUMBLE is reachable from both active modes, not only from STANDBY: it is the recovery
-    // from unwanted rates, and rates do not wait for the vehicle to pass through idle first.
-    // requiring the STANDBY hop added a command and a cycle of delay and bought nothing
-    /* from POINTING */ mode_bit(Mode::STANDBY) | mode_bit(Mode::DETUMBLE) |
-        mode_bit(Mode::DOWNLINK) | mode_bit(Mode::SAFE),
-    /* from DOWNLINK */ mode_bit(Mode::STANDBY) | mode_bit(Mode::DETUMBLE) |
-        mode_bit(Mode::POINTING) | mode_bit(Mode::SAFE),
+    /* from STANDBY  */ kOperating,
+    /* from DETUMBLE */ kOperating,
+    /* from POINTING */ kOperating,
+    /* from DOWNLINK */ kOperating,
     /* from SAFE     */ 0,  // no autonomous exit from SAFE - only a ground command climbs out
 };
 static_assert(sizeof(kAutoAllowed) / sizeof(kAutoAllowed[0]) == kModeCount,
@@ -35,7 +39,9 @@ bool mode_transition_legal(Mode from, Trigger trigger, Mode to) {
         return false;  // out-of-range target
     }
     // a legal autonomous transition, or the one ground-commanded exit from SAFE (REQ-MODE-006)
-    const bool autonomous = (kAutoAllowed[static_cast<size_t>(from)] & mode_bit(to)) != 0;
+    // a clique row carries the mode's own bit; a self-transition is still not a transition
+    const bool autonomous =
+        (from != to) && ((kAutoAllowed[static_cast<size_t>(from)] & mode_bit(to)) != 0);
     const bool safe_recovery =
         (from == Mode::SAFE && trigger == Trigger::Command && to == Mode::STANDBY);
     return autonomous || safe_recovery;

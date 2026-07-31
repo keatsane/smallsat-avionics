@@ -77,6 +77,15 @@ ov2640_res_t ov2640_resolution(void);
 bool ov2640_rewind(void);
 
 /**
+ * @brief  how many captures have been started since boot
+ * @return the count - unchanged by reads, rewinds, or downlink passes
+ *
+ * This is how a consumer tells a genuinely new frame from the previous frame rewound: the fifo
+ * holds the image and the read pointer can be reset, so "readable" cannot mean "new".
+ */
+uint32_t ov2640_capture_count(void);
+
+/**
  * @brief  advance the capture state machine - call once per control cycle
  * @param  t_ms  platform time, for the capture timeout
  * @return the state after this poll

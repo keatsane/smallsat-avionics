@@ -57,6 +57,7 @@ uint16_t s_image_id = 0;  // increments per image, so two never interleave silen
 uint16_t s_chunk = 0;
 uint16_t s_chunks = 0;        // 0 means no first pass in flight
 uint16_t s_chunks_total = 0;  // survives the end of the pass, so requests can be range-checked
+uint32_t s_capture_seen = 0;  // which capture the current image id belongs to
 
 // ground requests cross from the uplink task through this queue, one (image_id << 16 | chunk)
 // word per entry - a queue rather than a shared bitmap so no lock spans the two tasks. a full
@@ -192,10 +193,17 @@ bool send_chunk(void) {
     }
 
     if (s_chunks == 0U) {  // first chunk of a new image - fix its shape before any of it goes out
+        // only a genuinely new capture starts a first pass. the frame stays readable in the fifo
+        // after a pass so requests can be served from it, and without this check a rewound frame
+        // would relaunch itself as a brand-new image id every time the task looped
+        if (ov2640_capture_count() == s_capture_seen) {
+            return false;
+        }
         const uint32_t remaining = ov2640_frame_bytes();
         if (remaining == 0U) {
             return false;
         }
+        s_capture_seen = ov2640_capture_count();
         s_image_id++;
         s_chunk = 0U;
         s_next_status_ms = millis();  // due immediately, so a pass opens with 0 of N

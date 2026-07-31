@@ -77,8 +77,8 @@ TEST_SUITE("MODE MANAGEMENT REQUIREMENTS") {
             expect_transition(Mode::STANDBY, Trigger::Nominal, Mode::BOOT, false);
             expect_transition(Mode::STANDBY, Trigger::Nominal, Mode::STANDBY, false);
             expect_transition(Mode::STANDBY, Trigger::Nominal, Mode::DETUMBLE, true);
-            expect_transition(Mode::STANDBY, Trigger::Nominal, Mode::POINTING, false);
-            expect_transition(Mode::STANDBY, Trigger::Nominal, Mode::DOWNLINK, false);
+            expect_transition(Mode::STANDBY, Trigger::Nominal, Mode::POINTING, true);
+            expect_transition(Mode::STANDBY, Trigger::Nominal, Mode::DOWNLINK, true);
             expect_transition(Mode::STANDBY, Trigger::Nominal, Mode::SAFE, true);
         }
 
@@ -87,7 +87,7 @@ TEST_SUITE("MODE MANAGEMENT REQUIREMENTS") {
             expect_transition(Mode::DETUMBLE, Trigger::Nominal, Mode::STANDBY, true);
             expect_transition(Mode::DETUMBLE, Trigger::Nominal, Mode::DETUMBLE, false);
             expect_transition(Mode::DETUMBLE, Trigger::Nominal, Mode::POINTING, true);
-            expect_transition(Mode::DETUMBLE, Trigger::Nominal, Mode::DOWNLINK, false);
+            expect_transition(Mode::DETUMBLE, Trigger::Nominal, Mode::DOWNLINK, true);
             expect_transition(Mode::DETUMBLE, Trigger::Nominal, Mode::SAFE, true);
         }
 
@@ -127,8 +127,10 @@ TEST_SUITE("MODE MANAGEMENT REQUIREMENTS") {
         const Mode before = mm.mode();
         const auto n = mm.log().size();
 
-        // illegal and out of range transitions
-        CHECK_FALSE(mm.request(Mode::DOWNLINK, Trigger::Command, 0, "REQ-MODE-004"));
+        // illegal and out of range transitions. with the operating modes a clique, the illegal
+        // cases left are the self-transition, the BOOT re-entry, and garbage
+        CHECK_FALSE(mm.request(Mode::STANDBY, Trigger::Command, 0, "REQ-MODE-004"));
+        CHECK_FALSE(mm.request(Mode::BOOT, Trigger::Command, 0, "REQ-MODE-004"));
         CHECK_FALSE(mm.request(static_cast<Mode>(99), Trigger::Command, 0, "REQ-MODE-004"));
 
         CHECK(mm.mode() == before);   // rejected requests left the mode untouched

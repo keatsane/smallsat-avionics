@@ -172,6 +172,60 @@ TEST_SUITE("EXECUTIVE REQUIREMENTS") {
         }
     }
 
+    TEST_CASE("REQ-MODE-012") {
+        SUBCASE("a spinning vehicle detumbles itself and resumes the interrupted mode") {
+            Executive exec;
+
+            // walk to POINTING (legal straight from STANDBY now)
+            Inputs standby;
+            standby.command = command_t{static_cast<uint8_t>(Command::SET_MODE),
+                                        static_cast<uint8_t>(Mode::STANDBY), 1};
+            exec.cycle(standby, 100);
+            Inputs pointing;
+            pointing.command = command_t{static_cast<uint8_t>(Command::SET_MODE),
+                                         static_cast<uint8_t>(Mode::POINTING), 2};
+            exec.cycle(pointing, 200);
+            REQUIRE(exec.modes().mode() == Mode::POINTING);
+
+            // a sustained high rate - three cycles of debounce, then the vehicle acts on its own
+            uint32_t t = 300;
+            for (int i = 0; i < 4; i++) {
+                Inputs spin;
+                spin.body_rate_rads = 1.0F;
+                exec.cycle(spin, t);
+                t += 100;
+            }
+            CHECK(exec.modes().mode() == Mode::DETUMBLE);
+            CHECK(exec.modes().log().back().trigger == Trigger::Nominal);
+
+            // the rate nulls; a second inside the deadband later it is back where it was
+            for (int i = 0; i < 12; i++) {
+                Inputs still;
+                still.body_rate_rads = 0.0F;
+                exec.cycle(still, t);
+                t += 100;
+            }
+            CHECK(exec.modes().mode() == Mode::POINTING);  // resumed, not parked in STANDBY
+        }
+
+        SUBCASE("a single bumped sample does not trigger the recovery") {
+            Executive exec;
+            Inputs standby;
+            standby.command = command_t{static_cast<uint8_t>(Command::SET_MODE),
+                                        static_cast<uint8_t>(Mode::STANDBY), 1};
+            exec.cycle(standby, 100);
+
+            Inputs bump;
+            bump.body_rate_rads = 1.0F;
+            exec.cycle(bump, 200);
+            Inputs still;
+            still.body_rate_rads = 0.0F;
+            exec.cycle(still, 300);
+
+            CHECK(exec.modes().mode() == Mode::STANDBY);  // the debounce held
+        }
+    }
+
     TEST_CASE("REQ-PAY-001") {
         SUBCASE("An accepted CAPTURE_IMAGE starts a capture") {
             Executive exec;

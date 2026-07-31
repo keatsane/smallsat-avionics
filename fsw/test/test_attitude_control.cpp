@@ -123,6 +123,31 @@ TEST_SUITE("ATTITUDE CONTROL") {
             CHECK(std::fabs(ac.heading() - 1.0F) < 0.2F);
         }
 
+        SUBCASE("a commanded bearing survives leaving and re-entering POINTING") {
+            AttitudeControl ac;
+            ac.enter_pointing();
+            ac.set_target(1.5F);
+
+            // drift away, leave for a downlink pass, come back
+            ac.update(0.5F, 1.0F, std::nullopt);
+            ac.enter_pointing();
+
+            // the ground named a bearing, and a mode round-trip must not quietly forget it -
+            // re-capturing the current heading on entry is only for a vehicle never told to aim
+            CHECK(ac.target() == doctest::Approx(1.5F));
+        }
+
+        SUBCASE("a large compass disagreement snaps the estimate back") {
+            AttitudeControl ac;
+            ac.update(0.0F, 0.1F, 1.0F);  // anchored at 1.0
+
+            // the gyro lost the plot - a clipped flick left the integral 2 rad wrong. the next
+            // fix must rescue the estimate outright, not drag it back at the filter's pace
+            ac.update(20.0F, 0.1F, std::nullopt);  // integral runs off
+            ac.update(0.0F, 0.1F, 1.0F);
+            CHECK(ac.heading() == doctest::Approx(1.0F).epsilon(0.01));
+        }
+
         SUBCASE("the error takes the short way round the circle") {
             AttitudeControl ac;
             ac.enter_pointing();

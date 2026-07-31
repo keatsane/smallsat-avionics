@@ -54,6 +54,11 @@ struct ControlGains {
     // ~2.9 degrees, which is about what a printed rig on a lazy susan can be asked for
     float pointing_band = 0.05F;  // rad
 
+    // the rate above which the executive pulls the vehicle into DETUMBLE on its own
+    // (REQ-MODE-012). well clear of sensor noise and of the wobble a capture or a touch leaves
+    // behind, and well under a real spin - ~20 deg/s
+    float detumble_enter_rads = 0.35F;  // rad/s
+
     // how quickly the heading estimate is pulled toward the magnetometer. the gyro integral is
     // smooth and drifts; the mag is absolute and jittery (indoor fields bend around every steel
     // shelf) - the classic complementary split, gyro for shape, mag for anchor. two seconds
@@ -94,9 +99,11 @@ class AttitudeControl {
     void update(float rate_rads, float dt_s, const std::optional<float>& mag_heading);
 
     /**
-     * @brief  take the current heading as the target to hold
-     * Called on entry to POINTING, so an uncommanded POINTING holds wherever the vehicle is. A
-     * SET_HEADING afterward replaces the target with an absolute bearing.
+     * @brief  arm the pointing target on entry to POINTING
+     *
+     * If the ground has ever named a bearing (SET_HEADING), that bearing stands - a commanded
+     * aim outlives mode changes, so a downlink round-trip returns to the same target. Only a
+     * vehicle that was never told where to point holds wherever it happens to be.
      */
     void enter_pointing();
 
@@ -119,7 +126,10 @@ class AttitudeControl {
      * estimate free-runs from zero-at-boot, and the target is relative to that - degraded but
      * usable, and honest about which reference actually exists (REQ-ADCS-002).
      */
-    void set_target(float rad) { target_ = rad; }
+    void set_target(float rad) {
+        target_ = rad;
+        target_commanded_ = true;  // and it stays commanded - see enter_pointing
+    }
 
     /** @brief the bearing being held */
     float target() const { return target_; }
@@ -157,6 +167,11 @@ class AttitudeControl {
 
     // the bearing to hold, in the heading estimate's frame
     float target_ = 0.0F;
+
+    // whether the ground has ever named a bearing. a commanded target outlives mode changes -
+    // leaving POINTING for a downlink pass and coming back must not quietly forget where the
+    // ground said to aim, which is exactly what re-capturing the current heading on entry did
+    bool target_commanded_ = false;
 };
 
 }  // namespace fsw

@@ -95,6 +95,9 @@ void Executive::cycle(const Inputs& inputs, uint32_t t_ms) {
                 if (!entered_safe_this_cycle) {  // never override a safing from the same cycle
                     mm_.request(static_cast<Mode>(inputs.command->arg), Trigger::Command, t_ms,
                                 ch_.command_spec(cmd).req_id);
+                    // any commanded mode change resets the autonomous-detumble bookkeeping: the
+                    // ground has taken over the plan, so there is nothing to resume to
+                    resume_valid_ = false;
                 }
                 break;
             case Command::CLEAR_FAULT:
@@ -148,14 +151,18 @@ void Executive::cycle(const Inputs& inputs, uint32_t t_ms) {
     if (inputs.body_rate_rads && mode_now == Mode::DETUMBLE) {
         torque_nm = ac_.detumble(*inputs.body_rate_rads);
 
-        // declare detumble done and step down to STANDBY once the rate has sat inside the
-        // deadband for a full second of consecutive samples (REQ-MODE-011). autonomous on
-        // purpose: a vehicle that nulls its rates and then waits for a human has turned a
-        // recovery mode into a parking brake. one bad sample resets the count, same shape as
-        // the fault debounce and for the same reason
+        // declare detumble done once the rate has sat inside the deadband for a full second
+        // of consecutive samples (REQ-MODE-011). an autonomous entry resumes the mode it
+        // interrupted (REQ-MODE-012); a commanded one steps down to STANDBY. autonomous on
+        // purpose either way: a vehicle that nulls its rates and then waits for a human has
+        // turned a recovery mode into a parking brake. one bad sample resets the count, same
+        // shape as the fault debounce and for the same reason
         if (std::fabs(*inputs.body_rate_rads) < ac_.gains().rate_deadband) {
             if (detumble_done_cycles_ < kDetumbleDoneCycles) {
                 detumble_done_cycles_++;
+            } else if (resume_valid_) {
+                resume_valid_ = false;
+                mm_.request(resume_mode_, Trigger::Nominal, t_ms, "REQ-MODE-012");
             } else {
                 mm_.request(Mode::STANDBY, Trigger::Nominal, t_ms, "REQ-MODE-011");
             }
@@ -167,6 +174,24 @@ void Executive::cycle(const Inputs& inputs, uint32_t t_ms) {
     }
     if (mode_now != Mode::DETUMBLE) {
         detumble_done_cycles_ = 0;  // a fresh DETUMBLE earns its exit from zero
+    }
+
+    // the autonomous half of DETUMBLE: a vehicle that starts spinning in any operating mode
+    // pulls itself into the recovery, remembers where it was, and update()'s exit path above
+    // returns it there (REQ-MODE-012). SAFE is deliberately not in the list - a safed vehicle
+    // sheds activity, and spinning quietly is what SAFE already accepts
+    if (inputs.body_rate_rads && mode_now != Mode::DETUMBLE && mode_now != Mode::SAFE &&
+        mode_now != Mode::BOOT &&
+        std::fabs(*inputs.body_rate_rads) > ac_.gains().detumble_enter_rads) {
+        if (detumble_enter_cycles_ < kDetumbleEnterCycles) {
+            detumble_enter_cycles_++;
+        } else if (mm_.request(Mode::DETUMBLE, Trigger::Nominal, t_ms, "REQ-MODE-012")) {
+            resume_mode_ = mode_now;
+            resume_valid_ = true;
+            detumble_enter_cycles_ = 0;
+        }
+    } else {
+        detumble_enter_cycles_ = 0;
     }
     platform::set_wheel_torque_nm(torque_nm);
 
