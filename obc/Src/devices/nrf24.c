@@ -212,18 +212,21 @@ bool nrf24_send(const uint8_t* data, size_t len) {
     // split across packets. the far end concatenates them back into a byte stream and the frame
     // decoder finds its own boundaries in it, exactly as it does on a uart - so a lost packet
     // costs one frame to a crc failure rather than desynchronising the link
+    // `off` rather than `sent`, which is the name of the file-scope packet counter - the shadow
+    // compiled and worked, and is exactly the kind of thing that reads correct while meaning
+    // something else
     bool ok = true;
-    size_t sent = 0U;
-    while (sent < len) {
-        size_t n = len - sent;
+    size_t off = 0U;
+    while (off < len) {
+        size_t n = len - off;
         if (n > NRF24_MAX_PAYLOAD) {
             n = NRF24_MAX_PAYLOAD;
         }
-        if (!write_packet(&data[sent], n)) {
+        if (!write_packet(&data[off], n)) {
             ok = false;
             break;  // fifo full - the caller is outrunning the air, and waiting here would block
         }
-        sent += n;
+        off += n;
     }
 
     spi_bus_unlock(spi_nrf24, locked);

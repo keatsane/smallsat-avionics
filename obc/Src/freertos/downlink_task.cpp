@@ -8,6 +8,7 @@
 #include "FreeRTOS.h"
 #include "devices/nrf24.h"
 #include "devices/ov2640.h"
+#include "drivers/systick.h"
 #include "protocol/frame.hpp"
 #include "protocol/msg.hpp"
 #include "rtos_tasks.h"
@@ -31,7 +32,44 @@ volatile bool s_active = false;
 // bookkeeping for the image currently going out. only this task touches it
 uint16_t s_image_id = 0;  // increments per image, so two never interleave silently
 uint16_t s_chunk = 0;
-uint16_t s_chunks = 0;  // 0 means no image in flight
+uint16_t s_chunks = 0;        // 0 means no image in flight
+uint16_t s_chunks_total = 0;  // survives the end of the image, so the last report reads N of N
+
+// how often the progress frame goes out while an image is moving. 1 Hz matches the heartbeat and
+// costs one more beacon slot per second; anything faster spends air time the uplink wants back
+constexpr uint32_t kStatusPeriodMs = 1000;
+uint32_t s_next_status_ms = 0;
+
+// say how far the downlink has got, on the *other* radio.
+//
+// the chunks ride the nRF24, which is transmit-only and cannot tell the ground anything about
+// itself - so when an image never arrives there is no way to tell a vehicle that never started
+// from a radio that dropped every packet. this frame answers that, and doubles as the progress
+// bar for the long full-resolution downlinks
+void send_status(void) {
+    fsw::downlink_status_t d{};
+    d.t_ms = millis();
+    d.image_id = s_image_id;
+    d.chunk = s_chunk;
+    d.chunks = s_chunks_total;
+    d.radio_sent = nrf24_sent();
+    const uint32_t dropped = nrf24_dropped();
+    d.radio_dropped = (dropped > 0xFFFFU) ? 0xFFFFU : static_cast<uint16_t>(dropped);
+
+    uint8_t buf[fsw::kFrameMaxSize];
+    const size_t n = fsw::frame_encode(static_cast<uint8_t>(fsw::MsgId::DownlinkStatus),
+                                       reinterpret_cast<const uint8_t*>(&d), sizeof(d), buf);
+    (void)telemetry_out_console(buf, n);
+    (void)telemetry_out_downlink(buf, n);
+    (void)telemetry_out_beacon(buf, n);
+
+    // and over the payload radio itself, which makes this a link check as well as a report. the
+    // nrf24 is transmit-only and otherwise silent unless an image is moving, so a ground station
+    // that hears nothing could not tell a broken link from an idle one - and proving the link
+    // meant capturing an image every time. parked in DOWNLINK the packet counter now moves once a
+    // second, so antennas and placement can be tried without the whole capture dance
+    (void)nrf24_send(buf, n);
+}
 
 // put one chunk on both links; false when there is nothing left to send
 bool send_chunk() {
@@ -47,8 +85,10 @@ bool send_chunk() {
         }
         s_image_id++;
         s_chunk = 0U;
+        s_next_status_ms = millis();  // first progress frame goes out on the next pass
         s_chunks = static_cast<uint16_t>((remaining + fsw::kPayloadChunkBytes - 1U) /
                                          fsw::kPayloadChunkBytes);
+        s_chunks_total = s_chunks;
     }
 
     fsw::payload_data_t p{};
@@ -97,6 +137,16 @@ void downlink_task(void*) {
                 break;  // no image waiting, or this one just finished
             }
             task_health_checkin(TASK_ID_DOWNLINK);
+        }
+
+        // reported once a second for as long as the vehicle is in DOWNLINK, whether or not an
+        // image is moving. that keeps the payload link continuously observable while still only
+        // using it in the mode it belongs to - the radio stays silent in every other mode, which
+        // is what makes DOWNLINK a real mode rather than a label
+        const uint32_t now = millis();
+        if (s_active && (int32_t)(now - s_next_status_ms) >= 0) {
+            send_status();
+            s_next_status_ms = now + kStatusPeriodMs;
         }
 
         task_health_checkin(TASK_ID_DOWNLINK);

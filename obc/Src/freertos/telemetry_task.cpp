@@ -55,13 +55,28 @@ uint32_t s_dropped = 0;  // guarded by s_lock
 // only this task reads, so the drain scratch can be static and keep the stack small
 uint8_t s_drain[128];
 
-// the lora beacon's outbound slot - exactly one frame deep, guarded by s_lock. one slot rather
-// than a queue because a beacon says what is true now: at 57 ms of air time a packet, a backlog
-// would broadcast an ever-staler picture and never catch up
-uint8_t s_beacon[fsw::kFrameMaxSize];
-size_t s_beacon_len = 0U;
-bool s_beacon_pending = false;
-uint32_t s_beacon_dropped = 0U;  // newer state replaced an untransmitted one
+// the lora beacon's outbound queue, guarded by s_lock.
+//
+// this was one slot deep, on the reasoning that a beacon says what is true now and a backlog would
+// broadcast an ever-staler picture. that is right for the heartbeat and wrong for everything else
+// on this link: a command ack is not state, it is an answer, and a heartbeat landing in the same
+// instant threw it away. on the bench a command would go unacknowledged perhaps one time in five
+// with the command itself having been received and executed - the worst possible failure, since
+// the ground then retransmits something already done.
+//
+// three deep covers a heartbeat, an ack and a downlink progress frame arriving together, which is
+// the worst real case, at 57 ms of air time each
+constexpr size_t kBeaconDepth = 3;
+
+struct beacon_slot_t {
+    uint8_t frame[fsw::kFrameMaxSize];
+    size_t len;
+};
+
+beacon_slot_t s_beacon[kBeaconDepth];
+size_t s_beacon_head = 0U;       // next to transmit
+size_t s_beacon_count = 0U;      // how many are waiting
+uint32_t s_beacon_dropped = 0U;  // offered to a full queue and never transmitted
 
 // the uart is passed rather than derived from the handle: until telemetry_task_create runs both
 // handles are null, so any "which buffer is this" test would answer the same for both links
@@ -117,7 +132,7 @@ void report_drops(void) {
 // radio back into receive itself, so there is nothing to poll here and no window in which this
 // task's loop period decides how long the vehicle stays deaf
 void service_beacon(void) {
-    if (!s_beacon_pending) {
+    if (s_beacon_count == 0U) {
         return;
     }
 
@@ -125,11 +140,13 @@ void service_beacon(void) {
     size_t len = 0U;
 
     (void)xSemaphoreTake(s_lock, portMAX_DELAY);
-    len = s_beacon_len;
+    const beacon_slot_t& slot = s_beacon[s_beacon_head];
+    len = slot.len;
     for (size_t i = 0U; i < len; i++) {
-        frame[i] = s_beacon[i];
+        frame[i] = slot.frame[i];
     }
-    s_beacon_pending = false;
+    s_beacon_head = (s_beacon_head + 1U) % kBeaconDepth;
+    s_beacon_count--;
     (void)xSemaphoreGive(s_lock);
 
     // outside the lock: this reaches for the spi3 bus, and holding two locks to send a beacon is
@@ -161,21 +178,25 @@ bool telemetry_out_downlink(const uint8_t* data, size_t len) {
 }
 
 bool telemetry_out_beacon(const uint8_t* data, size_t len) {
-    if (data == nullptr || len == 0U || len > sizeof(s_beacon) || s_lock == nullptr) {
+    if (data == nullptr || len == 0U || len > fsw::kFrameMaxSize || s_lock == nullptr) {
         return false;
     }
 
+    bool ok = false;
     (void)xSemaphoreTake(s_lock, portMAX_DELAY);
-    if (s_beacon_pending) {
-        s_beacon_dropped++;  // the one being replaced never made it onto the air
+    if (s_beacon_count < kBeaconDepth) {
+        beacon_slot_t& slot = s_beacon[(s_beacon_head + s_beacon_count) % kBeaconDepth];
+        for (size_t i = 0U; i < len; i++) {
+            slot.frame[i] = data[i];
+        }
+        slot.len = len;
+        s_beacon_count++;
+        ok = true;
+    } else {
+        s_beacon_dropped++;  // the link is behind; this one never makes it onto the air
     }
-    for (size_t i = 0U; i < len; i++) {
-        s_beacon[i] = data[i];
-    }
-    s_beacon_len = len;
-    s_beacon_pending = true;
     (void)xSemaphoreGive(s_lock);
-    return true;
+    return ok;
 }
 
 size_t telemetry_out_room(void) {

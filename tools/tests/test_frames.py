@@ -288,6 +288,71 @@ def test_format_task_health_flags_an_unfed_watchdog():
     assert "WATCHDOG UNFED" in format_frame(frames.MSG_TASK_HEALTH, payload)
 
 
+def test_downlink_status_renders_a_progress_bar():
+    payload = struct.pack("<IHHHIH", 5000, 11, 30, 120, 90, 3)
+    line = format_frame(frames.MSG_DOWNLINK_STATUS, payload)
+    assert line.startswith("DOWNLINK")
+    assert "30/120 (25%)" in line
+    assert "dropped=3" in line
+    # the bar has to move, or it is decoration rather than a progress indicator
+    quarter = format_frame(frames.MSG_DOWNLINK_STATUS, payload)
+    whole = format_frame(
+        frames.MSG_DOWNLINK_STATUS, struct.pack("<IHHHIH", 5000, 11, 120, 120, 360, 3)
+    )
+    assert quarter.count("#") < whole.count("#")
+
+
+def test_downlink_status_survives_a_zero_total():
+    # a status frame sent when nothing is in flight must not divide by zero
+    line = format_frame(frames.MSG_DOWNLINK_STATUS, struct.pack("<IHHHIH", 1, 0, 0, 0, 0, 0))
+    assert "0/0 (0%)" in line
+
+
+def test_ground_status_reports_a_dead_receiver():
+    # the state that hid a broken payload link for three sessions: lora fine, nrf24 down
+    payload = struct.pack("<IIIIBB", 9000, 42, 0, 0, 0, frames.GROUND_FLAG_LORA_UP)
+    line = format_frame(frames.MSG_GROUND_STATUS, payload)
+    assert line.startswith("GROUND")
+    assert "lora up" in line
+    assert "nrf24 DOWN" in line
+
+
+def test_ground_status_reports_channel_occupancy():
+    # a percentage rather than a flag, because a flag read "yes" forever: 2476 MHz has wifi and
+    # bluetooth in it, and the detector trips on any of it
+    up = frames.GROUND_FLAG_LORA_UP | frames.GROUND_FLAG_NRF24_UP
+    assert "ch 3% busy" in format_frame(
+        frames.MSG_GROUND_STATUS, struct.pack("<IIIIBB", 1, 5, 0, 0, 3, up)
+    )
+    assert "ch 94% busy" in format_frame(
+        frames.MSG_GROUND_STATUS, struct.pack("<IIIIBB", 1, 5, 0, 0, 94, up)
+    )
+
+
+def test_ground_status_counts_the_panels():
+    both = frames.GROUND_FLAG_PANEL1 | frames.GROUND_FLAG_PANEL2
+    assert "oled x2" in format_frame(
+        frames.MSG_GROUND_STATUS, struct.pack("<IIIIBB", 1, 0, 0, 0, 0, both)
+    )
+    assert "oled x1" in format_frame(
+        frames.MSG_GROUND_STATUS, struct.pack("<IIIIBB", 1, 0, 0, 0, 0, frames.GROUND_FLAG_PANEL1)
+    )
+
+
+def test_ground_status_len_matches_msg_hpp():
+    header = REPO_ROOT / "common" / "protocol" / "msg.hpp"
+    match = re.search(r"sizeof\(ground_status_t\)\s*==\s*(\d+)", header.read_text())
+    assert match is not None
+    assert struct.calcsize("<IIIIBB") == int(match.group(1))
+
+
+def test_downlink_status_len_matches_msg_hpp():
+    header = REPO_ROOT / "common" / "protocol" / "msg.hpp"
+    match = re.search(r"sizeof\(downlink_status_t\)\s*==\s*(\d+)", header.read_text())
+    assert match is not None
+    assert struct.calcsize("<IHHHIH") == int(match.group(1))
+
+
 def test_task_health_len_matches_msg_hpp():
     # the python length guard against the C++ sizeof assert - format_frame keys off it, so a
     # mismatch would silently render every report as UNKNOWN

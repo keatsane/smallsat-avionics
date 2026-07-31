@@ -51,4 +51,19 @@ bool nrf24_pending();
 /** @brief packets the nrf24 has received since boot */
 uint32_t nrf24_packets();
 
+/**
+ * @brief  how busy the payload channel has been, as a percentage of samples, and reset the window
+ * @return 0-100, the share of RPD samples that read high since the last call
+ *
+ * The nRF24's RPD register goes high on any carrier above roughly -64 dBm, whatever its address,
+ * crc or length - so it separates "nothing is arriving" from "something is arriving and this radio
+ * is throwing it away", which a packet counter reading zero cannot do.
+ *
+ * A percentage rather than a flag, because a flag was useless: channel 76 sits at 2476 MHz with
+ * wifi and bluetooth all over it, so "did the detector trip at all in the last second" answered
+ * yes forever, on a bench with nothing transmitting. What distinguishes a real burst is that it
+ * pins the detector high for as long as it lasts, and ambient does not.
+ */
+uint8_t nrf24_channel_busy_pct();
+
 #endif  // GSW_RADIOS_HPP

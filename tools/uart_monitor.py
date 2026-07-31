@@ -24,6 +24,7 @@ import time
 
 from pathlib import Path
 
+from ground.colors import LINK_COLORS, colorize_heartbeat, paint
 from ground.commands import CommandError, parse, usage
 from ground.console import make_session
 from ground.filters import KINDS, PER_CYCLE_KINDS, Filters
@@ -130,9 +131,11 @@ def main() -> int:
         "SENT": "\x1b[1;32m",  # bold green - the local side of the conversation
         "REJECT": "\x1b[1;31m",  # bold red - refused here, never reached the wire
         "PAYLOAD": "\x1b[35m",  # magenta - bulk data, distinct from the health stream
+        "DOWNLINK": "\x1b[1;35m",  # bold magenta - the progress of that bulk data
         "TASKS": "\x1b[36m",  # cyan, plainer than the heartbeat's - same cadence, less to read
         "LINKERR": "\x1b[1;31m",  # bold red - a frame arrived corrupt, which is never routine
         "FILTER": "\x1b[1;34m",  # bold blue - console state, not anything the spacecraft said
+        "GROUND": "\x1b[36m",  # cyan - the ground station talking about itself, not the vehicle
     }
 
     # rebound to prompt_toolkit's printer once the prompt owns the terminal (see console.py)
@@ -144,6 +147,20 @@ def main() -> int:
         kind = line.split(maxsplit=1)[0] if line.strip() else ""
         if not filters.visible(kind):
             return
+
+        # the heartbeat is painted field by field rather than as one color, because the fields are
+        # what the satellite's own status beads show: mode carries bead 0's color, and each fault
+        # carries bead 1's - blue when latched but inhibited, red when something is acting on it.
+        # someone who has learned the rig's colors has learned the console's
+        if kind == "HEARTBEAT":
+            emit(colorize_heartbeat(line, use_color))
+            return
+        if kind == "GROUND" and use_color:
+            for word, key in (("up", "up"), ("DOWN", "lost")):
+                line = line.replace(f" {word} ", f" {paint(word, LINK_COLORS[key])} ")
+            emit(line)
+            return
+
         color = kind_color.get(kind)
         emit(f"{color}{line}\x1b[0m" if use_color and color else line)
 

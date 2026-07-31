@@ -2,7 +2,7 @@
 
 The bench sheet: what wire goes where. `hardware.md` holds the reasoning, the parts, and the placement rules; `journal.md` holds how any of it went.
 
-**Everything below is built and wired as of 2026-07-26**, including both radios on the shared SPI3 bus and the 3.3 V buck that feeds them. What is left on the hardware is the **PTC fuse and the battery harness**, both of which wait for Phase 8; the bench PSU's current limit stands in for the fuse until then. The radios have no firmware yet, which is a software gap, not a wiring one.
+Everything below is built and wired, both radios included. What is left is the **PTC fuse and the battery harness**; the bench PSU's current limit stands in for the fuse until then.
 
 ## Things that silently destroy parts - read before touching a board
 
@@ -145,7 +145,7 @@ Pins read **`<MCU pin>/<Morpho hole>`**, and the Morpho hole always carries its 
 | 9 | LoRa control (XH3) | CS, DIO0, RST | PB7/CN7-21, PA0/CN7-28, PA1/CN7-30 | white, green, blue |
 | 10 | nRF control (XH3) | CSN, CE, IRQ | PA4/CN7-32, PC2/CN7-35, PC3/CN7-37 | white, green, blue |
 
-Rows 1-7 cross-check against the signal table below. **Rows 9 and 10 (the radios) do not** - they are Phase 8 and were never added to that table, so their Morpho holes are inferred from the CN7 grouping (PC2/CN7-35 and PC3/CN7-37 are confirmed in JOURNAL 2026-07-22). Verify them against the board before crimping.
+Rows 1-7 cross-check against the signal table below. **Rows 9 and 10 (the radios) do not** - their Morpho holes are inferred from the CN7 grouping rather than listed there.
 
 **Components on the slice:** a **330-470 ohm resistor in series on the DIN line** of connector 6 (WS2812 data protection - put it here so the LED board gets a clean signal), and optionally a **1-10 uF cap across the 3V3/GND rails** for local decoupling. Nothing else: no pull-ups (the breakouts carry them), no level shifters (all 3.3 V), no transistors or diodes.
 
@@ -265,13 +265,22 @@ SCK/MOSI/MISO. Leave **pin 9** alone as well: it is A7, the battery-voltage divi
 | nRF24 | CSN | 10 | white |
 | nRF24 | CE | 11 | blue |
 | nRF24 | IRQ | not connected - the driver polls | - |
-| OLED | VCC | 3V3 | red |
-| OLED | GND | GND | black |
-| OLED | SDA | SDA | blue |
-| OLED | SCL | SCL | yellow |
+| OLED 1 (status, 0x3C) | VCC | 3V3 | red |
+| OLED 1 (status, 0x3C) | GND | GND | black |
+| OLED 1 (status, 0x3C) | SDA | SDA | blue |
+| OLED 1 (status, 0x3C) | SCL | SCL | yellow |
+| OLED 2 (payload, 0x3D) | VCC, GND, SDA, SCL | the same four pins, in parallel | as above |
 
 - **10 uF across the nRF24's own VCC/GND**, as close to the module as it goes.
-- **Add no I2C pull-ups.** The SSD1306 module carries its own and the Feather has none.
+- **Add no I2C pull-ups.** The SSD1306 modules carry their own and the Feather has none. Two
+  panels means two sets in parallel, which is fine on a bus this short.
+- **The second OLED must be strapped to 0x3D** before it goes on the bus - a jumper or a moved
+  resistor on the back of the module, per its silkscreen. Two panels on one address is one address
+  answering twice, and the bus reads as a single confused display rather than as an error.
+- The second panel is optional in firmware: it is probed at boot and skipped if nothing answers.
+  The console's `GROUND` line reports `oled x1` or `oled x2`, so an unstrapped second panel is
+  visible rather than merely puzzling - two modules on 0x3C both draw the status screen, which
+  looks like a duplicated display rather than like a mistake.
 - **Both antennas on before power** - the nRF24's SMA stub, and a 78 mm wire on the Feather's ANT
   pad (a quarter wave at 915 MHz). Two radios here can transmit.
 - Whole box draws ~87 mA receiving against a 600 mA regulator, so USB alone runs it.
@@ -280,7 +289,7 @@ SCK/MOSI/MISO. Leave **pin 9** alone as well: it is A7, the battery-voltage divi
 
 **Inter-layer (must unplug to separate plates):**
 - compute -> gimbal: 3 motor phase bullets + the encoder JST-XH 4
-- compute -> comms: LED JST-XH 3, then the radio connectors (all Phase 8)
+- compute -> comms: LED JST-XH 3, then the radio connectors
 
 **Everything else is intra-layer**, on the compute plate: the slices, sensor protoboard, ESC, both bucks, and the distribution board.
 

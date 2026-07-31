@@ -69,6 +69,7 @@ static constexpr uint8_t NRF_STATUS = 0x07;
 static constexpr uint8_t NRF_RX_ADDR_P0 = 0x0A;
 static constexpr uint8_t NRF_RX_PW_P0 = 0x11;
 static constexpr uint8_t NRF_FIFO_STATUS = 0x17;
+static constexpr uint8_t NRF_RPD = 0x09;  // received power detector, 1 = carrier above ~-64 dBm
 
 // PRIM_RX set - the only difference from the satellite's 0x7E, which is the same word in transmit
 static constexpr uint8_t NRF_CONFIG_RX = 0x7F;
@@ -89,6 +90,8 @@ static const uint8_t kNrfAddress[kNrfAddrWidth] = {0x53, 0x53, 0x41, 0x56, 0x31}
 static SPISettings spi_settings(4000000, MSBFIRST, SPI_MODE0);
 static uint32_t lora_count = 0;
 static uint32_t nrf_count = 0;
+static uint32_t nrf_rpd_high = 0;
+static uint32_t nrf_rpd_samples = 0;
 
 // ---- shared spi helpers, chip select passed in because two devices share the bus ----
 
@@ -319,6 +322,25 @@ void nrf24_poll(rx_sink_t sink) {
     }
 }
 
-bool nrf24_pending() { return (nrf_read(NRF_FIFO_STATUS) & NRF_FIFO_RX_EMPTY) == 0; }
+bool nrf24_pending() {
+    // sampled here because this runs every pass, and a downlink burst is gone in ~200 ms - polling
+    // the detector once a second alongside the status frame would miss it almost every time
+    if ((nrf_read(NRF_RPD) & 0x01) != 0) {
+        nrf_rpd_high++;
+    }
+    nrf_rpd_samples++;
+    return (nrf_read(NRF_FIFO_STATUS) & NRF_FIFO_RX_EMPTY) == 0;
+}
+
+uint8_t nrf24_channel_busy_pct() {
+    const uint32_t total = nrf_rpd_samples;
+    const uint32_t high = nrf_rpd_high;
+    nrf_rpd_samples = 0;
+    nrf_rpd_high = 0;
+    if (total == 0) {
+        return 0;
+    }
+    return static_cast<uint8_t>((high * 100U) / total);
+}
 
 uint32_t nrf24_packets() { return nrf_count; }

@@ -31,6 +31,22 @@ pushes.
 is what returns the radio to receive; behind `!pending ||` it ran once a second and the vehicle
 was deaf almost continuously. Side effects do not belong in conditions.
 
+**A health message sent once, at boot, is not observability.** The ground station said whether
+its radios came up exactly once, before anyone had opened a terminal - so a dead payload receiver
+and a working one hearing nothing produced identical evidence for three sessions, while the
+vehicle transmitted whole images into it. Anything that can be false later has to be said again.
+
+**A shadow copy of a byte stream drifts from the parser reading it.** The ground station buffered
+received bytes to forward "the frame the parser just finished", but nRF24 packets are padded to 32
+and a frame is 70, so the padding accumulated in the shadow buffer and every forwarded frame was
+padding plus a truncated frame. No image ever reassembled. The parser already knows the frame -
+re-encode from it and there is nothing to drift.
+
+**Half duplex means a scheduling constant decides how deaf the vehicle is.** The radio cannot hear
+while transmitting, and leaving the return-to-receive to whoever next polled put the telemetry
+task's 50 ms idle wait on top of 57 ms of air time. One uplinked command in six was lost. The
+transmit now waits for its own completion, and the ground retransmits until acked.
+
 **A completion flag reads zero before the first operation.** Gating the first transmit on "has the
 last transmit finished" deadlocks forever. The beacon never sent a single packet.
 
@@ -60,21 +76,34 @@ Dated evidence, newest first.
 
 ### Phase 8 - wireless link and ground station
 
-- **2026-07-31** - Link runs both ways. Beacon and command acks on LoRa, payload chunks on nRF24,
+- **2026-07-30** - The vehicle was transmitting the whole time. A downlink progress frame on the
+  LoRa beacon reported 186/186 chunks and 549 nRF24 packets while the ground received nothing, so
+  the failure is the ground station's receiver and never was the satellite. The ground station now
+  emits its own health once a second rather than once at boot, which is what hid this: a receiver
+  that failed to initialise printed one line before anybody had opened a terminal, and afterwards
+  looked exactly like a working one hearing nothing. Beacon queue went to three deep in the same
+  change - a heartbeat landing on a pending command ack was evicting it.
+- **2026-07-30** - Documentation cut roughly in half and two link bugs fixed. The ground station
+  was forwarding padding plus truncated frames on the payload link, which is why no image ever
+  arrived; it now re-encodes each decoded frame. `rfm95_send` waits for its own transmit to finish
+  instead of leaving the radio in standby until something polled, and the ground console
+  retransmits an unacknowledged command, which the flight software makes safe by answering a
+  repeated sequence number with the previous verdict rather than acting twice (REQ-CMD-003).
+- **2026-07-30** - Link runs both ways. Beacon and command acks on LoRa, payload chunks on nRF24,
   commands up from the ground console into the same uplink task that decodes them from a uart. The
   ground station is a Feather M0 RFM95 compiling `common/protocol/` rather than reimplementing it,
   with an SSD1306 showing mode, faults and link with no PC attached. **Owed: the untethered run.**
-- **2026-07-31** - Legacy sweep. Radio health telemetry filled the `LoraStatus`/`Nrf24Status` ids
+- **2026-07-30** - Legacy sweep. Radio health telemetry filled the `LoraStatus`/`Nrf24Status` ids
   reserved since June; SPI arbitration moved to a per-peripheral lock; CubeIDE project files and
   the ESC probe env removed; the PAL boundary became an automated check (REQ-PAL-001).
-- **2026-07-31** - Requirement backlog cleared: REQ-WDG-002 and REQ-TLM-005 bench-verified,
+- **2026-07-30** - Requirement backlog cleared: REQ-WDG-002 and REQ-TLM-005 bench-verified,
   REQ-SNS-003 deferred as conditional on redundancy this build does not have.
 - **2026-07-30** - Camera dropout test (REQ-PAY-002), which produced the ground-reference finding
   above. Fault bead confirmed orange with a Degraded and a Warning fault latched together.
 
 ### Phase 7 - ADCS
 
-- **2026-07-31** - Plant model, closed SIL loop, detumble and pointing laws. SIL-011 nulls a
+- **2026-07-30** - Plant model, closed SIL loop, detumble and pointing laws. SIL-011 nulls a
   2 rad/s spin inside the deadband; SIL-012 shows a sustained disturbance saturating the wheel.
   Inertias measured from Fusion (j_wheel 1.09e-4, j_platform 4.53e-3 kg m^2); friction fitted to a
   hand-timed coast-down, ~6.28 rad/s to rest in ~2 s. **REQ-ADCS-002 deliberately not claimed:**

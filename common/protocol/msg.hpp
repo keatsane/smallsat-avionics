@@ -30,8 +30,10 @@ enum class MsgId : uint8_t {
     TempData = 0x09,   // tmp117 structural temp
 
     // payload - bulk data, downlink mode only (0x10 block leaves room for the category)
-    PayloadData = 0x10,   // one chunk of a captured image
-    CameraStatus = 0x11,  // arducam link health + how much frame is waiting in its fifo
+    PayloadData = 0x10,     // one chunk of a captured image
+    CameraStatus = 0x11,    // arducam link health + how much frame is waiting in its fifo
+    DownlinkStatus = 0x12,  // how far a payload downlink has got, and what the radio did with it
+    GroundStatus = 0x13,    // the ground station talking about itself, not about the spacecraft
 
     // actuation - the reaction-wheel node, on its own link rather than the ground one (0x20 block)
     WheelCommand = 0x20,  // obc -> esc torque setpoint
@@ -174,6 +176,55 @@ struct __attribute__((packed)) payload_data_t {
     uint8_t data[kPayloadChunkBytes];
 };
 
+// MsgId::DownlinkStatus - progress of the payload downlink currently in flight.
+//
+// the chunks themselves go out on the nRF24, which is the link that cannot report on itself: if
+// nothing arrives, nothing arrives, and the ground has no way to tell a vehicle that never started
+// from a radio that swallowed every packet. so this rides the LoRa beacon instead - a different
+// transport, small, and only while a downlink is actually running.
+//
+// it is a progress bar and an instrument in one. `chunk`/`chunks` is how far along the image is;
+// `radio_sent` and `radio_dropped` are the packets the nRF24 accepted and the ones it refused for
+// a full fifo, which is the difference between "the vehicle is not sending" and "the vehicle is
+// sending and you are not hearing it"
+struct __attribute__((packed)) downlink_status_t {
+    uint32_t t_ms;
+    uint16_t image_id;       // which image, matching payload_data_t.image_id
+    uint16_t chunk;          // chunks handed to the links so far
+    uint16_t chunks;         // total in this image, 0 when nothing is in flight
+    uint32_t radio_sent;     // nrf24 packets accepted since boot
+    uint16_t radio_dropped;  // nrf24 packets refused for a full fifo since boot, saturating
+};
+
+// ground_status_t.flags bits
+inline constexpr uint8_t kGroundFlagLoraUp = 0x01;   // the ground station's lora came up at boot
+inline constexpr uint8_t kGroundFlagNrf24Up = 0x02;  // and its nrf24
+
+inline constexpr uint8_t kGroundFlagPanel1 = 0x04;  // the status oled answered on 0x3C
+inline constexpr uint8_t kGroundFlagPanel2 = 0x08;  // the payload oled answered on 0x3D
+
+// MsgId::GroundStatus - the ground station's own health, emitted onto usb once a second.
+//
+// every other message in this file is the spacecraft talking. this one is not, and it exists
+// because the ground station used to say whether its radios came up exactly once, at boot, before
+// anybody had opened a terminal. a receiver that failed to initialise then looked identical to a
+// working one hearing nothing - which is precisely the state that hid a dead payload receiver
+// while the vehicle happily transmitted a whole image into it
+struct __attribute__((packed)) ground_status_t {
+    uint32_t t_ms;         // ground station uptime, not the spacecraft's
+    uint32_t lora_frames;  // whole frames recovered on each link since the ground station booted
+    uint32_t nrf24_frames;
+    uint32_t nrf24_packets;  // raw packets off the payload radio, before framing
+
+    // share of carrier-detect samples that read high since the last report. this is the payload
+    // channel's occupancy, not the vehicle's signal: 2476 MHz has wifi and bluetooth in it, so a
+    // few percent is the resting state of a bench with nothing transmitting. what a real burst
+    // looks like is this number climbing while packets do not
+    uint8_t nrf24_busy_pct;
+
+    uint8_t flags;  // kGroundFlag* bits
+};
+
 // ------- rtos / platform health -------
 
 // how many tasks one report can carry. sized for the whole planned set plus the kernel's idle task,
@@ -245,6 +296,8 @@ static_assert(sizeof(power_data_t) == 17, "power_data_t wire layout changed");
 static_assert(sizeof(temp_data_t) == 9, "temp_data_t wire layout changed");
 static_assert(sizeof(camera_data_t) == 9, "camera_data_t wire layout changed");
 static_assert(sizeof(payload_data_t) == 64, "payload_data_t wire layout changed");
+static_assert(sizeof(downlink_status_t) == 16, "downlink_status_t wire layout changed");
+static_assert(sizeof(ground_status_t) == 18, "ground_status_t wire layout changed");
 static_assert(sizeof(payload_data_t) <= kFrameMaxPayload, "payload_data_t no longer fits a frame");
 static_assert(sizeof(task_entry_t) == 6, "task_entry_t wire layout changed");
 static_assert(sizeof(task_health_t) == 48, "task_health_t wire layout changed");

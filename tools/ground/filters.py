@@ -22,6 +22,8 @@ KINDS = (
     "TEMP",
     "CAMERA",
     "PAYLOAD",
+    "DOWNLINK",
+    "GROUND",
     "UART",
     "COMMAND",
     "COMMAND_ACK",

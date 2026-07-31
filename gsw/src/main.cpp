@@ -50,10 +50,18 @@ bool nrf_up = false;
 // bytes went out usb in that order too, so the pc saw the same wreckage
 struct link_t {
     fsw::frame_parser_t parser;
+    uint32_t frames;  // whole crc-checked frames recovered on this link since boot
 };
 
 link_t lora_link{};
 link_t nrf_link{};
+
+// how often the ground station says how it is doing. it used to say so once, at boot, and a
+// receiver that failed to initialise then was indistinguishable from a working one hearing
+// nothing - which is exactly what hid a dead payload radio while the vehicle transmitted a whole
+// image into it. once a second, forever, so it is true whenever somebody opens a terminal
+constexpr uint32_t kGroundStatusMs = 1000;
+uint32_t next_status_ms = 0;
 
 fsw::frame_parser_t up_parser;  // uplink, from usb - re-encoded on the way out, same as the rx side
 
@@ -100,6 +108,7 @@ void on_link_rx(link_t& link, const uint8_t* data, size_t len) {
         uint8_t out[fsw::kFrameMaxSize];
         const size_t n = fsw::frame_encode(f->msg_id, f->payload, f->len, out);
         Serial.write(out, n);
+        link.frames++;
 
         led_flash(kFrameFlashMs);
         next_alive_blink = millis() + kAliveBlinkMs;  // do not stack an alive blink on top
@@ -109,6 +118,11 @@ void on_link_rx(link_t& link, const uint8_t* data, size_t len) {
             fsw::heartbeat_t hb{};
             memcpy(&hb, f->payload, sizeof(hb));
             display_heartbeat(hb);
+        } else if (f->msg_id == static_cast<uint8_t>(fsw::MsgId::DownlinkStatus) &&
+                   f->len == sizeof(fsw::downlink_status_t)) {
+            fsw::downlink_status_t d{};
+            memcpy(&d, f->payload, sizeof(d));
+            display_downlink(d);
         }
     }
 }
@@ -138,6 +152,32 @@ void service_uplink() {
         const size_t n = fsw::frame_encode(f->msg_id, f->payload, f->len, out);
         lora_send(out, n);
     }
+}
+
+// the ground station's own health, as a frame like everything else - so the console decodes it
+// with the decoder it already has rather than parsing a line of text
+void service_ground_status() {
+    const uint32_t now = millis();
+    if (static_cast<int32_t>(now - next_status_ms) < 0) {
+        return;
+    }
+    next_status_ms = now + kGroundStatusMs;
+
+    fsw::ground_status_t g{};
+    g.t_ms = now;
+    g.lora_frames = lora_link.frames;
+    g.nrf24_frames = nrf_link.frames;
+    g.nrf24_packets = nrf24_packets();
+    g.nrf24_busy_pct = nrf_up ? nrf24_channel_busy_pct() : 0U;
+    g.flags = static_cast<uint8_t>((lora_up ? fsw::kGroundFlagLoraUp : 0U) |
+                                   (nrf_up ? fsw::kGroundFlagNrf24Up : 0U) |
+                                   (display_have_status_panel() ? fsw::kGroundFlagPanel1 : 0U) |
+                                   (display_have_payload_panel() ? fsw::kGroundFlagPanel2 : 0U));
+
+    uint8_t out[fsw::kFrameMaxSize];
+    const size_t n = fsw::frame_encode(static_cast<uint8_t>(fsw::MsgId::GroundStatus),
+                                       reinterpret_cast<const uint8_t*>(&g), sizeof(g), out);
+    Serial.write(out, n);
 }
 
 }  // namespace
@@ -177,7 +217,7 @@ void setup() {
             delay(100);
             digitalWrite(kPinLed, LOW);
             delay(100);
-            display_service(0, 0, false, false);
+            display_service(display_counts_t{0, 0, 0, 0, false, false});
         }
     }
 }
@@ -194,6 +234,11 @@ void loop() {
     }
     led_service();
 
+    // deliberately outside the downlink-quiet gate below: the whole point of this frame is to be
+    // heard during a downlink that is going wrong, and it is 23 bytes over usb rather than 25 ms
+    // on the i2c bus
+    service_ground_status();
+
     // the screen stays out of the payload link's way for as long as the downlink lasts. a full
     // ssd1306 redraw pushes 1 KB over i2c and blocks ~25 ms, and at ~470 packets a second that is
     // a dozen packets arriving into a fifo three deep.
@@ -204,5 +249,8 @@ void loop() {
     if (nrf_up && (nrf24_pending() || (millis() - last_nrf_ms) < kDownlinkQuietMs)) {
         return;
     }
-    display_service(lora_packets(), nrf24_packets(), lora_up, nrf_up);
+
+    const display_counts_t counts{lora_packets(),  nrf24_packets(), lora_link.frames,
+                                  nrf_link.frames, lora_up,         nrf_up};
+    display_service(counts);
 }

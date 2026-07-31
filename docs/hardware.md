@@ -79,7 +79,7 @@ Where every object goes, how it must be oriented, and how close it can sit to it
 - **TMP117:** placeable - put it where the temperature you care about is (structure for ambient, or near the ESC/motor to watch their heat). Good thermal contact with whatever it measures.
 - **ArduCAM (OV2640):** at a frame opening, lens pointing out, **clear unobstructed field of view** - nothing in the cone. Sensor perpendicular to the view; note which way is "up" in the image. Leave room for the lens to screw in and out for focus.
 
-### Comms (Phase 8)
+### Comms
 
 - **RFM95 LoRa:** near an edge/top with the antenna in clear air, running as straight as possible, away from metal (flywheel, battery) and from the other antenna. Fed from the dedicated 3.3 V buck, not the Nucleo 3V3.
 - **nRF24L01+PA+LNA:** same antenna-clearance story for its 2.4 GHz whip - the hardest thing to fit inside 100 mm, so plan its space first. **10 uF right at the module's VCC/GND.** 3.3 V from the radio buck.
@@ -103,15 +103,15 @@ Where every object goes, how it must be oriented, and how close it can sit to it
 | Battery | ESC/motor heat | LiPo safety + drift |
 | ESC / bucks (noise + heat) | IMU, INA228 sense, antennas, battery | noise + heat |
 
-### Not on the satellite
+## The ground station
 
-**Ground LoRa antenna: a soldered wire, not a connector (decided 2026-07-29).** The Feather M0 RFM95 (#3178) ships with no antenna connector, and the board on the bench has no usable uFL or edge-SMA footprint either - checked on the part, not from a drawing. So the antenna is a **quarter-wave wire soldered into the ANT through-hole: 8.2 cm at 915 MHz** (c/f/4; insulated wire runs a few percent short, so 7.8-8.2 cm is the window). One joint, no connector, and the ground box has room for it to stand up straight.
+A separate box on the desk, not part of the spacecraft. One **Feather M0 RFM95**, which is both the LoRa radio and the host - it leaves SPI free for a second **nRF24** and I2C free for an **SSD1306 OLED**, and it is its own USB serial port, so there is no separate host board. (A Teensy was the plan until 2026-07-30.) Connections are in [wiring.md](wiring.md).
 
-The two ends deliberately do not match, and do not need to: a link needs each end resonant at 915 MHz and properly fed, not identical hardware. The satellite keeps the right-angle SMA stub because it has to lie flat on a spinning plate; the ground box gets the wire because nothing there is space-constrained. A straight quarter-wave is often the better radiator of the two - screw-on stubs are helicals compromised for size.
+**Its LoRa antenna is a soldered wire, not a connector.** The Feather M0 RFM95 (#3178) ships with no antenna connector and the board on the bench has no usable uFL or edge-SMA footprint, so the antenna is a quarter-wave wire soldered into the ANT through-hole: **8.2 cm at 915 MHz** (c/f/4; insulated wire runs a few percent short, so 7.8-8.2 cm is the window). Solder it before the first transmit - this is the one board here whose antenna is something to remember rather than something already attached.
 
-Caveat if range ever disappoints: a quarter-wave monopole wants a counterpoise, and the Feather's small ground pour is a poor one. Soldering a second 8.2 cm wire to a GND pad pointing the other way makes it a rough dipole, which helps more than swapping antennas would. And per the part constraints above, **solder the wire before the first transmit** - the Feather is the one board here whose antenna is something to remember rather than something already attached.
+The two ends of the link deliberately do not match. A link needs each end resonant at 915 MHz and properly fed, not identical hardware: the satellite keeps its right-angle SMA stub because it has to lie flat on a spinning plate, and a straight quarter-wave is often the better radiator anyway, since screw-on stubs are helicals compromised for size. If range ever disappoints, the fix is a counterpoise - a second 8.2 cm wire on a GND pad pointing the other way makes it a rough dipole, which helps more than swapping antennas would.
 
-These live in the 3D-printed ground station, not the spacecraft: the **SSD1306 OLED**, the **second nRF24**, and the **Feather M0 RFM95** - which is both the LoRa radio and the host, so there is no separate host board. A Teensy was the plan until 2026-07-31; the Feather has the radio on it already, leaves SPI free for the nRF24 and I2C free for the display, and is its own USB serial port.
+**CAD:** one 4x6 protoboard with the Feather and the nRF24 soldered to it, the antenna wire standing up from the Feather's ANT pad, and a connector out to the OLED, which mounts separately on the box.
 
 ## 3D-printed parts and CAD (Fusion 360 -> `cad/`)
 

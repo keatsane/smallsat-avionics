@@ -139,7 +139,7 @@ The live fault catalog (command-link loss, IMU dropouts, power-monitor dropout, 
 
 **REQ-FAULT-005** - A fault of Warning or Degraded severity shall not by itself command SAFE; a Degraded fault shall switch to its documented fallback behavior (see Degraded fallback behaviors below), and every such fault shall be latched and reported in telemetry.
 **Type**: Functional
-**Status**: SIL-verified (no-SAFE, latch, and report in SIL-003; the retreats themselves in SIL-009, gyro dropout out of POINTING, and SIL-010, power dropout out of DOWNLINK - the mode no scenario had previously entered with a fault active, and the only one of the three fallbacks that covers it. The WHEEL_DROPOUT retreat is unit-verified rather than scenario-verified: it is the same code path from the same two modes as the gyro retreat, so a third scenario would restate SIL-009 with one name changed)
+**Status**: SIL-verified (SIL-003 for the no-SAFE half; SIL-009 and SIL-010 for the retreats. The WHEEL_DROPOUT retreat is unit-verified only - same code path from the same two modes as the gyro retreat, so a third scenario would restate SIL-009 with one name changed)
 **Verification**: unit test and SIL  
 **Artifact**: fsw/src/executive.cpp, fsw/src/sensor_monitor.cpp, fsw/test/test_fault_manager.cpp, fsw/test/test_executive.cpp, fsw/test/test_sensor_monitor.cpp, docs/reports/sil/SIL-003.md, docs/reports/sil/SIL-009.md, docs/reports/sil/SIL-010.md
 
@@ -241,11 +241,13 @@ This extends REQ-CMD-005's reasoning from one mode to the whole transition table
 
 BOOT means "powered on and still self-checking" - a state the vehicle enters by resetting and leaves by passing its checks (REQ-MODE-010). There is nothing for the flight software to do with a request to re-enter it. Validating it away matters because the alternative is worse than useless: `BOOT` is a real mode id and a legal transition target from nowhere, so without this check the command passes validation, is acknowledged as accepted, and then changes nothing - an ack that says yes while the vehicle does not move.
 
-**REQ-CMD-003** - Every command shall be acknowledged in telemetry as accepted or rejected, with a reason given on rejection.  
+**REQ-CMD-003** - Every command shall be acknowledged in telemetry as accepted or rejected, with a reason given on rejection. A command repeating the previous sequence number shall be answered with the previous verdict and shall not be executed again.  
 **Type**: Functional  
-**Status**: SIL-verified (both verdicts observed as decoded telemetry frames; HIL still owed)  
-**Verification**: unit test (ack construction), SIL and HIL  
+**Status**: SIL-verified (both verdicts observed as decoded telemetry frames; the retransmission rule is unit-verified. HIL still owed)  
+**Verification**: unit test (ack construction, retransmission), SIL and HIL  
 **Artifact**: fsw/test/test_comms.cpp, docs/reports/sil/SIL-002.md (scenario SIL-002)
+
+The retransmission rule exists because the ground resends: the LoRa link is half duplex, the vehicle cannot hear anything while its own beacon is on the air, and a command sent into that window is simply not received. The ground console retransmits until it sees an ack, which means a command whose *ack* was lost arrives twice - so the vehicle answers the second copy without acting on it.
 
 **REQ-CMD-004** - Every handled command shall be appended to a command event log recording the platform timestamp, the command id, the verdict, and the rejection reason. The log shall be a fixed-capacity ring that allocates no memory dynamically and overwrites its oldest entry when full.  
 **Type**: Functional  
@@ -273,13 +275,13 @@ BOOT means "powered on and still self-checking" - a state the vehicle enters by 
 
 **REQ-TLM-004** - The telemetry transport shall be swappable behind the frame format - UART first, radio later - with no change to the wire format.  
 **Type**: Constraint  
-**Status**: in progress (one encoded frame goes to the console UART, the downlink UART, the LoRa beacon and the nRF24 - four transports, unchanged format. LoRa carries heartbeats and acks only; the full stream would need 2.8 s of air time per second. Beacon reception and uplink both demonstrated over the air 2026-07-31. **Owed: an image received over the nRF24**)
+**Status**: in progress (one encoded frame goes to four transports unchanged: console UART, downlink UART, LoRa beacon, nRF24. LoRa carries heartbeats and acks only - the full stream would want 2.8 s of air time per second. Beacon and uplink demonstrated over the air 2026-07-30. **Owed: an image received over the nRF24**)
 **Verification**: inspection and HIL  
 **Artifact**: common/protocol/frame.cpp (the format, unchanged per transport), fsw/platform/stm32/platform_stm32.cpp (one call, three transports), obc/Src/devices/rfm95.c, obc/Src/freertos/telemetry_task.cpp, obc/Src/drivers/uart.c
 
 **REQ-TLM-005** - The spacecraft shall indicate current mode, worst latched fault severity with a count of latched faults, and command-link state on a local status display, carrying the same information as the heartbeat packet so the two can be read against each other.  
 **Type**: Functional  
-**Status**: bench-verified (2026-07-31 - with `COMMAND_LINK_LOSS` and `WHEEL_DROPOUT` both latched and both inhibited, the fault bead held blue, the non-alarm rung, and winked twice per cycle against a heartbeat reporting exactly those two faults. Mode and link state were demonstrated in the same run. Inhibited faults are counted, because they are latched and that is what the requirement asks)  
+**Status**: bench-verified (2026-07-30 - two faults latched and inhibited, the bead held blue and winked twice per cycle against a heartbeat naming exactly those two. Inhibited faults are counted: they are latched, which is what the requirement asks)  
 **Verification**: demonstration (drive each mode, latch faults of each severity, and drop the uplink; observe the display against the decoded heartbeat)  
 **Artifact**: obc/Src/freertos/control_task.cpp, obc/Src/devices/ws2812.c
 
@@ -293,13 +295,13 @@ BOOT means "powered on and still self-checking" - a state the vehicle enters by 
 
 **REQ-RT-002** - The decision paths shall run at a fixed, bounded rate and shall allocate no memory dynamically (fixed-capacity containers only).  
 **Type**: Constraint  
-**Status**: HIL-verified (HIL-003 measured 59 heartbeat periods at a mean of 1.000 s, spread 0.985-1.015 s, where the spread is host-side USB arrival jitter rather than the board. The super-loop this replaced measured 1020 ms, a structural 2% slow. The rate also held unbroken through a 128-chunk payload downlink, and no cycle overran its period - including the one a capture completes on, where the JPEG end-marker scan costs ~16 ms of the 100 ms budget. Static allocation only, so a dynamic task or queue fails to link)  
+**Status**: HIL-verified (HIL-003: 59 heartbeat periods, mean 1.000 s, the spread host-side USB jitter. The super-loop it replaced was a structural 2% slow. The rate held through a 128-chunk downlink with no cycle overrunning - the worst is the one a capture completes on, where the JPEG end-marker scan costs ~16 ms of 100. Static allocation only)  
 **Verification**: inspection and analysis, plus HIL (measure heartbeat spacing idle and under downlink load)  
 **Artifact**: fsw/include/fsw/inputs.hpp and fsw/include/fsw/fault_manager.hpp (fixed-capacity ETL containers, no heap), `configSUPPORT_DYNAMIC_ALLOCATION 0` in obc/Inc/FreeRTOSConfig.h, the control task's `xTaskDelayUntil` in obc/Src/freertos/control_task.cpp, docs/reports/hil/HIL-003.md
 
 **REQ-RT-003** - Under concurrent workloads the flight software shall run as prioritized tasks with the control loop at the highest priority, and shall report task health (liveness and stack high-water).  
 **Type**: Performance  
-**Status**: HIL-verified (HIL-003, a 60 s untouched window: all four tasks present in all 60 reports, the board fed its own watchdog on every one of them, and the worst stack margin any task reported was 104 free words against a 64-word floor. Control runs at the highest priority with sensor sampling below it behind a queue. Stacks were sized from measured peaks taken during a capture and a 131-chunk downlink - control 181 words used, sensors 101, health 80, idle 23 - each now provisioned at roughly 2.5x that, generous rather than tight because the kernel's high-water figure reads optimistic: it counts a fill pattern, and a written byte holding that pattern lets the count run past the true frontier)  
+**Status**: HIL-verified (HIL-003, 60 s untouched: every task present in all 60 reports, watchdog fed on all of them, worst stack margin 104 free words against a 64 floor. Stacks are sized at ~2.5x measured peaks - generous rather than tight, because the kernel's high-water figure counts a fill pattern and reads optimistic when a written byte happens to hold it)  
 **Verification**: HIL (scheduler-smoke run)  
 **Artifact**: the task table in obc/Inc/rtos_tasks.h; obc/Src/freertos/; `task_health_t` in common/protocol/msg.hpp; docs/reports/hil/HIL-003.md
 **Artifact**: the task table in obc/Inc/rtos_tasks.h; obc/Src/freertos/; `task_health_t` in common/protocol/msg.hpp with its ground decoder and 6 pytest cases
@@ -318,7 +320,7 @@ BOOT means "powered on and still self-checking" - a state the vehicle enters by 
 
 **REQ-WDG-002** - After any reset the flight software shall report the reset cause - including a watchdog reset - in a boot telemetry packet.  
 **Type**: Functional  
-**Status**: bench-verified (2026-07-31 - a cold start emitted exactly one `BOOT t=1125 ms reset=POWER_ON clk=180000000 Hz` frame, decoded by the ground console from the framed packet rather than read off the text banner. `boot_info_t` carries the cause and the core clock on `MsgId::BootInfo`, offered to the executive as a cycle input on the first cycle only, so it crosses the PAL as an input rather than a side channel. The earlier console-banner demonstrations stand alongside it: a pin reset read `BOOT: reset=pin`, and a starved control task reset the board with the next banner reading `BOOT: reset=iwdg-watchdog`)  
+**Status**: bench-verified (2026-07-30 - a cold start emitted exactly one `BOOT t=1125 ms reset=POWER_ON clk=180000000 Hz` frame, decoded from the packet rather than read off the banner. It crosses the PAL as a first-cycle input, not a side channel. Pin reset and watchdog reset were each demonstrated on the banner)  
 **Verification**: HIL  
 **Artifact**: obc/Src/drivers/reset.c, obc/Inc/drivers/reset.h, obc/Src/freertos/control_task.cpp, common/protocol/msg.hpp, tools/ground/frames.py
 
@@ -332,7 +334,7 @@ BOOT means "powered on and still self-checking" - a state the vehicle enters by 
 
 **REQ-SNS-002** - A sensor whose data is invalid, missing, or frozen beyond a defined staleness window shall raise that sensor's dropout fault.
 **Type**: Functional
-**Status**: unit-verified (the sensor monitor raises the matching dropout on invalid or frozen IMU sources, and raises POWER_DROPOUT when the INA228 power monitor sample is invalid; both invalid-source paths are bench-exercised - pulling the IMU latches ACCEL_GYRO_DROPOUT + MAG_DROPOUT, and POWER_DROPOUT latched while the INA228 was unreachable and cleared once it answered - with HIL still owed)
+**Status**: unit-verified (dropouts raised on invalid or frozen sources. Both invalid-source paths are bench-exercised: pulling the IMU latches ACCEL_GYRO_DROPOUT + MAG_DROPOUT, and POWER_DROPOUT latched while the INA228 was unreachable. **Owed: HIL**)
 **Verification**: unit test and HIL
 **Artifact**: fsw/src/sensor_monitor.cpp, fsw/test/test_sensor_monitor.cpp
 
@@ -343,13 +345,13 @@ BOOT means "powered on and still self-checking" - a state the vehicle enters by 
 
 **REQ-SNS-004** - A valid monitored power reading outside its configured operating limits shall raise the corresponding power fault (undervoltage, overvoltage, overcurrent).
 **Type**: Functional
-**Status**: unit-verified (the sensor monitor raises each power fault when its INA228 reading crosses the configured limit, after debounce. An earlier bench run latched UNDERVOLTAGE off a live INA228 reading, but the monitor has since moved high-side onto the 14.8 V battery bus and the limits were retuned to that bus, so all three crossings are owed again on hardware, along with HIL)
+**Status**: unit-verified (each power fault raised when its reading crosses the configured limit after debounce. An earlier bench run latched UNDERVOLTAGE live, but the monitor has since moved high-side onto the 14.8 V bus and the limits were retuned, so **all three crossings are owed again on hardware**)
 **Verification**: unit test and HIL
 **Artifact**: fsw/src/sensor_monitor.cpp, fsw/test/test_sensor_monitor.cpp
 
 **REQ-SNS-005** - A valid monitored temperature reading outside its configured operating limits shall raise the corresponding temperature fault (overtemperature, undertemperature).
 **Type**: Functional
-**Status**: unit-verified (the sensor monitor latches OVERTEMPERATURE/UNDERTEMPERATURE when a valid reading crosses the configured limit after debounce, and TEMP_DROPOUT on an invalid sample; overtemperature is Critical -> SAFE, undertemperature a report-only Warning since dropping to a low-power state would only cool the spacecraft further. The TMP117 streams valid temperature on the bench; a real limit crossing - warming the sensor past the threshold - is still owed on hardware)
+**Status**: unit-verified (both crossings latch after debounce, TEMP_DROPOUT on an invalid sample. Overtemperature is Critical -> SAFE; undertemperature is a report-only Warning, since a low-power state would only cool the spacecraft further. **Owed: a real crossing on hardware**)
 **Verification**: unit test and HIL
 **Artifact**: fsw/src/sensor_monitor.cpp, fsw/test/test_sensor_monitor.cpp
 
@@ -378,7 +380,7 @@ Bead 0 carries the mode, one color each, no blinking - a spinning platform is re
 
 Bead 2 carries the uplink in three states: **blinking amber** before any command has ever arrived, **green** once the ground is in contact, **red** once the link has been silent past its 5 s timeout. Amber is a real distinction rather than a hedge - an un-latched loss fault before first contact only means the dead-man timer has not expired yet, which is unknown, not healthy - and it blinks because it is a state the rig sits in for a whole session, where a slow blink reads as searching and a steady amber reads as something settled.
 
-**The bead asks the link, not the fault's response** (corrected 2026-07-31). It used to read `response_active(COMMAND_LINK_LOSS)`, which is false while the fault is inhibited - and the bench build inhibits it. The effect was that the bead went green on the first command ever received and stayed green for the rest of the session however long the ground had been gone. Suppressing a response is a decision about safing and says nothing about the link, so the display asks `link_lost()` directly. There is deliberately no fourth state for "silent but still inside the timeout": nothing keeps the link alive between typed commands, so that would be the normal condition during ordinary bench use and would blink continuously.
+**The bead asks the link, not the fault's response** (corrected 2026-07-30). It used to read `response_active(COMMAND_LINK_LOSS)`, which is false while the fault is inhibited - and the bench build inhibits it. The effect was that the bead went green on the first command ever received and stayed green for the rest of the session however long the ground had been gone. Suppressing a response is a decision about safing and says nothing about the link, so the display asks `link_lost()` directly. There is deliberately no fourth state for "silent but still inside the timeout": nothing keeps the link alive between typed commands, so that would be the normal condition during ordinary bench use and would blink continuously.
 
 The whole array runs at level 4 of 255. The beads sit behind printed plastic and bleed through the walls at anything brighter, and 4 is the floor: the mixed colors set one channel to a fraction of it, and below that there are not enough steps left to hold the hue.
 
@@ -400,7 +402,7 @@ An inhibited fault is deliberately excluded from the three alarm rungs and colle
 
 **REQ-ADCS-001** - In DETUMBLE the flight software shall command the reaction wheel to reduce the measured body rate below a defined threshold.  
 **Type**: Functional  
-**Status**: SIL-verified (SIL-011 - a platform spinning at 2 rad/s is nulled to inside the controller's 0.02 rad/s deadband, with the wheel left well short of saturation. Proportional rate feedback, no integral term: against stiction an integral winds up while the platform is stuck and then overshoots when it breaks loose. Gains are starting points from estimated plant parameters and are expected to change on the rig. **Owed: HIL**, which needs the replacement ESC)  
+**Status**: SIL-verified (SIL-011 nulls a 2 rad/s spin into the 0.02 rad/s deadband with the wheel short of saturation. Proportional rate feedback, no integral: against stiction an integral winds up while the platform is stuck and overshoots when it breaks loose. **Owed: HIL**, which needs the replacement ESC)  
 **Verification**: SIL (single-axis plant model) and HIL (reaction-wheel rig)  
 **Artifact**: fsw/src/attitude_control.cpp, fsw/test/test_attitude_control.cpp, fsw/sil/plant.cpp, fsw/sil/scenarios/sil_011_detumble.yaml, docs/reports/sil/SIL-011.md
 
@@ -412,7 +414,7 @@ An inhibited fault is deliberately excluded from the three alarm rungs and colle
 
 **REQ-ADCS-003** - Actuator commands shall be saturation-limited, and sustained saturation shall raise a dedicated actuator fault added with the actuator-control path.  
 **Type**: Functional  
-**Status**: in progress (the limit half is unit-verified and SIL-verified: the controller clamps to its torque ceiling, reports that it did rather than leaving the executive to infer it, SIL-011 confirms the wheel stays inside its rate limit through a detumble, and SIL-012 drives it to the opposite case - a sustained disturbance fills the wheel, after which the vehicle has no authority at all and the pointing error runs away. **Owed: the fault.** Deliberately not added yet - a fault with no responder is a catalog entry, and what should happen on sustained saturation is a decision that wants the rig, where momentum has nowhere to go)  
+**Status**: in progress (the limit half is SIL-verified: the controller clamps and reports that it clamped, SIL-011 stays inside the wheel's rate limit, and SIL-012 drives the opposite case, where a sustained disturbance fills the wheel and pointing authority is lost entirely. **Owed: the fault** - what should happen on sustained saturation is a decision that wants the rig, and a fault with no responder is a catalog entry)  
 **Verification**: unit test and HIL  
 **Artifact**: fsw/src/attitude_control.cpp, fsw/test/test_attitude_control.cpp, fsw/sil/scenarios/sil_012_pointing_saturation.yaml, docs/reports/sil/SIL-012.md
 
@@ -426,19 +428,19 @@ An inhibited fault is deliberately excluded from the three alarm rungs and colle
 
 **REQ-PAY-002** - Loss of the payload camera shall raise CAMERA_DROPOUT; the payload is not required for vehicle safety, so the fault shall latch and report without changing mode.  
 **Type**: Functional  
-**Status**: bench-verified (the camera's SPI3 harness pulled on a live board: CAMERA_DROPOUT latched within one heartbeat, the vehicle stayed in STANDBY, and reconnecting plus a reset came up clean. Caveat: the harness is shared, so this demonstrates the fault path rather than isolating the camera - a camera that failed while wired would raise CAMERA_DROPOUT alone)  
+**Status**: bench-verified (SPI3 harness pulled on a live board: CAMERA_DROPOUT latched within one heartbeat, the vehicle held STANDBY, reconnect and reset came up clean. The harness is shared, so this shows the fault path rather than isolating the camera)  
 **Verification**: unit test and HIL  
 **Artifact**: fsw/src/sensor_monitor.cpp, fsw/test/test_sensor_monitor.cpp, docs/wiring.md (the ungrounded-camera mechanism found by this test)
 
 **REQ-PAY-003** - A captured frame shall be held in the camera's own buffer and read out in caller-sized chunks, so that no image-sized buffer is allocated in flight-software RAM.  
 **Type**: Constraint  
-**Status**: bench-verified (a 7299-byte frame drained to exactly its own reported length, opening FF D8 and closing FF D9, with only a 64-byte stack buffer in the loop). **Re-test owed after 2026-07-31**: the FIFO burst used to stay open across chunk reads and now closes on every one, because a burst holds chip select asserted and SPI3 is shared with the radios. The ArduChip's read pointer is expected to survive the deselect - rewinding it needs an explicit FIFO_RDPTR_RST, which is what `scan_jpeg_length` uses - but that is reasoning, not evidence, and a corrupt image is the failure it would produce  
+**Status**: bench-verified (a 7299-byte frame drained to exactly its reported length, FF D8 to FF D9, through a 64-byte stack buffer). **Re-test owed:** the FIFO burst now closes on every chunk rather than staying open, because a burst holds chip select and SPI3 is shared with the radios. The read pointer is expected to survive the deselect, but that is reasoning, not evidence  
 **Verification**: inspection and HIL  
 **Artifact**: obc/Src/devices/ov2640.c
 
 **REQ-PAY-004** - In DOWNLINK the flight software shall direct the payload buffer to be emptied to the ground, and the platform shall do so in chunks at a rate bounded by the link and without blocking the control cycle. Each chunk shall identify its image, its index, and the total count, so that a contact pass ending mid-image leaves a resumable set of chunks rather than an unusable partial stream.  
 **Type**: Functional  
-**Status**: bench-verified (re-run 2026-07-30 on the task-based path: a commanded capture in POINTING downlinked as 110 chunks in about one second and reassembled on the ground to a 6117-byte file with intact JPEG markers, no dropped frames. The earlier fsw-paced path did 121 chunks in about three seconds). Reworded 2026-07-30: the original text put the chunks-per-cycle bound in the flight software, but that number was the uart ring size divided by the frame size - a link property. The fsw now signals whether to downlink and the platform paces it, which is the same behavior with the knowledge on the correct side of the PAL.  
+**Status**: bench-verified (2026-07-30, task-based path: a capture commanded in POINTING downlinked as 110 chunks in about a second and reassembled to a 6117-byte file with intact markers. The fsw-paced path it replaced took three. The fsw signals whether to downlink and the platform paces it - the chunks-per-cycle bound was a link property sitting on the wrong side of the PAL)  
 **Verification**: unit test and HIL  
 **Artifact**: fsw/src/executive.cpp, fsw/test/test_executive.cpp, obc/Src/freertos/downlink_task.cpp, tools/ground/payload.py, tools/tests/test_payload.py
 
@@ -454,7 +456,7 @@ The per-cycle bound is a real-time budget rather than a preference: the UART's t
 
 **REQ-PAL-001** - The flight software shall reach active platform services - time and outbound link I/O - only through the platform abstraction layer, and shall contain no register or peripheral access. Inbound commands and sensor samples shall enter as cycle inputs assembled at the platform boundary.
 **Type**: Constraint  
-**Status**: inspection-verified (2026-07-31 - and the inspection is automated rather than promised. `tools/tests/test_pal_boundary.py` runs in `just test`: every file under `fsw/src` and `fsw/include` may include only the standard library, `etl/`, `fsw/` and `protocol/`, and may not name a peripheral outside a comment. Writing its negative cases found a hole in the check itself - the first pattern could not match `NVIC_EnableIRQ`, since `_` is a word character, so the underscored forms that are how these names are actually written all passed)  
+**Status**: inspection-verified, automated (`tools/tests/test_pal_boundary.py` in `just test`: files under `fsw/src` and `fsw/include` may include only the standard library, `etl/`, `fsw/` and `protocol/`, and may not name a peripheral outside a comment. Its negative cases found a hole in the check itself - the first pattern could not match `NVIC_EnableIRQ`, since `_` is a word character)  
 **Verification**: inspection  
 **Artifact**: fsw/include/fsw/platform.hpp, fsw/platform/host/platform_host.cpp, tools/tests/test_pal_boundary.py
 

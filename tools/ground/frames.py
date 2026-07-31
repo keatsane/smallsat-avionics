@@ -23,6 +23,8 @@ MSG_POWER_DATA = 0x08
 MSG_TEMP_DATA = 0x09
 MSG_PAYLOAD_DATA = 0x10
 MSG_CAMERA_STATUS = 0x11
+MSG_DOWNLINK_STATUS = 0x12
+MSG_GROUND_STATUS = 0x13
 MSG_WHEEL_COMMAND = 0x20
 MSG_WHEEL_STATUS = 0x21
 MSG_TASK_HEALTH = 0x30
@@ -98,6 +100,48 @@ REJECT_REASONS = ["Ok", "UnknownId", "IllegalInMode", "BadArg"]
 def reject_name(reason: int) -> str:
     """Name for an ack's reason byte, or 'UNKNOWN' if out of range."""
     return REJECT_REASONS[reason] if 0 <= reason < len(REJECT_REASONS) else "UNKNOWN"
+
+
+GROUND_FLAG_LORA_UP = 0x01
+GROUND_FLAG_NRF24_UP = 0x02
+GROUND_FLAG_PANEL1 = 0x04
+GROUND_FLAG_PANEL2 = 0x08
+
+
+def decode_ground_status(payload: bytes) -> dict:
+    """Unpack a ground_status_t payload (msg.hpp) into a dict."""
+    t_ms, lora_frames, nrf24_frames, nrf24_packets, busy_pct, flags = struct.unpack(
+        "<IIIIBB", payload
+    )
+    return {
+        "t_ms": t_ms,
+        "lora_frames": lora_frames,
+        "nrf24_frames": nrf24_frames,
+        "nrf24_packets": nrf24_packets,
+        "busy_pct": busy_pct,
+        "flags": flags,
+    }
+
+
+def decode_downlink_status(payload: bytes) -> dict:
+    """Unpack a downlink_status_t payload (msg.hpp) into a dict."""
+    t_ms, image_id, chunk, chunks, radio_sent, radio_dropped = struct.unpack("<IHHHIH", payload)
+    return {
+        "t_ms": t_ms,
+        "image_id": image_id,
+        "chunk": chunk,
+        "chunks": chunks,
+        "radio_sent": radio_sent,
+        "radio_dropped": radio_dropped,
+    }
+
+
+def progress_bar(done: int, total: int, width: int = 20) -> str:
+    """A fixed-width [####----] bar. Empty when the total is unknown."""
+    if total <= 0:
+        return "[" + "-" * width + "]"
+    filled = min(width, max(0, done * width // total))
+    return "[" + "#" * filled + "-" * (width - filled) + "]"
 
 
 def decode_command_ack(payload: bytes) -> dict:
@@ -424,6 +468,29 @@ def format_frame(msg_id: int, payload: bytes) -> str:
         return (
             f"{'PAYLOAD':<12} image={d['image_id']}  chunk={d['chunk']}/{d['chunks']}  "
             f"len={d['len']}"
+        )
+    if msg_id == MSG_GROUND_STATUS and len(payload) == 18:
+        d = decode_ground_status(payload)
+        lora = "up" if d["flags"] & GROUND_FLAG_LORA_UP else "DOWN"
+        nrf = "up" if d["flags"] & GROUND_FLAG_NRF24_UP else "DOWN"
+        # channel occupancy, always shown: the useful reading is how it moves when the vehicle
+        # starts transmitting, and a field that appears and disappears cannot be compared
+        rf = f"  ch {d['busy_pct']}% busy"
+        panels = (1 if d["flags"] & GROUND_FLAG_PANEL1 else 0) + (
+            1 if d["flags"] & GROUND_FLAG_PANEL2 else 0
+        )
+        return (
+            f"{'GROUND':<12} t={d['t_ms']} ms  lora {lora} ({d['lora_frames']} frames)  "
+            f"nrf24 {nrf} ({d['nrf24_packets']} pkt, {d['nrf24_frames']} frames){rf}  "
+            f"oled x{panels}"
+        )
+    if msg_id == MSG_DOWNLINK_STATUS and len(payload) == 16:
+        d = decode_downlink_status(payload)
+        pct = (d["chunk"] * 100 // d["chunks"]) if d["chunks"] else 0
+        return (
+            f"{'DOWNLINK':<12} image={d['image_id']}  {progress_bar(d['chunk'], d['chunks'])} "
+            f"{d['chunk']}/{d['chunks']} ({pct}%)  radio sent={d['radio_sent']} "
+            f"dropped={d['radio_dropped']}"
         )
     if msg_id == MSG_CAMERA_STATUS and len(payload) == 9:
         d = decode_camera_data(payload)
