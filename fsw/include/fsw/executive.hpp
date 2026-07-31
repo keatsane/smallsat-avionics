@@ -6,6 +6,7 @@
 #ifndef FSW_EXECUTIVE_HPP
 #define FSW_EXECUTIVE_HPP
 
+#include "fsw/attitude_control.hpp"
 #include "fsw/comms/command_handler.hpp"
 #include "fsw/comms/telemetry_producer.hpp"
 #include "fsw/fault_manager.hpp"
@@ -49,11 +50,20 @@ class Executive {
     /** @brief the mode manager */
     const ModeManager& modes() const { return mm_; }
 
+    /** @brief the attitude controller - its gains and whether it is saturating */
+    const AttitudeControl& control() const { return ac_; }
+
    private:
     // cycles BOOT waits before declaring the self-check passed. matches the longest fault debounce
     // in the table, so a persistently bad sensor has had every chance to latch first (REQ-MODE-010)
     static constexpr uint8_t kBootCheckCycles = 3;
     uint8_t boot_cycles_ = 0;
+
+    // last cycle's mode and time - the attitude controller needs to know when POINTING was
+    // entered, and how much time to integrate heading over
+    Mode last_mode_ = Mode::BOOT;
+    uint32_t last_t_ms_ = 0;
+    bool ran_ = false;
 
     // wrap a wire message in a frame and hands it to the link
     template <typename T>
@@ -70,6 +80,7 @@ class Executive {
     FaultManager fm_;
     ModeManager mm_;
     SensorMonitor sm_;
+    AttitudeControl ac_;
 };
 
 }  // namespace fsw

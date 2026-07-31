@@ -20,11 +20,21 @@ void send_telemetry(const uint8_t* frame, uint32_t len) {
     (void)telemetry_out_downlink(frame, len);
 }
 
-void set_wheel_torque(int16_t torque_mv) {
+// torque -> q-axis volts for this motor. SimpleFOC's voltage torque mode drives V_q, and the
+// current that follows is V_q/R, so torque = V_q * kt / R and the inverse is V_q = torque * R/kt.
+// GBM4108-120T: 12.4 ohm windings (bom.md), kt estimated at ~0.1 N m/A for this frame size.
+// ESTIMATE - the one number here that wants measuring against the rig, by commanding a known
+// voltage and fitting the platform's response once the ESC link is back
+constexpr float kOhmsPerKt = 124.0F;  // R/kt, volts per N m
+
+void set_wheel_torque_nm(float torque_nm) {
     static uint16_t seq = 0U;
 
+    const float mv = torque_nm * kOhmsPerKt * 1000.0F;
+    const float clamped = (mv > 32767.0F) ? 32767.0F : ((mv < -32768.0F) ? -32768.0F : mv);
+
     wheel_command_t c{};
-    c.torque_mv = torque_mv;
+    c.torque_mv = static_cast<int16_t>(clamped);
     c.seq = ++seq;
 
     uint8_t buf[kFrameMaxSize];

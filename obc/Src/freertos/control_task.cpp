@@ -13,6 +13,7 @@
 
 #include "FreeRTOS.h"
 #include "console.hpp"
+#include "devices/icm20948.h"
 #include "devices/ov2640.h"
 #include "devices/ws2812.h"
 #include "drivers/clock.h"
@@ -227,12 +228,28 @@ void update_status_leds(const fsw::Executive& e, uint32_t t_ms) {
 // already treats as "not offered this cycle" and skips. that is the honest reading: no sample is
 // not the same as a bad sample, and the sensor task falling silent is a task-liveness question for
 // the watchdog rather than a sensor fault
+// gyro counts -> rad/s about the yaw axis. this conversion belongs here and not in the flight
+// software: it needs the ICM-20948's full-scale setting, and a control law carrying a specific
+// part's LSB scaling stops being portable the day the imu changes (REQ-PAL-001).
+//
+// z is the yaw axis - the one the lazy susan turns about, with the imu mounted flat. the sign
+// convention against the wheel's is the thing to confirm on the rig: if a detumble command speeds
+// the platform up rather than slowing it, this is where to negate
+constexpr float kGyroRadsPerCount =
+    1.0F / (ICM20948_GYRO_LSB_PER_DPS * 57.29577951F);  // 1/(LSB per dps * dps per rad/s)
+
 void read_sensors(fsw::Inputs& inputs) {
     sensor_set_t set{};
     if (sensor_task_take(&set)) {
         inputs.imu = set.imu;
         inputs.power = set.power;
         inputs.temp = set.temp;
+
+        // only when the sample is actually good - a stale or failed read must not be handed over
+        // as a rate of zero, which the control law would act on as "already detumbled"
+        if ((set.imu.flags & fsw::kImuFlagAccelGyroValid) != 0U) {
+            inputs.body_rate_rads = static_cast<float>(set.imu.gyro[2]) * kGyroRadsPerCount;
+        }
     }
 
     // the camera is polled like any other device, but its capture also has to be advanced - the

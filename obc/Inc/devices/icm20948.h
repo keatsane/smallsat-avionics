@@ -22,6 +22,11 @@ typedef struct {
     bool mag_valid;         // mag read ok (ak09916 reported fresh data with no overflow)
 } icm20948_sample_t;
 
+// counts per degree/second at the +-1000 dps full scale the driver configures (GYRO_CONFIG_1 =
+// 0x35). the datasheet's sensitivity table gives 32.8 LSB/dps there. changing the full scale
+// means changing this - they are one decision, so they live next to each other
+#define ICM20948_GYRO_LSB_PER_DPS 32.8F
+
 /**
  * @brief  wake and configure the imu
  * @return true if who_am_i read, false otherwise

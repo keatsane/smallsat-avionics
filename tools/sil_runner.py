@@ -35,8 +35,11 @@ SHIM_TIMEOUT_S = 10
 # platform actions the shim prints when the fsw dispatches one - see fsw/sil/sil_shim.cpp
 ACTION_TAGS = {"WHEEL", "CAPTURE", "PAYLOAD"}
 
+# the plant model's state each cycle, when a scenario turned it on
+STATE_TAGS = {"PLANT"}
+
 EXPECT_KEYS = {"mode_log", "acks", "final"}
-FINAL_KEYS = {"mode", "faults_set"}
+FINAL_KEYS = {"mode", "faults_set", "plant_rate_below", "wheel_rate_below", "plant_angle_below"}
 
 
 @dataclass
@@ -95,6 +98,12 @@ def compile_timeline(timeline: list) -> str:
         if "t" not in step:
             die(f"timeline step missing 't': {step}")
         parts = [str(step["t"])]
+        if "plant" in step:
+            # switches the rigid-body model on with a starting rate, closing the loop from here
+            parts += ["plant", str(step["plant"])]
+        if "nudge" in step:
+            # a shove, mid-run - the disturbance a pointing controller has to reject
+            parts += ["nudge", str(step["nudge"])]
         if "fault" in step:
             f = step["fault"]
             parts += ["fault", str(f["name"]), str(f["bad"])]
@@ -165,6 +174,9 @@ def parse_output(stdout: str) -> tuple:
             events.append(Event(tag, "", _kv(parts[1:])))
         elif tag == "EVENT":
             events.append(Event(tag, parts[1], _kv(parts[2:])))
+        elif tag in STATE_TAGS:
+            # key=value like CYCLE, so it can be graded on the numbers rather than only observed
+            events.append(Event(tag, "", _kv(parts[1:])))
         elif tag in ACTION_TAGS:
             # actions the shim carried out for the fsw, so a scenario can grade dispatch and not
             # only state. WHEEL and CAPTURE would have died here too - no scenario had triggered
@@ -253,6 +265,30 @@ def grade(expect: dict, events: list, acks: list) -> list:
                 expected=str(sorted(want_set)),
                 observed=str(sorted(got_set)),
                 passed=want_set == got_set,
+            )
+        )
+
+    # the plant's last state, for scenarios that closed the loop. a magnitude bound rather than an
+    # equality: the settling value depends on parameters that are estimates, and a scenario that
+    # pinned an exact rate would have to be rewritten every time the rig is measured. what has to
+    # hold is that the controller converged, and that is a bound
+    plants = [e for e in events if e.tag == "PLANT"]
+    for key, field in (
+        ("plant_rate_below", "rate"),
+        ("wheel_rate_below", "wheel"),
+        ("plant_angle_below", "angle"),
+    ):
+        if key not in final:
+            continue
+        if not plants:
+            die(f"expect.final.{key} needs a scenario that turned the plant on")
+        got = abs(float(plants[-1].fields[field]))
+        checks.append(
+            Check(
+                name=f"final.{key}",
+                expected=f"|{field}| < {final[key]}",
+                observed=f"{got:.4f}",
+                passed=got < float(final[key]),
             )
         )
 

@@ -101,7 +101,7 @@ static void init(void) {
 
     // no esc check here - it spends several seconds aligning foc before it says anything.
     // the control task reports the link the moment it comes up
-    fsw::platform::set_wheel_torque(0);
+    fsw::platform::set_wheel_torque_nm(0.0F);
 }
 
 int main(void) {

@@ -1,0 +1,67 @@
+# what a reaction wheel runs out of, and why REQ-ADCS-003 needs a fault rather than just a clamp.
+#
+# the platform is held in POINTING and then shoved steadily - a hand on the rig rather than a
+# tap. the controller responds correctly and the wheel absorbs the momentum, which is exactly
+# what it is for, right up until it has absorbed all it can hold. from there the vehicle has no
+# authority at all: the error grows and nothing the control law does can shrink it.
+#
+# a real spacecraft sheds that momentum with magnetorquers against the geomagnetic field. this
+# bench has nothing to push against, so saturation is permanent until the ground intervenes, and
+# that is the case the eventual actuator fault exists to announce.
+#
+# note what is NOT claimed here. this is not a demonstration that POINTING holds an attitude -
+# see REQ-ADCS-002, which is honest about the fact that the rig's rate-only sensing at 10 Hz
+# cannot observe a disturbance that friction absorbs inside a single control cycle. what this
+# grades is the failure mode, which is real, reproducible, and worth having on record.
+id: SIL-012
+title: a sustained disturbance saturates the wheel and pointing authority is lost
+verifies: [REQ-ADCS-003]
+timeline:
+  - { t: 0, plant: 0.0 }
+  - { t: 100, cmd: { name: SET_MODE, arg: 1, seq: 1 } }
+  - { t: 200, cmd: { name: SET_MODE, arg: 2, seq: 2 } }
+  - { t: 300, cmd: { name: SET_MODE, arg: 3, seq: 3 } }
+  # four shoves of 0.5 rad/s. the wheel's whole momentum budget is 0.87 rad/s of platform rate,
+  # so this is a bit over twice what the vehicle can hold - a firm push, not an absurd one
+  - { t: 400, nudge: 0.5 }
+  - { t: 500, nudge: 0.5 }
+  - { t: 600, nudge: 0.5 }
+  - { t: 700, nudge: 0.5 }
+  - { t: 800 }
+  - { t: 900 }
+  - { t: 1000 }
+  - { t: 1100 }
+  - { t: 1200 }
+  - { t: 1300 }
+  - { t: 1400 }
+  - { t: 1500 }
+  - { t: 1600 }
+  - { t: 1700 }
+  - { t: 1800 }
+  - { t: 1900 }
+  - { t: 2000 }
+  - { t: 2100 }
+  - { t: 2200 }
+  - { t: 2300 }
+  - { t: 2400 }
+  - { t: 2500 }
+  - { t: 2600 }
+  - { t: 2700 }
+  - { t: 2800 }
+  - { t: 2900 }
+  - { t: 3000 }
+expect:
+  mode_log:
+    - { to: STANDBY, trigger: Command, req: REQ-CMD-001 }
+    - { to: DETUMBLE, trigger: Command, req: REQ-CMD-001 }
+    - { to: POINTING, trigger: Command, req: REQ-CMD-001 }
+  acks:
+    - { seq: 3, accepted: true }
+  final:
+    # still POINTING - running out of wheel is not currently a safing event, and making it one is
+    # a decision that wants the rig rather than an estimate
+    mode: POINTING
+    faults_set: []
+    # the platform is at rest again only because friction stopped it, not because the vehicle
+    # regained control
+    plant_rate_below: 0.05

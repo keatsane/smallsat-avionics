@@ -400,18 +400,21 @@ An inhibited fault is deliberately excluded from the three alarm rungs and colle
 
 **REQ-ADCS-001** - In DETUMBLE the flight software shall command the reaction wheel to reduce the measured body rate below a defined threshold.  
 **Type**: Functional  
-**Status**: planned  
-**Verification**: SIL (single-axis plant model) and HIL (reaction-wheel rig)
+**Status**: SIL-verified (SIL-011 - a platform spinning at 2 rad/s is nulled to inside the controller's 0.02 rad/s deadband, with the wheel left well short of saturation. Proportional rate feedback, no integral term: against stiction an integral winds up while the platform is stuck and then overshoots when it breaks loose. Gains are starting points from estimated plant parameters and are expected to change on the rig. **Owed: HIL**, which needs the replacement ESC)  
+**Verification**: SIL (single-axis plant model) and HIL (reaction-wheel rig)  
+**Artifact**: fsw/src/attitude_control.cpp, fsw/test/test_attitude_control.cpp, fsw/sil/plant.cpp, fsw/sil/scenarios/sil_011_detumble.yaml, docs/reports/sil/SIL-011.md
 
 **REQ-ADCS-002** - In POINTING the flight software shall hold a commanded single-axis attitude within a defined error band.  
 **Type**: Functional  
-**Status**: planned  
-**Verification**: SIL (single-axis plant model) and HIL (reaction-wheel rig)
+**Status**: in progress - the control law is unit-verified (PD on heading error, reference captured on entry to POINTING since nothing on this vehicle measures absolute heading; correct sign, band behaviour, and saturation limiting). **It is deliberately not claimed as SIL-verified, because closing the loop showed the bench cannot currently observe its own error.** With a rate-only sensor at 10 Hz and friction that absorbs a disturbance inside a single control cycle, a 0.35 rad/s shove moved the platform 0.117 rad while the gyro read exactly zero at every sample, and a 2.0 rad/s impulse left the controller believing it was 0.034 rad off when it was 0.130. The band is a sensing limit here, not a control limit. Resolving it needs measured plant parameters and probably a faster attitude update than the control cycle - see `journal.md` 2026-07-31.  
+**Verification**: SIL (single-axis plant model) and HIL (reaction-wheel rig)  
+**Artifact**: fsw/src/attitude_control.cpp, fsw/test/test_attitude_control.cpp
 
 **REQ-ADCS-003** - Actuator commands shall be saturation-limited, and sustained saturation shall raise a dedicated actuator fault added with the actuator-control path.  
 **Type**: Functional  
-**Status**: planned  
-**Verification**: unit test and HIL
+**Status**: in progress (the limit half is unit-verified and SIL-verified: the controller clamps to its torque ceiling, reports that it did rather than leaving the executive to infer it, SIL-011 confirms the wheel stays inside its rate limit through a detumble, and SIL-012 drives it to the opposite case - a sustained disturbance fills the wheel, after which the vehicle has no authority at all and the pointing error runs away. **Owed: the fault.** Deliberately not added yet - a fault with no responder is a catalog entry, and what should happen on sustained saturation is a decision that wants the rig, where momentum has nowhere to go)  
+**Verification**: unit test and HIL  
+**Artifact**: fsw/src/attitude_control.cpp, fsw/test/test_attitude_control.cpp, fsw/sil/scenarios/sil_012_pointing_saturation.yaml, docs/reports/sil/SIL-012.md
 
 ## Payload
 

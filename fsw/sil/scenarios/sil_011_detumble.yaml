@@ -1,0 +1,58 @@
+# the first scenario that closes the loop. every other one injects a script and reads what the
+# flight software says about it; this one lets the flight software act on a simulated rig and
+# feeds the consequence back in, so what gets graded is convergence rather than dispatch.
+#
+# the platform starts spinning at 2 rad/s. the vehicle is walked to DETUMBLE and the control law
+# has to null the rate (REQ-ADCS-001) without running the wheel into saturation (REQ-ADCS-003).
+#
+# 2 rad/s is more than the wheel can hold. with the measured inertias the whole momentum budget
+# is 0.87 rad/s of platform rate, and this starts at more than twice that - it works because
+# bearing friction takes it down to ~1.4 rad/s in the 200 ms before DETUMBLE is commanded, and
+# the wheel absorbs the rest. that is a real dependency and it is written down rather than tuned
+# away: an immediate entry into DETUMBLE at 2 rad/s would saturate.
+#
+# the margin is thin and worth knowing: the wheel peaks at 34.3 of 36 rad/s, 95% of capacity, so
+# **a hand-spin of about 2 rad/s is roughly the largest upset this vehicle can recover from**.
+# it was 76% before the friction terms were fitted to a measured coast-down - less drag means
+# less free help, and the wheel has to find the difference itself.
+#
+# the bounds are magnitudes rather than equalities, deliberately: the plant's inertias and
+# friction are estimates until the rig can be measured, so an exact settling value would pin a
+# number nobody has confirmed. what holds whatever the parameters turn out to be is that the rate
+# converges and the wheel stays inside its limit - those are properties of the control law.
+#
+# note the sign convention this exists to protect: the command is a wheel torque and the platform
+# feels the reaction, so the commanded sign follows the rate rather than opposing it. the first
+# run of this loop had that backwards and the unit tests passed anyway - a formula test cannot
+# tell which way a reaction pushes, only running it against physics can
+id: SIL-011
+title: detumble nulls a spinning platform without saturating the wheel
+verifies: [REQ-ADCS-001, REQ-ADCS-003]
+timeline:
+  - { t: 0, plant: 2.0 }
+  - { t: 100, cmd: { name: SET_MODE, arg: 1, seq: 1 } }
+  - { t: 200, cmd: { name: SET_MODE, arg: 2, seq: 2 } }
+  - { t: 300 }
+  - { t: 400 }
+  - { t: 500 }
+  - { t: 600 }
+  - { t: 700 }
+  - { t: 800 }
+  - { t: 900 }
+  - { t: 1000 }
+  - { t: 1100 }
+  - { t: 1200 }
+expect:
+  mode_log:
+    - { to: STANDBY, trigger: Command, req: REQ-CMD-001 }
+    - { to: DETUMBLE, trigger: Command, req: REQ-CMD-001 }
+  acks:
+    - { seq: 2, accepted: true }
+  final:
+    mode: DETUMBLE
+    faults_set: []
+    # inside the controller's own deadband, which is what "detumbled" means here
+    plant_rate_below: 0.02
+    # and the wheel still has authority left - saturation would mean the manoeuvre only finished
+    # because it ran out of room, which is not the same as converging
+    wheel_rate_below: 36.0

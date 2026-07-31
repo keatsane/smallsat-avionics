@@ -2,7 +2,16 @@
  * @file   sil_shim.cpp
  * @brief  drives Executive::cycle() from a timeline on stdin, prints tagged observations (SSA-017)
  *
- * input, one line per cycle:  <t_ms> [fault <NAME> <0|1>]... [cmd <NAME> <arg> <seq>]
+ * input, one line per cycle:
+ *   <t_ms> [plant <rate_rad_s>] [nudge <delta_rad_s>] [fault <NAME> <0|1>]...
+ *          [cmd <NAME> <arg> <seq>]
+ *
+ * `plant` switches on the single-axis rigid-body model and sets the platform's starting rate.
+ * It is opt-in on purpose: with the model off the shim behaves exactly as it always has, so the
+ * scenarios written before it existed are unaffected by it existing. With it on, the loop closes
+ * - commanded torque drives the model, and the model's rate comes back as this cycle's body rate.
+ * `nudge` adds to the platform's rate mid-run, which is the sim's version of shoving the rig by
+ * hand - the disturbance a pointing controller exists to reject.
  * output, tagged lines on stdout:  CYCLE / FRAME (hex) / EVENT cmd|fault|mode / END
  *
  * host tooling only - no flight logic lives here, and no verdict either: grading is the
@@ -17,6 +26,7 @@
 #include <string>
 
 #include "fsw/executive.hpp"
+#include "plant.hpp"
 
 using namespace fsw;
 
@@ -39,8 +49,21 @@ void send_telemetry(const uint8_t* frame, uint32_t len) {
     std::printf("\n");
 }
 
-void set_wheel_torque(int16_t torque_mv) {
-    std::printf("WHEEL %d\n", torque_mv);  // observable, so a scenario can grade the command
+// the rig, when a scenario asks for it. a file-scope object rather than something passed in,
+// because the platform layer is a set of free functions by design - the same shape the stm32
+// backend has, where the "state" is a peripheral
+fsw::sil::Plant g_plant;
+bool g_plant_on = false;
+
+float g_torque_nm = 0.0F;
+
+void set_wheel_torque_nm(float torque_nm) {
+    // recorded, not applied here. the physics is advanced in the main loop with the timeline's
+    // real interval, because the esc holds the last command until the next one arrives and a
+    // callback has no idea how long that will be
+    g_torque_nm = torque_nm;
+    // millinewton metres, so a scenario grades an integer instead of matching float text
+    std::printf("WHEEL %d\n", static_cast<int>(torque_nm * 1000.0F));
 }
 
 void capture_image(void) {
@@ -168,7 +191,26 @@ int main() {
 
         std::string word;
         while (iss >> word) {
-            if (word == "fault") {
+            if (word == "plant") {
+                double rate;
+                if (!(iss >> rate)) {
+                    die("expected a starting rate in rad/s after 'plant'");
+                }
+                fsw::platform::g_plant = fsw::sil::Plant{};
+                fsw::platform::g_plant.set_platform_rate(rate);
+                fsw::platform::g_plant_on = true;
+                fsw::platform::g_torque_nm = 0.0F;
+            } else if (word == "nudge") {
+                double delta;
+                if (!(iss >> delta)) {
+                    die("expected a rate delta in rad/s after 'nudge'");
+                }
+                if (!fsw::platform::g_plant_on) {
+                    die("'nudge' needs a scenario that turned the plant on");
+                }
+                fsw::platform::g_plant.set_platform_rate(fsw::platform::g_plant.platform_rate() +
+                                                         delta);
+            } else if (word == "fault") {
                 std::string name;
                 if (!(iss >> name)) {
                     die("expected fault name after 'fault'");
@@ -215,6 +257,21 @@ int main() {
             } else {
                 die("unknown token '" + word + "'");
             }
+        }
+
+        // advance the rig by the timeline's own interval, holding the torque commanded last
+        // cycle, then hand the executive the rate that produced. this is where the loop closes:
+        // everything before it is the shim reading a script, and this line is the vehicle
+        // answering back
+        if (fsw::platform::g_plant_on) {
+            if (ran) {
+                fsw::platform::g_plant.step(fsw::platform::g_torque_nm,
+                                            static_cast<double>(t_ms - last_t) / 1000.0);
+            }
+            inputs.body_rate_rads = static_cast<float>(fsw::platform::g_plant.platform_rate());
+            std::printf("PLANT rate=%.4f wheel=%.2f angle=%.4f\n",
+                        fsw::platform::g_plant.platform_rate(), fsw::platform::g_plant.wheel_rate(),
+                        fsw::platform::g_plant.platform_angle());
         }
 
         // one declared cycle: CYCLE opens the block, frames land inside it as cycle() emits

@@ -27,6 +27,7 @@ set(COMMON_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../common)
 add_library(fsw STATIC
     src/comms/command_handler.cpp
     src/comms/telemetry_producer.cpp
+    src/attitude_control.cpp
     src/executive.cpp
     src/fault_manager.cpp
     src/mode_manager.cpp
@@ -41,6 +42,15 @@ target_include_directories(fsw PUBLIC include ${COMMON_DIR} ${ETL_DIR})
 # -Wextra and is not ours to fix
 target_compile_options(fsw PRIVATE -Werror)
 
+# the bench rig's physics, for SIL only. a separate library from fsw on purpose: this is test
+# scaffolding and must never be linkable into the flight image, which is also why it lives in
+# sil/ rather than src/ - the PAL boundary check scans src/ and include/
+add_library(sil_plant STATIC
+    sil/plant.cpp
+)
+target_include_directories(sil_plant PUBLIC sil)
+target_compile_options(sil_plant PRIVATE -Werror)
+
 # unit tests (doctest, single header under third_party/)
 enable_testing()
 add_executable(fsw_tests
@@ -50,10 +60,12 @@ add_executable(fsw_tests
     test/test_mode_manager.cpp
     test/test_executive.cpp
     test/test_sensor_monitor.cpp
+    test/test_plant.cpp
+    test/test_attitude_control.cpp
     platform/host/platform_host.cpp
 )
 target_include_directories(fsw_tests PRIVATE third_party)
-target_link_libraries(fsw_tests PRIVATE fsw)
+target_link_libraries(fsw_tests PRIVATE fsw sil_plant)
 
 # register each doctest TEST_CASE as its own ctest test (so `ctest` lists them all)
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
@@ -64,4 +76,4 @@ doctest_discover_tests(fsw_tests)
 add_executable(sil_shim
     sil/sil_shim.cpp
 )
-target_link_libraries(sil_shim PRIVATE fsw)
+target_link_libraries(sil_shim PRIVATE fsw sil_plant)

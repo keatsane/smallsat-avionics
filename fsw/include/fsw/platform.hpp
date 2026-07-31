@@ -19,13 +19,18 @@ namespace fsw::platform {
 void send_telemetry(const uint8_t* frame, uint32_t len);
 
 /**
- * @brief  command the reaction wheel's q-axis voltage
- * @param  torque_mv  volts x1000, signed - the sign is the spin direction
+ * @brief  command a reaction-wheel torque
+ * @param  torque_nm  newton metres, signed - the sign is the spin direction
  *
- * an action the fsw performs, like send_telemetry, not an input it reads. the esc closes
- * the current loop itself and clamps to its own limit, so this is a request, not a demand
+ * an action the fsw performs, like send_telemetry, not an input it reads. the esc closes the
+ * current loop itself and clamps to its own limit, so this is a request, not a demand.
+ *
+ * newton metres, not the q-axis millivolts that actually go on the wire: converting torque to a
+ * voltage needs a specific motor's torque constant and winding resistance, and a control law that
+ * carries those stops being portable the day the motor changes (REQ-PAL-001). the backend owns
+ * the conversion, the same way it owns turning gyro counts into a rate on the way in
  */
-void set_wheel_torque(int16_t torque_mv);
+void set_wheel_torque_nm(float torque_nm);
 
 /**
  * @brief  ask the payload camera to take a frame

@@ -92,6 +92,38 @@ void Executive::cycle(const Inputs& inputs, uint32_t t_ms) {
         }
     }
 
+    // attitude control - DETUMBLE bleeds rate away, POINTING holds a heading (REQ-ADCS-001/002).
+    //
+    // commanded every cycle including zero, rather than only when there is something to do: the
+    // wheel is a physical thing that keeps whatever torque it was last given, so leaving a mode
+    // without sending a zero would walk it into saturation on a vehicle nobody is steering. the
+    // rate is only acted on when an attitude sensor actually reported this cycle - no sample is
+    // not the same as a rate of zero, and treating it as zero would command a stop the vehicle
+    // has no evidence it needs
+    const Mode mode_now = mm_.mode();
+
+    // capture the heading to hold the moment POINTING is entered, however it was entered - a
+    // commanded transition and a retreat back into it both have to reset the reference, and
+    // watching the mode change catches every path without each one remembering to
+    if (mode_now == Mode::POINTING && last_mode_ != Mode::POINTING) {
+        ac_.enter_pointing();
+    }
+    last_mode_ = mode_now;
+
+    // the cycle period is nominal, not measured, so integrate against what actually elapsed. a
+    // late cycle that pretends it was on time integrates the wrong amount of heading
+    const float dt_s = ran_ ? (static_cast<float>(t_ms - last_t_ms_) / 1000.0F) : 0.0F;
+    last_t_ms_ = t_ms;
+    ran_ = true;
+
+    if (inputs.body_rate_rads && mode_now == Mode::DETUMBLE) {
+        platform::set_wheel_torque_nm(ac_.detumble(*inputs.body_rate_rads));
+    } else if (inputs.body_rate_rads && mode_now == Mode::POINTING) {
+        platform::set_wheel_torque_nm(ac_.point(*inputs.body_rate_rads, dt_s));
+    } else {
+        platform::set_wheel_torque_nm(0.0F);
+    }
+
     // boot info - offered on the first cycle only, so this fires once per reset (REQ-WDG-002).
     // sent ahead of the heartbeat deliberately: a ground station reading the log top-down should
     // learn why the computer restarted before it sees the first state it restarted into
