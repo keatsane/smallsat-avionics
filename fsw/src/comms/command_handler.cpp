@@ -36,7 +36,25 @@ constexpr bool commandable_mode(uint8_t arg) {
 }  // namespace
 
 CommandEvent CommandHandler::handle(const command_t& cmd, Mode current_mode, uint32_t t_ms) {
+    const uint32_t since_last = t_ms - last_command_ms_;
     last_command_ms_ = t_ms;
+
+    // a repeat of the previous sequence number is a retransmission, not a new command. the radio
+    // link is half duplex and the vehicle is deaf while its beacon is in the air, so the ground
+    // resends anything it has not seen acknowledged (REQ-CMD-003) - and without this, the resend
+    // that the ground sent because the *ack* was lost would execute the command a second time.
+    //
+    // the previous answer is replayed rather than recomputed, because recomputing gives a
+    // different one: a SET_MODE that already took effect is no longer a legal transition from the
+    // mode it produced, so the ground would get a rejection for a command that worked
+    if (have_last_seq_ && cmd.seq == last_seq_ && since_last <= kCommandDedupMs) {
+        CommandEvent dup = last_event_;
+        dup.t_ms = t_ms;
+        dup.duplicate = true;
+        log_.push(dup);
+        return dup;
+    }
+
     CmdReject reason = CmdReject::Ok;
 
     if (cmd.cmd_id >= kCommandCount) {
@@ -62,8 +80,12 @@ CommandEvent CommandHandler::handle(const command_t& cmd, Mode current_mode, uin
         }
     }
 
-    CommandEvent ce{t_ms, cmd.cmd_id, reason == CmdReject::Ok, reason};
+    CommandEvent ce{t_ms, cmd.cmd_id, reason == CmdReject::Ok, reason, false};
     log_.push(ce);
+
+    last_event_ = ce;
+    last_seq_ = cmd.seq;
+    have_last_seq_ = true;
     return ce;
 }
 

@@ -48,6 +48,11 @@
 
 #define SX1276_VERSION 0x12U  // what REG_VERSION reads on a working part
 
+// how long rfm95_send waits for tx-done before forcing the radio back to receive. a 21-byte
+// beacon at sf7/bw125 is ~57 ms on the air and the longest frame this link carries is ~180 ms,
+// so 500 ms only ever fires on a radio that has stopped answering
+#define LORA_TX_TIMEOUT_MS 500U
+
 // 915 MHz, the ITU region 2 ISM band this rig lives in. the frequency register is in steps of
 // F_XOSC / 2^19 = 32e6 / 524288 = 61.035 Hz, so frf = freq / 61.035
 #define LORA_FREQ_HZ 915000000UL
@@ -64,7 +69,8 @@ static bool configured = false;
 // sending" - and gating the first send on it deadlocks the beacon permanently. found on the
 // bench, where the ground station heard nothing at all
 static bool tx_busy = false;
-static uint32_t tx_sent = 0U;  // frames handed to the radio since boot
+static uint32_t tx_sent = 0U;      // frames handed to the radio since boot
+static uint32_t tx_timeouts = 0U;  // transmits that never reported done - see rfm95_send
 
 // ---- register access - bit 7 of the address selects write ----
 
@@ -212,6 +218,30 @@ bool rfm95_send(const uint8_t* data, size_t len) {
     tx_sent++;
 
     spi_bus_unlock(spi_lora, locked);
+
+    // and wait here for the transmit to finish, rather than leaving it to whoever next polls
+    // rfm95_tx_done. the radio is deaf between MODE_TX and the return to receive, and letting a
+    // caller's loop period decide how long that lasts made the deaf window a scheduling artifact:
+    // the telemetry task's idle wait is 50 ms against 57 ms of air time, so the radio sat in
+    // standby hearing nothing for an extra 50-100 ms every second. on the bench that lost roughly
+    // one uplinked command in six.
+    //
+    // the bus is released between polls, so the payload downlink keeps the spi3 bus while this
+    // waits. bounded, because a radio that never asserts tx-done must not wedge the link forever
+    const uint32_t deadline = millis() + LORA_TX_TIMEOUT_MS;
+    while (tx_busy && (int32_t)(millis() - deadline) < 0) {
+        (void)rfm95_tx_done();
+    }
+    if (tx_busy) {
+        // gave up on the flag: take the radio back to receive anyway, because a radio parked in
+        // standby is a link that is down, and hearing the ground matters more than this packet
+        const bool relock = spi_bus_lock(spi_lora);
+        reg_write(REG_IRQ_FLAGS, IRQ_TX_DONE);
+        set_mode(MODE_RX_CONT);
+        tx_busy = false;
+        tx_timeouts++;
+        spi_bus_unlock(spi_lora, relock);
+    }
     return true;
 }
 
@@ -244,6 +274,8 @@ size_t rfm95_receive(uint8_t* buf, size_t max) {
 }
 
 uint32_t rfm95_sent(void) { return tx_sent; }
+
+uint32_t rfm95_tx_timeouts(void) { return tx_timeouts; }
 
 uint8_t rfm95_reg(uint8_t reg) {
     const bool locked = spi_bus_lock(spi_lora);

@@ -134,8 +134,10 @@ void health_task(void*) {
         // state, not flight-software state, so it is assembled here rather than by the executive.
         // deliberately not sent over the radios themselves - a dead radio cannot report that it
         // is dead, so the wired links are the only ones this is worth anything on
-        send_radio_status(fsw::MsgId::LoraStatus, rfm95_sent(), telemetry_out_beacon_dropped(),
-                          rfm95_alive());
+        // a beacon replaced before it went out and a transmit that never completed are the same
+        // thing to the ground: state that was assembled and never reached the air
+        send_radio_status(fsw::MsgId::LoraStatus, rfm95_sent(),
+                          telemetry_out_beacon_dropped() + rfm95_tx_timeouts(), rfm95_alive());
         send_radio_status(fsw::MsgId::Nrf24Status, nrf24_sent(), nrf24_dropped(), nrf24_alive());
     }
 }

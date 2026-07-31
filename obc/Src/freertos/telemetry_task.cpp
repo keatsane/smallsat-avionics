@@ -113,20 +113,11 @@ void report_drops(void) {
     }
 }
 
-// push the newest beacon frame if the radio is free. skipped entirely while a transmit is still
-// in the air - the packet waits and gets replaced by whatever is true when the radio next frees
+// push the newest beacon frame. rfm95_send holds the transmit until it completes and puts the
+// radio back into receive itself, so there is nothing to poll here and no window in which this
+// task's loop period decides how long the vehicle stays deaf
 void service_beacon(void) {
-    // polled unconditionally, and that is the whole point of the line: rfm95_tx_done is what puts
-    // the radio back into receive after a transmit, so it has to run whether or not there is
-    // another beacon waiting.
-    //
-    // this was written as `!s_beacon_pending || !rfm95_tx_done()`, and || short-circuits - so with
-    // the pending flag cleared the instant a beacon went out, tx_done was reached exactly once a
-    // second, at the moment the next heartbeat arrived. the radio transmitted, stayed in standby
-    // for the rest of the second, and returned to receive only to transmit again. the vehicle was
-    // deaf almost continuously and no uplinked command was ever heard
-    const bool idle = rfm95_tx_done();
-    if (!s_beacon_pending || !idle) {
+    if (!s_beacon_pending) {
         return;
     }
 

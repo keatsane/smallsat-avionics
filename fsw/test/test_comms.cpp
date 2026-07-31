@@ -48,10 +48,13 @@ TEST_SUITE("COMMS REQUIREMENTS") {
         SUBCASE("CAPTURE_IMAGE is legal only while POINTING") {
             CommandHandler ch;
 
-            command_t cmd{static_cast<uint8_t>(Command::CAPTURE_IMAGE), 0, 3};
+            // distinct seq numbers, because a repeat of one is a retransmission and is answered
+            // with whatever the first copy got rather than re-judged
+            command_t in_standby{static_cast<uint8_t>(Command::CAPTURE_IMAGE), 0, 3};
+            command_t in_pointing{static_cast<uint8_t>(Command::CAPTURE_IMAGE), 0, 4};
 
-            CHECK(ch.handle(cmd, Mode::STANDBY, 0).reason == CmdReject::IllegalInMode);
-            CHECK(ch.handle(cmd, Mode::POINTING, 0).accepted);
+            CHECK(ch.handle(in_standby, Mode::STANDBY, 0).reason == CmdReject::IllegalInMode);
+            CHECK(ch.handle(in_pointing, Mode::POINTING, 0).accepted);
         }
 
         SUBCASE("Out-of-range arg is rejected") {
@@ -107,8 +110,11 @@ TEST_SUITE("COMMS REQUIREMENTS") {
             CHECK(from_standby.reason == CmdReject::IllegalInMode);
 
             // the same command one rung up the ladder is legal, so the refusal is about the
-            // transition and not about the command
-            CHECK(ch.handle(to_pointing, Mode::DETUMBLE, 0).accepted);
+            // transition and not about the command. a new seq, because a repeated one is a
+            // retransmission and gets the first answer back
+            command_t again{static_cast<uint8_t>(Command::SET_MODE),
+                            static_cast<uint8_t>(Mode::POINTING), 9};
+            CHECK(ch.handle(again, Mode::DETUMBLE, 0).accepted);
         }
 
         SUBCASE("The ground can still climb out of SAFE (REQ-MODE-006)") {
@@ -141,6 +147,41 @@ TEST_SUITE("COMMS REQUIREMENTS") {
 
             REQUIRE(ch.log().size() == 2);
             CHECK(ch.log().back().reason == CmdReject::Ok);
+        }
+
+        SUBCASE("A retransmitted command is answered once and acted on once (REQ-CMD-003)") {
+            CommandHandler ch;
+
+            // the ground resends anything it has not seen acknowledged, because the radio link is
+            // half duplex and drops commands. the resend must not act twice
+            command_t to_detumble{static_cast<uint8_t>(Command::SET_MODE),
+                                  static_cast<uint8_t>(Mode::DETUMBLE), 42};
+
+            const CommandEvent first = ch.handle(to_detumble, Mode::STANDBY, 1000);
+            CHECK(first.accepted);
+            CHECK_FALSE(first.duplicate);
+
+            // the ack was lost, so the ground sends it again - and by now the vehicle is in
+            // DETUMBLE, where a fresh DETUMBLE request would be refused. the ground must still get
+            // the acceptance it missed rather than a rejection for a command that worked
+            const CommandEvent resent = ch.handle(to_detumble, Mode::DETUMBLE, 1700);
+            CHECK(resent.accepted);
+            CHECK(resent.duplicate);
+            CHECK(resent.reason == CmdReject::Ok);
+            CHECK(resent.t_ms == 1700);  // when this copy was answered, not the original
+
+            // a different sequence number is a new command and is judged on its own
+            command_t again{static_cast<uint8_t>(Command::SET_MODE),
+                            static_cast<uint8_t>(Mode::DETUMBLE), 43};
+            const CommandEvent fresh = ch.handle(again, Mode::DETUMBLE, 1800);
+            CHECK_FALSE(fresh.duplicate);
+            CHECK_FALSE(fresh.accepted);
+
+            // and the number is not remembered forever - past the dedup window the same seq is a
+            // new command, which is what a restarted ground console sends
+            command_t much_later{static_cast<uint8_t>(Command::NOOP), 0, 43};
+            CHECK_FALSE(
+                ch.handle(much_later, Mode::DETUMBLE, 1800 + kCommandDedupMs + 1).duplicate);
         }
 
         SUBCASE("Every catalog row has a requirement and at least one legal mode") {

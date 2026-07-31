@@ -13,11 +13,15 @@ None of these announce themselves. A chip killed this way looks perfect, measure
 - **Ungrounded iron tips defeat an ESD-safe station.** With the iron hot, measure AC volts tip to mains earth: near zero is good, tens of millivolts is injecting into every joint.
 - **Minimise rework near fine-pitch packages** - use screw terminals or existing connectors, and solder in one pass.
 - **Connection order: ground and VCC first, high voltage last.** A chip with no valid ground reference passes current out through whatever pins are at a defined potential, typically the I2C lines.
+- **First power-on always runs off the bench PSU with the current limit low, never the LiPo.** A
+  current-limited supply turns a wiring mistake into a shrug; a 100C pack turns it into smoke.
+- **Verify every rail with a meter before connecting a load.** This is the step that catches a
+  reversed rail before it kills a board.
 - **Adafruit INA228 jumper trap:** VBUS goes to **either** VIN+ (back jumper) **or** VIN- (a wire), **never both** - bridged, it shorts the shunt and puts system current through a signal trace. Preferred is the back jumper and no VBUS wire. Read any new breakout's pinout page before wiring it.
 
 ## Two rules that decide where caps and grounds go
 
-**Bulk caps go where a device draws current in *bursts*, nowhere else.** A bulk cap is a local charge reservoir: when a device suddenly demands current, wire inductance stops the upstream supply delivering it fast enough, and the cap covers the gap. No burst demand, no cap. Note this is different from the 0.1 uF **decoupling** ceramics sitting at every chip - those are already fitted by the breakout manufacturer and are never something to add.
+**Bulk caps go where a device draws current in bursts, nowhere else.** No burst demand, no cap. Not to be confused with the 0.1 uF decoupling ceramics already fitted on every breakout.
 
 | Location | Current behaviour | Cap |
 | -------- | ----------------- | --- |
@@ -28,7 +32,7 @@ None of these announce themselves. A chip killed this way looks perfect, measure
 | Sensor board | IMU ~4 mA, TMP 0.15 mA, steady | **no** - adding one would be cargo-culting |
 | LED array | 20-40 mA dim | optional, skipped |
 
-**Every ground arriving at a board joins one local rail - except where a per-cable return is already the design.** Signals are voltages *referenced to ground*, so a device and its master must share one reference or logic levels are undefined. On the **radio module** the buck's ground and the SPI3 cable's ground must be joined locally, giving the SPI signals a short return right where they are used. On the **sensor board** the grounds were instead left per-cable, each returning to the slice's rail - that is a star ground with the slice as the star point, every signal still has a dedicated adjacent return, and it is verified working. Both are valid; do not rework the sensor board for consistency's sake.
+**Every ground arriving at a board joins one local rail** - except the sensor board, where grounds are per-cable back to the slice's rail. That is a star ground with the slice as the star point and every signal still has an adjacent return. Both are valid; do not rework the sensor board for consistency.
 
 ## The boards - where wires actually land
 
@@ -108,8 +112,6 @@ Two rails: a **+V rail** (main ~14.8 V) and the **star ground** - every ground i
 Every pin below is the live map in `obc/Inc/board.h`; morpho holes are verified in the Board and rail reference at the end of this file.
 
 ### The ten connectors on the slice
-
-**Built and verified 2026-07-22.** Both sockets seated, three rails run, all ten headers soldered, ~35 jumpers landed, the 470 ohm and 10 uF fitted. Verified: 3V3 rail reads 3.3 V, no rail-to-rail shorts, board boots on USB. (The optional 0.47 uF was skipped - the Nucleo's regulator is already well bypassed and the 10 uF covers bulk.)
 
 **Physical layout - two columns, in numeric order top to bottom:**
 
@@ -247,12 +249,11 @@ Cut the motor's long phase leads down to a tidy length, but keep the encoder's 4
 
 ## The ground station box
 
-One Feather M0 RFM95 plus two modules. The LoRa radio is already on the Feather, so nothing is
-wired for it - only the nRF24 and the display need wires, and the nRF24 shares the SPI bus the
-LoRa is already using. Colours follow the same role scheme as the satellite.
+One Feather M0 RFM95 plus two modules. The LoRa radio is on the Feather, so only the nRF24 and the
+display need wires, and the nRF24 shares the SPI bus the LoRa already uses.
 
-**Already spoken for by the onboard LoRa - do not reuse:** pin 8 (its CS), pin 4 (RST), pin 3
-(DIO0), and SCK/MOSI/MISO. Also leave **pin 9** alone: it is A7, the battery-voltage divider.
+**Taken by the onboard LoRa - do not reuse:** pin 8 (CS), pin 4 (RST), pin 3 (DIO0), and
+SCK/MOSI/MISO. Leave **pin 9** alone as well: it is A7, the battery-voltage divider.
 
 | Module | Signal | Feather pin | Colour |
 | ------ | ------ | ----------- | ------ |
@@ -263,33 +264,17 @@ LoRa is already using. Colours follow the same role scheme as the satellite.
 | nRF24 | MISO | MISO | green |
 | nRF24 | CSN | 10 | white |
 | nRF24 | CE | 11 | blue |
-| nRF24 | IRQ | not connected | - |
+| nRF24 | IRQ | not connected - the driver polls | - |
 | OLED | VCC | 3V3 | red |
 | OLED | GND | GND | black |
 | OLED | SDA | SDA | blue |
 | OLED | SCL | SCL | yellow |
 
-**The nRF24 needs a 10 uF cap across its own VCC and GND pins**, as close to the module as it
-goes - the same rule as the satellite side, and `bom.md` names it the number one dead-link cause.
-It draws ~45 mA receiving and pulls hard on transients; the Feather's regulator can supply it,
-but not through a length of thin wire without local storage.
-
-**IRQ is deliberately unconnected.** The driver polls, so the line buys nothing yet. Wire it to
-pin 6 if a future version wants to sleep waiting for a packet.
-
-**Add no I2C pull-ups.** SSD1306 modules carry their own, and the Feather has none - which is the
-right combination. A second I2C device later inherits those, it does not need more.
-
-**Both antennas on before power.** The nRF24 has its SMA stub; the LoRa needs a 78 mm wire on the
-Feather's ANT pad (a quarter wave at 915 MHz). Transmitting without one can damage a PA, and the
-box has two radios that can transmit.
-
-**Power budget, all four loads receiving:** SAMD21 ~10 mA, RFM95 ~12, nRF24 PA+LNA ~45, SSD1306
-~20 - about **87 mA against the Feather's 600 mA regulator and a 500 mA USB budget**. Not close
-to a limit, which is why USB alone runs the whole box.
-
-26 AWG, same as the satellite harness. The runs are short enough that gauge is about handling
-rather than drop.
+- **10 uF across the nRF24's own VCC/GND**, as close to the module as it goes.
+- **Add no I2C pull-ups.** The SSD1306 module carries its own and the Feather has none.
+- **Both antennas on before power** - the nRF24's SMA stub, and a 78 mm wire on the Feather's ANT
+  pad (a quarter wave at 915 MHz). Two radios here can transmit.
+- Whole box draws ~87 mA receiving against a 600 mA regulator, so USB alone runs it.
 
 ## Intra-layer vs inter-layer at a glance
 
@@ -301,38 +286,26 @@ rather than drop.
 
 ## Harness bundling and routing
 
-There are no printed wire channels except the one in the gimbal section that keeps the motor phases clear of the flywheel. That is fine - channels are not what makes a harness tidy.
-
-**Ties:** hook-and-loop (Velcro) cable ties while building and debugging - reusable, undone by hand, no cutting. For the final tidy-up, **waxed lacing cord** spot-tied every few cm: it is what real spacecraft and aircraft harnesses use, sits far lower-profile than any tie, does not crush insulation, and comes off by snipping one loop. Spiral wrap is a reasonable middle option on the inter-plate runs. Zip ties are rejected - bulky, they bite insulation, and servicing means cutting them off.
-
-**Tie-down points:** the inter-plate **standoffs**. No reprinting needed - lace or Velcro each bundle to a standoff.
-
-**Routing habit:** give each domain a side. Motor and power hug the ESC/power side of the plate; signals hug the sensor/OBC side.
-
 | Bundle | Wires | Notes |
 | ------ | ----- | ----- |
-| A - sensor board <-> CN10 side | power+I2C (4) + IMU SPI2 (5) | fine together: all 3.3 V logic, same destination, short run |
+| A - sensor board <-> CN10 side | power+I2C (4) + IMU SPI2 (5) | fine together: all 3.3 V logic, one destination |
 | B - sensor board <-> CN7 side | camera SPI3 (5) | own bundle, other socket |
 | C - OBC <-> ESC UART | TX, RX, GND (3) | own small bundle |
 | D - distribution -> ESC power | VIN+, GND (2) | twist the pair, keep off the signal side |
-| E - motor phases | A, B, C (3) | twist all three, isolated; this is the one in the gimbal channel |
-| F - encoder -> ESC | 3V3, GND, SDA, SCL (4) | bundle together, route separately from E |
+| E - motor phases | A, B, C (3) | twist all three, isolated; the one in the gimbal channel |
+| F - encoder -> ESC | 3V3, GND, SDA, SCL (4) | bundle together, route away from E |
 
-**The hard rule: never bundle the motor phases (E) with anything, least of all the encoder (F).** The phases are switched PWM carrying amps; AS5600 I2C is weak, slow, open-drain, and exactly what that corrupts. The ESC power pair (D) stays off the signal side too.
-
-- **Twist each conductor with its return.** Power pairs (+/-) and the three motor phases twist so the currents cancel. Signals return in ground, so ground rides in the same bundle - the encoder's four wires twist as **one** bundle, never split into a VCC+GND pair and an SDA+SCL pair, which leaves both signals with no nearby return.
-- **Bundling same-bus wires together is good**, not merely tolerable: one shared return, minimum loop area.
-- **Cross noisy and signal bundles at 90 degrees, never parallel** - this matters more than separation, which is scarce inside 100 mm.
-- **Service loop at every connector**, bundle anchored a couple of cm back from it so vibration works the anchor and not the joint, and nothing able to flop into the flywheel's swept volume.
-
-## Build order
-
-The build is complete (2026-07-26). Four rules from it that apply to any rework:
-
-- **Signals before power.** Signal work runs on USB with no LiPo and no motor; the power chain is only needed once the motor wants VBAT.
-- **Bring up sensors one at a time** and confirm each answers on the console before wiring the next. Chasing one bad joint is easy, chasing four is not.
-- **Verify every rail with a meter before connecting a load**, PSU current limit low (~300 mA). This is the step that catches a reversed rail before it kills a board.
-- **First power-on always runs off the bench PSU, never the LiPo.** A current-limited supply turns a wiring mistake into a shrug; a 100C pack turns it into smoke.
+- **Never bundle the motor phases (E) with anything, least of all the encoder (F).** The phases are
+  switched PWM carrying amps; AS5600 I2C is weak, slow, open-drain, and exactly what that corrupts.
+- **Twist each conductor with its return.** Power pairs and the three phases twist so the currents
+  cancel. Signals return in ground, so ground rides in the same bundle - the encoder's four wires
+  twist as one, never split into a VCC+GND pair and an SDA+SCL pair.
+- **Cross noisy and signal bundles at 90 degrees, never parallel.** Matters more than separation,
+  which is scarce inside 100 mm.
+- **Service loop at every connector**, bundle anchored a couple of cm back so vibration works the
+  anchor and not the joint, and nothing able to reach the flywheel's swept volume.
+- Ties: hook-and-loop while building, waxed lacing cord for the final tidy. Not zip ties - they
+  bite insulation and servicing means cutting them off.
 
 ## The comms plate
 
@@ -366,7 +339,7 @@ Built 2026-07-26. Wiring is done; the drivers are not.
 | PC2 | CN7-35 | nRF24 CE |
 | PC3 | CN7-37 | nRF24 IRQ |
 
-**Shortfall resolved (2026-07-21).** The two radios need six GPIOs - LoRa (CS PB7, DIO0 PA0, RST PA1) and nRF24 (CSN PA4, CE PC2, IRQ PC3) - and the original reserved block only had four spares once **PB0 (CN7-34) went to the camera CS**. **PC2 (CN7-35) and PC3 (CN7-37)** close the gap: both free, both plain GPIO, both confirmed on CN7. Still avoid PA13/PA14 (SWD), PB11 (not bonded out on the LQFP64), and PB3 if SWO trace is ever wanted.
+The two radios need six GPIOs - LoRa (CS PB7, DIO0 PA0, RST PA1) and nRF24 (CSN PA4, CE PC2, IRQ PC3) - and the original reserved block only had four spares once **PB0 (CN7-34) went to the camera CS**. **PC2 (CN7-35) and PC3 (CN7-37)** close the gap: both free, both plain GPIO, both confirmed on CN7. Still avoid PA13/PA14 (SWD), PB11 (not bonded out on the LQFP64), and PB3 if SWO trace is ever wanted.
 
 ## Wire colors
 

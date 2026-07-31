@@ -8,22 +8,30 @@ The companion documents: `journal.md` (the done-log), `hardware.md` (the physica
 
 ## Status -> Next action
 
-- **The satellite hardware build is complete (2026-07-26).** All three plates are wired, assembled, and verified as far as they can be without firmware. The gimbal plate runs closed-loop FOC with a verified AS5600 encoder and has demonstrated the reaction-wheel effect; the compute plate carries the OBC slice, the sensor board with all four devices answering, and the power distribution board feeding the stack from the 14.75 V bus; the comms plate carries the 3-bead WS2812 array and both radios on a shared SPI3 bus with a dedicated 3.3 V buck. Fault thresholds are sized for 4S LiPo (13.6 V under / 17.0 V over / 1.5 A overcurrent).
-- **Phase 5 is complete and bench-proven (2026-07-29).** The whole payload arc ran on real silicon: `SET_MODE DETUMBLE -> POINTING -> CAPTURE_IMAGE -> SET_MODE DOWNLINK`, 121 chunks reassembled to a 6759-byte jpeg on disk with its markers intact at both ends. The ESC node is physically out of the stack pending a replacement board, so `WHEEL_DROPOUT` and `COMMAND_LINK_LOSS` run under the declared bench-inhibit list.
-- **Phase 6 is closed (2026-07-29).** Kernel, task model, task-health telemetry, stacks sized from measured peaks, a watchdog that bites, and HIL-003 passing 7/7 as the graded evidence. REQ-RT-002, REQ-RT-003 and REQ-WDG-001 are HIL-verified; REQ-FAULT-005 is SIL-verified.
-- **The docs are consolidated and edited (2026-07-29).** Eleven files down to nine, the planning documents folded in and cut against a boundary - architecture holds decisions and structure, hardware holds the physical objects and mechanical constraints, bom holds the parts, wiring holds the pin map. `README.md` has a documentation index and `requirements.md` a section table of contents. The pass caught a stale mode-bead color table, three undocumented scenarios, and a SIL-007 description that predated its own rewrite.
-- **The requirement backlog is clear as of 2026-07-31.** REQ-PAL-001 is inspection-verified by an automated PAL-boundary check, REQ-WDG-002 and REQ-TLM-005 are bench-verified, and REQ-SNS-003 is explicitly deferred as conditional on redundancy this build does not have. What remains unverified is phase 7's ADCS set and REQ-TLM-004, which waits on radio drivers - **not on radio hardware, which has been wired since 2026-07-26**.
-- **Phase 7's detumble half is SIL-verified (2026-07-31).** The plant model, the closed SIL loop, and the rate-damping control law all landed; SIL-011 nulls a 2 rad/s spin inside the deadband without saturating the wheel, closing REQ-ADCS-001 in SIL and the limit half of REQ-ADCS-003. **Next: POINTING and REQ-ADCS-002** - PD on angle error, which is where the plant's stiction will actually bite, since a small angle error asks for a torque too small to break the platform loose. Then the saturation fault, which wants the rig to decide its response. None of that needs the ESC; HIL for all of it does.
-- **The inertias are measured (2026-07-31, from Fusion): j_wheel 1.09e-4, j_platform 4.53e-3 kg m^2.** Together they cap the vehicle at **0.87 rad/s of platform rate** before the wheel is full - four times less authority than the earlier estimates implied. Filling the flywheel's remaining eight bolt pockets adds ~30%. **Friction is now the only unmeasured parameter and it dominates every result**: at the current guess the bearing stops any rate under ~1 rad/s within three control cycles, which is why detumble looks easy and pointing looks impossible. Measuring breakaway torque (`hardware.md` has the procedure) is the single thing that would move both conclusions.
-- **Phase 8: the wireless link is complete both ways (2026-07-31).** `gsw/` is an Adafruit Feather M0 RFM95 - LoRa radio on board, nRF24 receiver on its SPI, SSD1306 readout on its I2C, and its own USB serial port. It compiles `common/protocol/` rather than reimplementing it. The satellite beacons the heartbeat over LoRa and streams payload chunks over nRF24; both radios report their own health; the vehicle listens between beacons so commands typed at the ground console reach the same uplink task that decodes them from a uart. **Owed: the untethered bench run** - command the vehicle and downlink an image with no cable to it, which closes REQ-TLM-004 and is the phase 8 demo.
-- **Next action: phase 7, gated on the replacement ESC board.** The wheel link's flight software is finished and green on the host; what is missing is the wire. Until the board arrives, the useful work is host-side and runs without the rig: the single-axis plant model and the control law itself. **NASA 42 was evaluated and set aside (2026-07-30)** - the reasoning is under Simulation below.
-- **A test-coverage audit ran 2026-07-29**, mapping all 60 requirements to their claimed verification: 21 unit, 15 SIL, 8 bench, 7 HIL, the rest planned or in progress. The one genuine SIL gap was REQ-FAULT-005's retreats, now closed by SIL-009 and SIL-010. Remaining owed evidence is hardware-gated (REQ-TLM-004 waits on the radios) or is phase 7's ADCS set. **REQ-PAY-002 closed 2026-07-30** - the camera-unplug test ran, and it also found the cause of July's two-devices-one-cable mystery: the camera was grounded only through its SPI3 connector, so pulling that harness left it powered but floating and it took the INA228 off the I2C bus with it. Fixed with a second ground on the camera's power run; the mechanism is written up in `wiring.md`.
-- **The task model is complete and bench-proven (2026-07-30):** control, health, sensors, uplink, telemetry, downlink. The telemetry task owns both output uarts so no producer blocks on the wire, and the payload downlink paces itself against buffer space instead of a chunks-per-cycle constant - a 6117-byte frame now goes out in about a second against three on the old path. The run also surfaced a latent watchdog reset: the downlink task reported liveness only after a loop whose length is the image's length, which starved its 500 ms deadline and would have reset the board on a full-resolution frame. Fixed by checking in per chunk. **Owed: one confirming run** on a larger frame.
-- **Still owed from phase 5:** the ESC wire - the OBC sees zero bytes (`waiting=0 ore=0 fe=0 ne=0`), so PA10 must reach the ESC's TX (PB3 on J3) and PA9 its RX (PB4), crossed not straight, with the ESC's USB **out** (J3 and its ST-Link VCP are the same USART2) and a common ground. Suspect the cable's landing pins first. The `TEMP esc rx:` block in `obc/Src/main.cpp` prints every 2 s until the first status frame arrives; delete it once `ESC: up at N ms, flags=0x0F` appears.
+Where the build actually is. History belongs in `journal.md`.
 
-Update this block every working session. Historical detail belongs in `journal.md` - keep this block describing the *current* state, not the path to it.
+**Hardware:** all three plates built and wired (2026-07-26). The ESC is physically out of the
+stack pending a replacement board, so `WHEEL_DROPOUT` and `COMMAND_LINK_LOSS` run under the
+declared bench inhibits. Still owed: the PTC fuse before the LiPo ever runs.
 
----
+**Software:** phases 0-6 done. Phase 7 has detumble SIL-verified; pointing is written but its
+error is not observable on this rig (see REQ-ADCS-002). Phase 8 has the wireless link running
+both ways - beacon and acks on LoRa, payload on nRF24, commands up from the ground console.
+
+**Next, unblocked:**
+
+1. The untethered demo - command the vehicle and downlink an image with no cable to it. Closes
+   REQ-TLM-004 and is the phase 8 deliverable.
+2. Payload resolution as a `CAPTURE_IMAGE` argument, defaulting to 800x600. Blocked internally on
+   moving `scan_jpeg_length` off the control task first - it scales with frame size and would
+   overrun the 100 ms cycle at UXGA.
+3. Measure the bearing's breakaway torque. It is the last unmeasured plant parameter and it
+   decides whether pointing is achievable here at all.
+
+**Blocked on the replacement ESC:** the wheel UART link, and HIL for every ADCS requirement. The
+flight software for it is written and green on the host; what is missing is the wire. PA10 must
+reach the ESC's TX (PB3 on J3) and PA9 its RX (PB4), crossed, with the ESC's USB out and a common
+ground. Delete the `TEMP esc rx:` block in `control_task.cpp` once `ESC: up` appears.
 
 ## Phase ledger
 
@@ -47,6 +55,11 @@ Update this block every working session. Historical detail belongs in `journal.m
 
 Items that outlived the phase they were opened in, or that are waiting on a part.
 
+- **Secure boot + VTOR** - a bootloader at flash base verifies the app image, relocates
+  `SCB->VTOR`, and jumps to it; A/B slots and rollback for safe updates. A design sketch, not
+  scheduled. The rest of the boot-hardening pass (reset cause, fault handler, clock tree,
+  watchdog, hard-float) is done and bench-verified.
+
 - **PTC resettable fuse (Littelfuse RUEF300 or equivalent) - ordered, not yet arrived.** The main + lead currently runs through a temporary jumper. **This must be fitted before the LiPo is ever connected**; until then the bench PSU's current limit is the only fault protection. The one outstanding hardware item on the satellite.
 - **Mechanical work on the gimbal plate:** lazy-susan stiction, flywheel inertia (fill pockets outermost-first, consider a larger radius), and tether routing up the spin axis. See the flywheel notes in `hardware.md`.
 - **"Link never acquired" vs "link lost" in telemetry (phase 8, open design question).** `link_lost()` measures against `last_command_ms_ = 0`, so COMMAND_LINK_LOSS (Critical, debounce 1) latches ~5 s after every boot with no ground station and drops the rig to SAFE. That *response* is right - a spacecraft that cannot hear the ground should safe - and it is why bench demos need NOOP keep-alives. What is missing is **observability**: nothing distinguishes "never acquired" from "lost after contact". The status array already separates them (amber vs red, derived from an empty command log), but a heartbeat or log reader cannot. Worth carrying in telemetry once the ground station exists to read it; deliberately not a new fault or mode now, since the derivation already exists and there would be exactly one consumer.
@@ -54,47 +67,17 @@ Items that outlived the phase they were opened in, or that are waiting on a part
 
 ---
 
-## Boot / startup hardening
+## Design reference
 
-A pass over the reset-to-main path: understand it cold - the boot flow is the bare-metal cousin of a bootloader - and close the gaps the auto-generated CubeIDE startup left. It threads through phases 5-6 plus a future secure-boot item, so it is tracked here rather than buried in one phase.
+Modes and faults are defined in `common/protocol/state.hpp` and specified in `requirements.md`.
+Architecture decisions and their reasoning are in `architecture.md`. Two rules that decide scope
+and live nowhere else:
 
-| # | Item | What it does | Status | Owning req |
-| - | ---- | ------------ | ------ | ---------- |
-| A | reset-cause report | read RCC->CSR at boot, latch + decode the cause (power-on / pin / brownout / software / watchdog), clear the flags, print it in the boot banner | done, bench-verified | REQ-WDG-002 (first cut) |
-| B | fault-exception handler | replace the silent-spin Default_Handler for HardFault / MemManage / BusFault / UsageFault with one that captures the fault context (CFSR + the stacked frame) and does a controlled reset instead of hanging | done, bench-verified | REQ-RT-004 |
-| C | clock tree bring-up | HSE -> PLL -> 180 MHz with the matching voltage scaling, flash wait states, and APB prescalers | done, bench-verified | REQ-RT-001 (extends) |
-| D | independent watchdog | IWDG started + serviced from a health task; a hang or B's fault path resets the board; demonstrate the bite | done, bench-verified 2026-07-29 | REQ-WDG-001 |
-| E | secure boot + VTOR | a bootloader at flash base verifies the app image, relocates SCB->VTOR, and jumps to the app; A/B slots + rollback for safe updates | a design sketch, future | new when built |
-| F | FPU / float ABI | confirm the firmware build uses the hardware FPU so the ADCS float math runs in hardware | done - build was already hard-float | - |
-
-Only E remains, and it stays a design sketch. Each landed item went in as its own narrow commit with its requirement and verification.
-
----
-
-## Design reference (flight software)
-
-The system being built. Forward-relevant for every remaining phase.
-
-### Modes
-
-A small state machine: **BOOT** (power-on + self-checks), **STANDBY** (idle/healthy, awaiting commands), **DETUMBLE** (reduce body rates after deploy), **POINTING** (hold an attitude), **DOWNLINK** (empty the onboard payload buffer over the high-rate link during a contact pass - distinct from the always-on housekeeping beacon), **SAFE** (minimal, conservative, after an unresolved critical fault). Every transition logs timestamp, trigger, from-mode, to-mode, requirement ID, and observed response.
-
-### Faults
-
-Defined once in `common/protocol/state.hpp` (C++) as an index enum. The live set is twelve: COMMAND_LINK_LOSS, ACCEL_GYRO_DROPOUT, MAG_DROPOUT, POWER_DROPOUT, UNDERVOLTAGE, OVERVOLTAGE, OVERCURRENT, TEMP_DROPOUT, UNDERTEMPERATURE, OVERTEMPERATURE, WHEEL_DROPOUT, CAMERA_DROPOUT. fsw holds a fault table (per-fault latch, debounce, severity); the active set ships as a bitmask in `heartbeat_t.faults`. A critical fault that doesn't clear drops to SAFE unless a documented degraded behavior exists. Each fault carries its own policy in that table, so one detect -> debounce -> latch -> respond path serves every fault. Future faults switch on as their inputs land - sensor disagreement and actuator saturation in ADCS, a PAYLOAD/CAMERA dropout with the imaging payload - with no new logic per fault.
-
-**Recovery is ground-commanded (and extensible) - planned, not built.** A latched fault clears only on a CLEAR_FAULT command, never autonomously; latching stops a flapping sensor from toggling the fault. The planned companion is a **RESET_DEVICE** command (arg = device id) so the ground can re-initialize a misbehaving peripheral *before* deciding to clear its fault. It routes through a new `platform::reset_device(id)` PAL **action** - the STM32 backend dispatches to that driver's re-init (the IMU's is essentially `imu_init`, which already does a full DEVICE_RESET + reconfigure; the host backend no-ops). Reset belongs in the PAL because it is something the flight software *does*, like `send_telemetry` - not an input the host would have to fake. Flow: fault latched -> ground RESET_DEVICE -> driver re-inits -> the device's validity returns if it recovers -> ground CLEAR_FAULT -> resume. An autonomous version (a health task that retries a bounded number of times, then escalates to SAFE) can layer on top; ground-commanded is the conservative first cut.
-
-### Key decisions
-
-- **Portable flight logic first**, as host C++, so SIL checks behavior before MCU timing is involved.
-- **One MCU as the on-board computer:** the portable C++ cross-compiles onto the STM32 and runs alongside the firmware, reaching hardware only through a **platform-abstraction layer** (simulator on the host, real firmware drivers on the target). Same source for SIL, HIL, and flight - only the backend changes.
-- **Nucleo-F446RE** as the OBC / bench node (on hand, onboard ST-Link + USB serial).
-- **One control task, everything else feeds it through queues.** The flight software stays single-threaded and identical to what SIL runs, because `Executive::cycle()` being a pure function of its inputs is what REQ-PAL-001/002 and all ten SIL scenarios rest on. Mutexes are for shared *resources* (the I2C bus, SPI3 between the camera and the downlink), never for shared flight state.
-- **Comms is two logical links, observed from one side.** A low-rate TT&C link (commands up, telemetry down) and a high-rate payload link (active only in DOWNLINK mode); a UART stands in for the TT&C link today, LoRa + nRF24 later. The satellite only sees its own receive side, so the single onboard link fault is `COMMAND_LINK_LOSS`; downlink-delivery loss is the ground's to detect from sequence gaps. Full picture in `architecture.md`.
-- **A mode is a posture, not a parameter (2026-07-29).** Something earns a mode when it changes what the vehicle is *doing*; it does not when it only changes what the vehicle is *deciding with*. SURVEY qualifies - deliberately slewing contradicts POINTING's attitude hold. Vision-based target tracking does not - same control law and actuator, with the error arriving from a different source, so it is a command argument. The cost of getting this wrong is not the extra enum value: it is two modes that behave identically appearing in every fallback list, where narrowing one and forgetting the other goes unnoticed.
-- **No live video from the payload, and the reason is the link budget (2026-07-29).** The UART downlink ceiling is ~9 KB/s after framing and housekeeping, so a 7 KB frame caps at ~1.2 fps and the deliberate 4-chunks-per-cycle limit puts it nearer 0.3; the phase 8 LoRa beacon is ~625 B/s, eleven seconds a frame. Real spacecraft capture, store, and downlink during a pass, which is what `payload_data_t` already implements - self-describing chunks, out-of-order safe, resumable. Nor does a CNN fit: the smallest useful TinyML models are ~250 KB of weights with a ~70-100 KB arena at 1-2 s per inference on an M4, against 128 KB of RAM total and a 10 Hz loop.
-- **Build the final design, not a worse stopgap.** Prefer the intended approach when it is feasible now over a temporary inferior version that would later be ripped out. The one exception is an optimization gated on infrastructure that does not exist yet. (2026-06-15)
+- **A mode is a posture, not a parameter.** Something earns a mode when it changes what the
+  vehicle is *doing*, not when it changes what the vehicle is *deciding with*. The cost of
+  getting this wrong is two modes that behave identically appearing in every fallback list.
+- **Build the final design, not a worse stopgap.** The exception is an optimisation gated on
+  infrastructure that does not exist yet.
 
 ---
 

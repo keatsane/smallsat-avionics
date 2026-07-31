@@ -76,6 +76,12 @@ size_t rfm95_receive(uint8_t* buf, size_t max);
 uint32_t rfm95_sent(void);
 
 /**
+ * @brief  transmits that never reported done and were forced back to receive
+ * @return the count since boot - nonzero means the radio stopped answering mid-transmit
+ */
+uint32_t rfm95_tx_timeouts(void);
+
+/**
  * @brief  raw register read - bring-up and hil diagnostics
  * @param  reg  register address
  * @return the byte read

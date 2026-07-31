@@ -31,12 +31,18 @@ struct CommandSpec {
     const char* req_id;   // requirement this command's handling serves (traceability)
 };
 
+// how long a sequence number is remembered for duplicate detection. the ground retransmits an
+// unacknowledged command a few times a second at most, so one command-loss timeout covers every
+// retry of the same command without holding a number long enough to collide with a fresh one
+inline constexpr uint32_t kCommandDedupMs = kCommandTimeoutMs;
+
 // one row of the command event log - accepted or rejected and why
 struct CommandEvent {
-    uint32_t t_ms;     // platform time the command was handled
-    uint8_t cmd_id;    // which command - raw, since an unknown id may not be a valid Command
-    bool accepted;     // true if it passed validation and was dispatched
-    CmdReject reason;  // why it was rejected (Ok when accepted)
+    uint32_t t_ms;           // platform time the command was handled
+    uint8_t cmd_id;          // which command - raw, since an unknown id may not be a valid Command
+    bool accepted;           // true if it passed validation and was dispatched
+    CmdReject reason;        // why it was rejected (Ok when accepted)
+    bool duplicate = false;  // a retransmission of the previous seq - answered, not re-executed
 };
 
 // fixed-capacity ring of the kLogCapacity most recent commands - no heap, oldest overwritten
@@ -69,6 +75,12 @@ class CommandHandler {
    private:
     CommandLog log_;
     uint32_t last_command_ms_ = 0;
+
+    // the previous command's sequence number and the answer it got, so a retransmission can be
+    // given the same answer without acting twice
+    CommandEvent last_event_{};
+    uint16_t last_seq_ = 0;
+    bool have_last_seq_ = false;
 };
 
 }  // namespace fsw

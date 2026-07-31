@@ -28,8 +28,10 @@ from ground.commands import CommandError, parse, usage
 from ground.console import make_session
 from ground.filters import KINDS, PER_CYCLE_KINDS, Filters
 from ground.frames import (
+    MSG_COMMAND_ACK,
     MSG_PAYLOAD_DATA,
     FrameDecoder,
+    decode_command_ack,
     decode_payload_data,
     encode_command,
     format_frame,
@@ -38,6 +40,17 @@ from ground.link import find_port, open_port
 from ground.payload import Assembler, looks_like_jpeg
 
 KEEPALIVE_S = 2.0  # under the flight software's 5 s command-loss timeout
+
+# a command is retransmitted until the vehicle acknowledges it. the lora link is half duplex and
+# the vehicle is deaf for the ~57 ms its beacon is on the air, so a command sent at the wrong
+# moment is simply not heard - on the bench that lost about one in six. the flight software drops
+# a repeated sequence number rather than acting twice, so a resend costs nothing when the command
+# did arrive and only the ack was lost.
+#
+# the interval is deliberately not a multiple of the 1 s beacon: a retry that keeps landing in the
+# same relative slot would keep hitting the same deaf window forever
+RETRY_AFTER_S = 0.7
+RETRY_LIMIT = 4  # gives up after ~2.8 s, well inside the 5 s command-loss timeout
 
 # how long a scripted run keeps listening after its piped commands are sent. long enough for an
 # ack and the next heartbeat, short enough that it never becomes the process nobody knows is
@@ -81,6 +94,9 @@ def main() -> int:
         "--keepalive", action="store_true", help="send NOOP every 2 s to hold off COMMAND_LINK_LOSS"
     )
     ap.add_argument("--read-only", action="store_true", help="never transmit, ignore input")
+    ap.add_argument(
+        "--no-retry", action="store_true", help="send each command once, never retransmit"
+    )
     ap.add_argument(
         "--images", default="captures", help="directory for downlinked images (default: captures)"
     )
@@ -134,15 +150,45 @@ def main() -> int:
     port = args.port or find_port(args.stlink, args.vid)
     ser = open_port(port, args.baud, timeout=0.1)
 
-    tx = threading.Lock()  # the reader thread's keep-alive and the prompt both transmit
+    tx = (
+        threading.Lock()
+    )  # the reader thread's keep-alive, its retries, and the prompt all transmit
     seq = 0
+    outstanding: dict[int, dict] = {}  # seq -> what was sent and when to send it again
 
-    def send(cmd_id: int, arg: int, label: str) -> None:
+    def send(cmd_id: int, arg: int, label: str, retry: bool = True) -> None:
         nonlocal seq
         with tx:
             seq = (seq + 1) & 0xFFFF
-            ser.write(encode_command(cmd_id, arg, seq))
+            frame = encode_command(cmd_id, arg, seq)
+            ser.write(frame)
             show(f"{'SENT':<12} {label}  seq={seq}")
+            if retry and not args.no_retry:
+                outstanding[seq] = {
+                    "frame": frame,
+                    "label": label,
+                    "tries": 1,
+                    "due": time.monotonic() + RETRY_AFTER_S,
+                }
+
+    def service_retries() -> None:
+        """Resend anything still unacknowledged, and say so when one is given up on."""
+        now = time.monotonic()
+        with tx:
+            for s_no, p in list(outstanding.items()):
+                if now < p["due"]:
+                    continue
+                if p["tries"] >= RETRY_LIMIT:
+                    del outstanding[s_no]
+                    show(
+                        f"{'LINKERR':<12} no ack for {p['label']}  seq={s_no} "
+                        f"after {RETRY_LIMIT} tries"
+                    )
+                    continue
+                p["tries"] += 1
+                p["due"] = now + RETRY_AFTER_S
+                ser.write(p["frame"])
+                show(f"{'SENT':<12} {p['label']}  seq={s_no}  (retry {p['tries']})")
 
     def local_directive(line: str) -> bool:
         """Handle a console directive. Returns True if the line was one.
@@ -214,8 +260,11 @@ def main() -> int:
 
         while not stop.is_set():
             if args.keepalive and not args.read_only and time.monotonic() >= next_keepalive:
-                send(NOOP_ID, 0, "NOOP (keepalive)")
+                send(NOOP_ID, 0, "NOOP (keepalive)", retry=False)
                 next_keepalive = time.monotonic() + KEEPALIVE_S
+
+            if outstanding:
+                service_retries()
 
             data = ser.read(64)
             if not data:
@@ -236,6 +285,8 @@ def main() -> int:
                     if frame[0] == MSG_PAYLOAD_DATA:
                         take_chunk(*frame)
                     else:
+                        if frame[0] == MSG_COMMAND_ACK:
+                            outstanding.pop(decode_command_ack(frame[1])["seq"], None)
                         show(format_frame(*frame))
                 elif hunting and decoder.state == "sync0":
                     # stray byte outside any frame: debug text from the firmware

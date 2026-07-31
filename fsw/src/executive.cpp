@@ -69,8 +69,9 @@ void Executive::cycle(const Inputs& inputs, uint32_t t_ms) {
                     fm_.fault_spec(Fault::WHEEL_DROPOUT).req_id);
     }
 
-    // dispatch accepted ground commands. acceptance only means the command passed validation
-    if (inputs.command && ce.accepted) {
+    // dispatch accepted ground commands. acceptance only means the command passed validation, and
+    // a duplicate is a retransmission that was already acted on - it is answered, never re-run
+    if (inputs.command && ce.accepted && !ce.duplicate) {
         const Command cmd = static_cast<Command>(ce.cmd_id);
         switch (cmd) {
             case Command::NOOP:

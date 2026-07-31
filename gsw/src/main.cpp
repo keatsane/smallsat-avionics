@@ -2,18 +2,16 @@
  * @file   main.cpp
  * @brief  ground station - hears the vehicle on two radios and pumps it out usb serial
  *
- * The whole job is to be a byte pipe. A packet arrives over the air, its bytes go out the usb
- * port, and `tools/uart_monitor.py` decodes them with the same FrameDecoder it already uses on
- * the st-link cable - because the frame format does not change per transport, which is the point
- * REQ-TLM-004 exists to make. Neither radio parses anything.
+ * The whole job is to be a frame pipe. A packet arrives over the air, whole frames are recovered
+ * from it and written to the usb port, and `tools/uart_monitor.py` decodes them with the same
+ * FrameDecoder it already uses on the st-link cable - because the frame format does not change per
+ * transport, which is the point REQ-TLM-004 exists to make.
  *
- * Both streams go out the one port, deliberately. They are the same frame format, the decoder
- * resyncs on AA 55 and checks a crc, and the ground tooling already reassembles payload chunks
- * from a single byte stream - so LoRa beacons and nRF24 image chunks interleaving costs nothing
- * and needs no demultiplexing at either end.
+ * Frames rather than bytes, because the two radios do not deliver a clean byte stream: nRF24
+ * packets carry padding and LoRa packets arrive between them. Decoding per radio and re-encoding
+ * on the way out gives the pc exactly what the satellite emitted, from both links, on one port.
  *
- * The display is the one thing here that decodes a message, and it uses the satellite's own
- * catalogs to do it (see display.cpp).
+ * The display reads the heartbeats going past, using the satellite's own catalogs (display.cpp).
  *
  * Uplink works the same way in reverse: whatever the pc types arrives here as encoded command
  * frames on usb, and they go out over lora unexamined. `uart_monitor.py` builds them exactly as
@@ -38,20 +36,29 @@ constexpr uint32_t kAliveBlinkMs = 2000;
 constexpr uint32_t kAliveFlashMs = 20;
 constexpr uint32_t kFrameFlashMs = 60;
 
+// how long after the last payload packet the screen keeps its hands off the bus
+constexpr uint32_t kDownlinkQuietMs = 500;
+
 uint32_t led_off_at = 0;
 uint32_t next_alive_blink = 0;
 
 bool lora_up = false;
 bool nrf_up = false;
 
-fsw::frame_parser_t parser;     // downlink, from the radios
-fsw::frame_parser_t up_parser;  // uplink, from usb
+// one parser PER RADIO. sharing them was a real bug: a heartbeat arriving over lora between two
+// nrf24 payload packets spliced itself into the middle of an image frame, and the interleaved
+// bytes went out usb in that order too, so the pc saw the same wreckage
+struct link_t {
+    fsw::frame_parser_t parser;
+};
 
-// bytes typed at the pc, held until they form a whole frame. commands are 10 bytes, so this only
-// ever holds one - but transmitting a half frame would put a packet on the air that the vehicle
-// throws away, and the ground would have no idea why
-uint8_t up_buf[fsw::kFrameMaxSize];
-size_t up_len = 0;
+link_t lora_link{};
+link_t nrf_link{};
+
+fsw::frame_parser_t up_parser;  // uplink, from usb - re-encoded on the way out, same as the rx side
+
+// when the payload link last delivered anything, so the screen can stay out of its way
+uint32_t last_nrf_ms = 0;
 
 void led_flash(uint32_t ms) {
     digitalWrite(kPinLed, HIGH);
@@ -70,16 +77,30 @@ void led_service() {
     }
 }
 
-// every received byte goes here, from either radio. out the usb port unexamined, and through the
-// satellite's own decoder purely so the box can light an led and draw a screen
-void on_rx(const uint8_t* data, size_t len) {
-    Serial.write(data, len);
-
+// decode one link's bytes, and re-encode every whole frame onto usb.
+//
+// re-encoding rather than forwarding the received bytes is the point. the obvious version keeps a
+// shadow copy of what arrived and writes that when the parser says a frame ended - and it does not
+// work, because the bytes on the air are not only frame bytes. the nrf24 pads every packet to 32,
+// a payload frame is 70, so each frame arrives as three packets carrying 70 frame bytes and 26
+// zeros. those zeros land in the shadow buffer, the next frame overruns it, and what goes to the
+// pc is padding followed by a truncated frame. every image frame failed crc at the pc for this
+// reason and nothing was ever reassembled.
+//
+// the parser already found the frame boundaries and checked the crc. frame_encode is deterministic,
+// so re-encoding gives back exactly the bytes the satellite emitted, with no padding and no way for
+// two radios to interleave mid-frame
+void on_link_rx(link_t& link, const uint8_t* data, size_t len) {
     for (size_t i = 0; i < len; i++) {
-        auto f = fsw::frame_decode(&parser, data[i]);
+        auto f = fsw::frame_decode(&link.parser, data[i]);
         if (!f) {
             continue;
         }
+
+        uint8_t out[fsw::kFrameMaxSize];
+        const size_t n = fsw::frame_encode(f->msg_id, f->payload, f->len, out);
+        Serial.write(out, n);
+
         led_flash(kFrameFlashMs);
         next_alive_blink = millis() + kAliveBlinkMs;  // do not stack an alive blink on top
 
@@ -92,6 +113,13 @@ void on_rx(const uint8_t* data, size_t len) {
     }
 }
 
+void on_lora_rx(const uint8_t* data, size_t len) { on_link_rx(lora_link, data, len); }
+
+void on_nrf_rx(const uint8_t* data, size_t len) {
+    last_nrf_ms = millis();
+    on_link_rx(nrf_link, data, len);
+}
+
 // take whatever the pc sent and put whole frames on the air. anything that is not a frame is
 // dropped rather than transmitted - the decoder is the judge of what counts
 void service_uplink() {
@@ -101,16 +129,14 @@ void service_uplink() {
             return;
         }
 
-        if (up_len < sizeof(up_buf)) {
-            up_buf[up_len++] = static_cast<uint8_t>(b);
-        } else {
-            up_len = 0;  // never a frame - resync rather than transmit junk
+        auto f = fsw::frame_decode(&up_parser, static_cast<uint8_t>(b));
+        if (!f) {
+            continue;
         }
 
-        if (fsw::frame_decode(&up_parser, static_cast<uint8_t>(b))) {
-            lora_send(up_buf, up_len);
-            up_len = 0;
-        }
+        uint8_t out[fsw::kFrameMaxSize];
+        const size_t n = fsw::frame_encode(f->msg_id, f->payload, f->len, out);
+        lora_send(out, n);
     }
 }
 
@@ -158,21 +184,24 @@ void setup() {
 
 void loop() {
     if (lora_up) {
-        lora_poll(on_rx);
+        lora_poll(on_lora_rx);
     }
     if (nrf_up) {
-        nrf24_poll(on_rx);
+        nrf24_poll(on_nrf_rx);
     }
     if (lora_up) {
         service_uplink();
     }
     led_service();
 
-    // the screen yields to the radio, always. a full ssd1306 redraw pushes 1 KB over i2c and
-    // blocks for ~25 ms - and at a downlink's ~250 packets a second that is six packets arriving
-    // into a fifo three deep. drawing a pretty screen while dropping image data is exactly the
-    // wrong trade, and it corrupted every downlink until this line existed
-    if (nrf_up && nrf24_pending()) {
+    // the screen stays out of the payload link's way for as long as the downlink lasts. a full
+    // ssd1306 redraw pushes 1 KB over i2c and blocks ~25 ms, and at ~470 packets a second that is
+    // a dozen packets arriving into a fifo three deep.
+    //
+    // checking "is a packet waiting right now" was not enough - the fifo is momentarily empty
+    // between bursts, the draw starts anyway, and the next 25 ms of packets are lost. so the test
+    // is whether the link has been active recently at all
+    if (nrf_up && (nrf24_pending() || (millis() - last_nrf_ms) < kDownlinkQuietMs)) {
         return;
     }
     display_service(lora_packets(), nrf24_packets(), lora_up, nrf_up);
