@@ -97,6 +97,11 @@ struct __attribute__((packed)) heartbeat_t {
     uint32_t faults;     // bitmask of active faults (1 << fault id from state.hpp)
     uint32_t inhibited;  // same bit layout - faults whose response is suppressed (REQ-FAULT-012)
     uint16_t seq;        // increments each heartbeat, so drops are visible
+
+    // bus voltage in millivolts, 0 when no power sample has ever arrived. in the heartbeat
+    // rather than left to the POWER frame because on battery this is a vital sign, not a
+    // curiosity - the ground station's screen needs it without polling for it
+    uint16_t bus_mv;
 };
 
 // MsgId::UartStatus - the uart transport's receive-side quality sent down as telemetry
@@ -329,7 +334,7 @@ struct __attribute__((packed)) boot_info_t {
 // packed attribute or a changed field fails the build instead of silently breaking the link
 static_assert(sizeof(command_t) == 4, "command_t wire layout changed");
 static_assert(sizeof(command_ack_t) == 5, "command_ack_t wire layout changed");
-static_assert(sizeof(heartbeat_t) == 15, "heartbeat_t wire layout changed");
+static_assert(sizeof(heartbeat_t) == 17, "heartbeat_t wire layout changed");
 static_assert(sizeof(uart_status_t) == 16, "uart_status_t wire layout changed");
 // static_assert(sizeof(lora_status_t) == ?, "lora_status_t wire layout changed");
 // static_assert(sizeof(nrf24_status_t) == ?, "nrf24_status_t wire layout changed");

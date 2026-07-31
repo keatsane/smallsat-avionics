@@ -250,55 +250,91 @@ void draw_payload_panel(uint32_t nrf_packets, uint32_t nrf_frames, bool nrf_up) 
     oled2.display();
 }
 
+// a small battery glyph with a fill bar, plus the percent beside it. the percent maps the 4S
+// working range - 13.6 V (the undervoltage fault, "land now") to 16.8 V (full) - so 0% on this
+// gauge means the flight software is about to safe, not that the cells are at damage voltage
+void draw_battery(Adafruit_SSD1306& d, int16_t x, int16_t y, uint16_t bus_mv) {
+    d.drawRect(x, y, 20, 9, SSD1306_WHITE);
+    d.fillRect(x + 20, y + 2, 2, 5, SSD1306_WHITE);  // the nub
+
+    int32_t pct = (static_cast<int32_t>(bus_mv) - 13600) * 100 / (16800 - 13600);
+    pct = (pct < 0) ? 0 : (pct > 100) ? 100 : pct;
+    const int16_t fill = static_cast<int16_t>((pct * 16) / 100);
+    if (fill > 0) {
+        d.fillRect(x + 2, y + 2, fill, 5, SSD1306_WHITE);
+    }
+
+    d.setCursor(x - 25, y + 1);
+    d.print(pct);
+    d.print("%");
+}
+
 void draw_status_panel(const display_counts_t& c) {
     const uint32_t now = millis();
     const uint32_t age = now - last_hb_ms;
     const bool linked = ever_heard && age < kLinkLostMs;
-    const uint32_t lora_packets = c.lora_packets;
-    const uint32_t nrf_packets = c.nrf_packets;
-    const bool lora_up = c.lora_up;
-    const bool nrf_up = c.nrf_up;
 
     oled.clearDisplay();
     oled.setCursor(0, 0);
 
-    // line 1, double height - the mode is the thing you read from across the room
+    // fixed regions: the big word top-left (rows 0-15), battery gauge top-right, faults in the
+    // middle band (rows 18-41), seq/uptime and link on the bottom two rows. the big word is the
+    // one thing readable from across the room, so it carries the most important truth: the mode
+    // while the link is alive, LOST once three beacons have gone missing - a screen that keeps
+    // showing the last mode of a switched-off vehicle is confidently reporting a ghost
     oled.setTextSize(2);
-    oled.println(ever_heard ? fsw::mode_name(hb.mode) : "NO SIG");
+    if (!ever_heard) {
+        oled.print("NO SIG");
+    } else if (!linked) {
+        oled.print("LOST");
+    } else {
+        oled.print(fsw::mode_name(hb.mode));
+    }
     oled.setTextSize(1);
 
+    if (ever_heard && hb.bus_mv != 0U) {
+        draw_battery(oled, kWidth - 23, 1, hb.bus_mv);
+    }
+
     if (!ever_heard) {
-        oled.println();
+        oled.setCursor(0, 22);
         oled.println("listening...");
         oled.print("lora ");
-        oled.println(lora_up ? "up" : "DOWN");
+        oled.println(c.lora_up ? "up" : "DOWN");
         oled.print("nrf24 ");
-        oled.println(nrf_up ? "up" : "DOWN");
+        oled.println(c.nrf_up ? "up" : "DOWN");
         oled.display();
         return;
     }
 
-    // the header carries the distinction the satellite's own fault bead makes, because a single
-    // character in front of a name is far too easy to miss: a latched fault whose response is
-    // suppressed is not an alarm, and a screen that showed "FAULT 2" for a bench build with two
-    // declared inhibits would be crying wolf every session
-    const uint8_t n = count_bits(hb.faults);
-    const uint8_t acting = count_bits(hb.faults & ~hb.inhibited);
-
-    if (n == 0U) {
-        oled.println("no faults");
-    } else if (acting == 0U) {
-        oled.print("INHIB ");  // all latched, none acted on - the satellite's blue rung
-        oled.print(n);
-        oled.println(n == 1 ? " fault" : " faults");
+    oled.setCursor(0, 18);
+    if (!linked) {
+        // how stale the picture below is - the difference between a blip and a dead vehicle
+        oled.print("last heard ");
+        oled.print(age / 1000UL);
+        oled.println("s ago");
     } else {
-        oled.print("FAULT ");
-        oled.print(acting);
-        oled.print(" of ");
-        oled.println(n);
+        // the header carries the distinction the satellite's own fault bead makes: a latched
+        // fault whose response is suppressed is not an alarm, and a screen showing "FAULT 2" for
+        // a bench build with two declared inhibits would be crying wolf every session
+        const uint8_t n = count_bits(hb.faults);
+        const uint8_t acting = count_bits(hb.faults & ~hb.inhibited);
+        if (n == 0U) {
+            oled.println("no faults");
+        } else if (acting == 0U) {
+            oled.print("INHIB ");
+            oled.print(n);
+            oled.println(n == 1 ? " fault" : " faults");
+        } else {
+            oled.print("FAULT ");
+            oled.print(acting);
+            oled.print(" of ");
+            oled.println(n);
+        }
     }
 
-    // names, acting ones first - if only two fit, they should be the two that matter
+    // fault names, acting ones first - if only two fit, they should be the two that matter
+    const uint8_t n = count_bits(hb.faults);
     uint8_t shown = 0;
     for (uint8_t pass = 0; pass < 2 && shown < 2U; pass++) {
         const bool want_acting = (pass == 0);
@@ -321,17 +357,19 @@ void draw_status_panel(const display_counts_t& c) {
         oled.println(" more");
     }
 
+    oled.setCursor(0, 46);
     oled.print("seq ");
     oled.print(hb.seq);
     oled.print("  up ");
     oled.print(hb.uptime_ms / 1000UL);
-    oled.println("s");
+    oled.print("s");
 
+    oled.setCursor(0, 56);
     oled.print(linked ? "LINK " : "LOST ");
-    oled.print(lora_packets);
+    oled.print(c.lora_packets);
     oled.print("L ");
-    oled.print(nrf_packets);
-    oled.println("N");
+    oled.print(c.nrf_packets);
+    oled.print("N");
 
     oled.display();
 }

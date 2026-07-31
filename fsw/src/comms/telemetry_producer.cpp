@@ -8,9 +8,9 @@
 namespace fsw {
 
 heartbeat_t TelemetryProducer::heartbeat(uint32_t t_ms, Mode mode, uint32_t faults,
-                                         uint32_t inhibited) {
+                                         uint32_t inhibited, uint16_t bus_mv) {
     last_heartbeat_ms_ = t_ms;
-    return {t_ms, static_cast<uint8_t>(mode), faults, inhibited, heartbeat_seq_++};
+    return {t_ms, static_cast<uint8_t>(mode), faults, inhibited, heartbeat_seq_++, bus_mv};
 }
 
 bool TelemetryProducer::heartbeat_due(uint32_t t_ms) const {

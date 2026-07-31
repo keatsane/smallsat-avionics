@@ -109,6 +109,11 @@ Dated evidence, newest first.
 
 ### Phase 8 - wireless link and ground station
 
+- **2026-07-31** - The heartbeat carries the bus voltage now: on battery it is a vital sign, and
+  the ground station's status panel draws it as a battery gauge mapped to the working range
+  (13.6 V "land now" to 16.8 V full). The same panel pass gave both screens fixed regions, and
+  the big word finally tells the truth about a dead link - LOST plus the age of the last
+  heartbeat, instead of confidently showing the last mode of a switched-off vehicle.
 - **2026-07-31** - First battery boot: 16.75 V on the main bus through the new PTC fuse, radio
   telemetry with no bench supply. The same session found the bias trap it sprang: the gyro bias
   was learned from the first two seconds after power-on, and a boot that happened while the

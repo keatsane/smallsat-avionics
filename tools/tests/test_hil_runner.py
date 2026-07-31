@@ -15,7 +15,7 @@ from hil_runner import LinkMonitor, grade, load_scenario
 
 def _hb(seq, uptime_ms=0, mode=1, faults=0):
     """An 11-byte heartbeat payload with a chosen seq (matches heartbeat_t)."""
-    return struct.pack("<IBIIH", uptime_ms, mode, faults, 0, seq)
+    return struct.pack("<IBIIHH", uptime_ms, mode, faults, 0, seq, 14800)
 
 
 def _events(result):

@@ -64,6 +64,7 @@ class Executive {
     Mode last_mode_ = Mode::BOOT;
     uint32_t last_t_ms_ = 0;
     bool ran_ = false;
+    uint16_t last_bus_mv_ = 0;  // newest valid power reading, the heartbeat vital sign
 
     // consecutive in-deadband samples seen in DETUMBLE - the mode's exit condition, debounced
     // for the same reason fault entry is (REQ-MODE-011). 10 cycles is one second at the control

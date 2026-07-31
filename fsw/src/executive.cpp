@@ -208,11 +208,19 @@ void Executive::cycle(const Inputs& inputs, uint32_t t_ms) {
         send(MsgId::BootInfo, *inputs.boot);
     }
 
+    // the latest bus voltage, remembered across cycles - power samples arrive at 10 Hz and the
+    // heartbeat leaves at 1 Hz, so the vital sign rides whichever sample was newest
+    if (inputs.power && (inputs.power->flags & kPowerFlagValid) != 0U) {
+        last_bus_mv_ = static_cast<uint16_t>(
+            (inputs.power->bus_mv > 0xFFFFU) ? 0xFFFFU : inputs.power->bus_mv);
+    }
+
     // heartbeat, and the pointing picture alongside it. the same cadence deliberately: they are
     // both "where is the vehicle right now", and a dial updating at a different rate to the mode
     // beside it reads as one of them being stale
     if (tp_.heartbeat_due(t_ms)) {
-        send(MsgId::Heartbeat, tp_.heartbeat(t_ms, mm_.mode(), fm_.active(), fm_.inhibited()));
+        send(MsgId::Heartbeat,
+             tp_.heartbeat(t_ms, mm_.mode(), fm_.active(), fm_.inhibited(), last_bus_mv_));
 
         attitude_status_t a{};
         a.t_ms = t_ms;

@@ -154,7 +154,9 @@ def _split(data: bytes) -> list:
 
 
 def _heartbeat(mode_idx: int, seq: int = 1) -> bytes:
-    return frames.encode(frames.MSG_HEARTBEAT, struct.pack("<IBIIH", 1000, mode_idx, 0, 0, seq))
+    return frames.encode(
+        frames.MSG_HEARTBEAT, struct.pack("<IBIIHH", 1000, mode_idx, 0, 0, seq, 15000)
+    )
 
 
 def _drain_acks(s: GroundSession, now: float) -> None:
