@@ -271,6 +271,9 @@ int main() {
                                             static_cast<double>(t_ms - last_t) / 1000.0);
             }
             inputs.body_rate_rads = static_cast<float>(fsw::platform::g_plant.platform_rate());
+            // the plant's true angle stands in for the magnetometer - noiseless, which makes SIL
+            // an upper bound on pointing performance rather than a prediction of it
+            inputs.mag_heading_rad = static_cast<float>(fsw::platform::g_plant.platform_angle());
             std::printf("PLANT rate=%.4f wheel=%.2f angle=%.4f\n",
                         fsw::platform::g_plant.platform_rate(), fsw::platform::g_plant.wheel_rate(),
                         fsw::platform::g_plant.platform_angle());

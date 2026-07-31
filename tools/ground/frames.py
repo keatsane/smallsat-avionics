@@ -541,7 +541,9 @@ def format_frame(msg_id: int, payload: bytes) -> str:
         if d["flags"] & ATTITUDE_FLAG_IN_BAND:
             marks.append("in band")
         if d["flags"] & ATTITUDE_FLAG_SATURATED:
-            marks.append("WHEEL SATURATED")
+            # the controller asked for more torque than the wheel has and was clamped at the
+            # ceiling - routine during a large slew, chronic when the target is unreachable
+            marks.append("torque clamped at limit")
         tail = ("  " + ", ".join(marks)) if marks else ""
         return (
             f"{'ATTITUDE':<12} hdg={d['heading_deg']:+.1f} deg  target={d['target_deg']:+.1f}  "

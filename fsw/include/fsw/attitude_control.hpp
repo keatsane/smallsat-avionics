@@ -17,6 +17,7 @@
 #define FSW_ATTITUDE_CONTROL_HPP
 
 #include <cstdint>
+#include <optional>
 
 namespace fsw {
 
@@ -52,6 +53,12 @@ struct ControlGains {
     // the error band REQ-ADCS-002 is held to, and the band the law stops correcting inside.
     // ~2.9 degrees, which is about what a printed rig on a lazy susan can be asked for
     float pointing_band = 0.05F;  // rad
+
+    // how quickly the heading estimate is pulled toward the magnetometer. the gyro integral is
+    // smooth and drifts; the mag is absolute and jittery (indoor fields bend around every steel
+    // shelf) - the classic complementary split, gyro for shape, mag for anchor. two seconds
+    // trusts the gyro over any single mag sample while still killing drift within a few
+    float mag_tau_s = 2.0F;
 };
 
 /**
@@ -73,43 +80,52 @@ class AttitudeControl {
     float detumble(float rate_rads) const;
 
     /**
-     * @brief  take the current heading as the target to hold
+     * @brief  advance the heading estimate - call every cycle, in every mode
+     * @param  rate_rads    measured yaw rate
+     * @param  dt_s         seconds since the last call
+     * @param  mag_heading  absolute heading off the magnetometer, when a valid sample exists
      *
-     * Called on entry to POINTING. There is no absolute heading reference on this vehicle - the
-     * gyro measures rate and the magnetometer sits next to a motor full of magnets - so "hold a
-     * commanded attitude" means holding wherever the ground pointed it when it commanded the
-     * mode. Zeroing the accumulated error is the whole of it.
+     * A complementary filter: the gyro integral gives the estimate its shape, the mag pulls it
+     * toward truth with the time constant in the gains. The first mag sample snaps the estimate
+     * outright - converging from an arbitrary zero would spend seconds being wrong on purpose.
+     * Estimation runs in every mode, which is what makes the heading survive mode changes and
+     * the ground display track the platform even in STANDBY.
+     */
+    void update(float rate_rads, float dt_s, const std::optional<float>& mag_heading);
+
+    /**
+     * @brief  take the current heading as the target to hold
+     * Called on entry to POINTING, so an uncommanded POINTING holds wherever the vehicle is. A
+     * SET_HEADING afterward replaces the target with an absolute bearing.
      */
     void enter_pointing();
 
     /**
-     * @brief  torque to hold the captured heading (REQ-ADCS-002)
+     * @brief  torque to drive the heading to the target (REQ-ADCS-002)
      * @param  rate_rads  measured yaw rate
-     * @param  dt_s       seconds since the last call, for integrating rate into heading
      * @return commanded wheel torque in N m, already saturation-limited
      *
-     * Proportional on heading error, derivative on rate. The heading comes from integrating the
-     * rate here rather than from a sensor, so it drifts - acceptable for holding an attitude over
-     * a demo, and the reason this is attitude *hold* rather than absolute pointing.
+     * Proportional on the wrapped heading error, derivative on rate. update() owns the estimate;
+     * this only acts on it.
      */
-    float point(float rate_rads, float dt_s);
+    float point(float rate_rads);
 
     /**
-     * @brief  aim at a bearing relative to where POINTING was entered
-     * @param  rad  target, measured from the entry heading
+     * @brief  aim at an absolute bearing
+     * @param  rad  target heading, in the magnetometer's calibrated frame
      *
-     * Relative because there is nothing absolute to measure against: the gyro gives rate and the
-     * magnetometer sits beside a motor full of magnets. So a commanded heading means "this far
-     * round from where you were when the mode started", which is honest about what the vehicle
-     * can actually know (REQ-ADCS-002).
+     * Zero is wherever the platform's camera face pointed when the mounting offset was
+     * calibrated (kMagMountOffsetRad on the target). With no mag sample ever received the
+     * estimate free-runs from zero-at-boot, and the target is relative to that - degraded but
+     * usable, and honest about which reference actually exists (REQ-ADCS-002).
      */
     void set_target(float rad) { target_ = rad; }
 
-    /** @brief the bearing being held, relative to the entry heading */
+    /** @brief the bearing being held */
     float target() const { return target_; }
 
-    /** @brief heading relative to where POINTING was entered, in radians */
-    float heading() const { return heading_err_; }
+    /** @brief the heading estimate, wrapped to [-pi, pi] */
+    float heading() const;
 
     /** @brief how far the vehicle is from the bearing it was told to hold, the short way round */
     float heading_error() const { return wrapped_error(); }
@@ -133,13 +149,13 @@ class AttitudeControl {
     float limit(float torque) const;
 
     ControlGains g_{};
+
+    // the heading estimate, unbounded - winding is information the wrap for telemetry discards
+    float heading_ = 0.0F;
+    bool have_mag_ = false;  // stays false until the first mag sample anchors the estimate
     mutable bool saturated_ = false;
 
-    // heading relative to wherever POINTING was entered, integrated from the rate
-    float heading_err_ = 0.0F;
-
-    // the bearing to hold, in the same frame. zero until the ground says otherwise, which makes
-    // an uncommanded POINTING exactly the attitude hold it was before this existed
+    // the bearing to hold, in the heading estimate's frame
     float target_ = 0.0F;
 };
 

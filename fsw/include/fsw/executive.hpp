@@ -65,6 +65,12 @@ class Executive {
     uint32_t last_t_ms_ = 0;
     bool ran_ = false;
 
+    // consecutive in-deadband samples seen in DETUMBLE - the mode's exit condition, debounced
+    // for the same reason fault entry is (REQ-MODE-011). 10 cycles is one second at the control
+    // rate, long enough that a rate passing through zero mid-oscillation does not count as done
+    static constexpr uint16_t kDetumbleDoneCycles = 10;
+    uint16_t detumble_done_cycles_ = 0;
+
     // wrap a wire message in a frame and hands it to the link
     template <typename T>
     void send(MsgId id, const T& msg) {

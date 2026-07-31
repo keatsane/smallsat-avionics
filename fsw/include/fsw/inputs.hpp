@@ -40,6 +40,15 @@ struct Inputs {
     // the fsw is handed a physical quantity, the same way it is handed a command rather than a
     // uart. unset on a cycle where no attitude sensor reported
     std::optional<float> body_rate_rads;
+
+    // absolute yaw heading in radians, from the magnetometer, same boundary rule as the rate:
+    // the platform turns field counts into an angle (it knows the mounting and the horizontal
+    // plane), the fsw receives a physical quantity. zero is the direction the camera face pointed
+    // when the mounting offset was calibrated. noisy and locally distorted - indoor fields bend -
+    // so the consumer filters it against the gyro rather than trusting it raw. unset on cycles
+    // with no valid mag sample
+    std::optional<float> mag_heading_rad;
+
     // set on the first cycle after a reset and never again - the platform knows why the computer
     // restarted, and this is how that crosses the boundary as an input rather than a side channel
     std::optional<boot_info_t> boot;

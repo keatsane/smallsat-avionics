@@ -1,4 +1,5 @@
 #include <cmath>
+#include <optional>
 
 #include "doctest.h"
 #include "fsw/attitude_control.hpp"
@@ -73,8 +74,8 @@ TEST_SUITE("ATTITUDE CONTROL") {
     TEST_CASE("REQ-ADCS-002") {
         SUBCASE("entering pointing takes the current heading as the target") {
             AttitudeControl ac;
-            ac.point(1.0F, 0.5F);  // drift somewhere
-            REQUIRE(std::fabs(ac.heading_error()) > 0.0F);
+            ac.update(1.0F, 0.5F, std::nullopt);  // drift somewhere
+            REQUIRE(std::fabs(ac.heading()) > 0.0F);
 
             ac.enter_pointing();
 
@@ -84,13 +85,42 @@ TEST_SUITE("ATTITUDE CONTROL") {
 
         SUBCASE("heading is integrated from the rate") {
             AttitudeControl ac;
-            ac.enter_pointing();
 
-            ac.point(0.5F, 0.2F);  // 0.5 rad/s for 0.2 s
-            CHECK(ac.heading_error() == doctest::Approx(0.1F));
+            ac.update(0.5F, 0.2F, std::nullopt);  // 0.5 rad/s for 0.2 s
+            CHECK(ac.heading() == doctest::Approx(0.1F));
 
-            ac.point(0.5F, 0.2F);
-            CHECK(ac.heading_error() == doctest::Approx(0.2F));
+            ac.update(0.5F, 0.2F, std::nullopt);
+            CHECK(ac.heading() == doctest::Approx(0.2F));
+        }
+
+        SUBCASE("the first mag fix snaps the estimate, later ones pull it") {
+            AttitudeControl ac;
+
+            // a long gyro-only drift, then the first absolute fix arrives
+            ac.update(1.0F, 1.0F, std::nullopt);
+            REQUIRE(ac.heading() == doctest::Approx(1.0F));
+            ac.update(0.0F, 0.1F, 2.0F);
+            CHECK(ac.heading() == doctest::Approx(2.0F));  // snapped, not blended
+
+            // from then on the mag pulls with the filter's time constant - one sample moves the
+            // estimate a fraction of the disagreement, never all of it
+            ac.update(0.0F, 0.1F, 2.5F);
+            CHECK(ac.heading() > 2.0F);
+            CHECK(ac.heading() < 2.5F);
+        }
+
+        SUBCASE("with the mag steady, drift is pulled back out") {
+            AttitudeControl ac;
+            ac.update(0.0F, 0.1F, 1.0F);  // anchored at 1.0
+
+            // a biased gyro walks the estimate while the mag keeps saying 1.0
+            for (int i = 0; i < 200; i++) {
+                ac.update(0.05F, 0.1F, 1.0F);  // a large fake bias
+            }
+
+            // the filter holds the estimate near the anchor instead of following the bias off
+            // into the distance - the number is bias * tau, the filter's standing tradeoff
+            CHECK(std::fabs(ac.heading() - 1.0F) < 0.2F);
         }
 
         SUBCASE("the error takes the short way round the circle") {
@@ -100,7 +130,6 @@ TEST_SUITE("ATTITUDE CONTROL") {
             // aim 216 degrees round - the exact case off the bench, where the raw subtraction
             // read -225.7 degrees of error and the controller drove the long way for it
             ac.set_target(3.78F);  // ~216.5 deg
-            ac.point(0.0F, 0.0F);
 
             // the raw error is -3.78 rad (-216.5 deg); wrapped it is +2.50 rad (+143.5 deg),
             // the short way round. always inside a half turn, whatever was commanded
@@ -110,7 +139,7 @@ TEST_SUITE("ATTITUDE CONTROL") {
             // positive error commands positive wheel torque, and the platform feels the negative
             // reaction - heading falls toward the target the short way rather than climbing 216
             // degrees to it
-            const float cmd = ac.point(0.0F, 0.001F);
+            const float cmd = ac.point(0.0F);
             CHECK(cmd > 0.0F);
         }
 
@@ -119,7 +148,8 @@ TEST_SUITE("ATTITUDE CONTROL") {
             ac.enter_pointing();
 
             // drift a long way positive, well outside the band
-            const float cmd = ac.point(1.0F, 1.0F);
+            ac.update(1.0F, 1.0F, std::nullopt);
+            const float cmd = ac.point(1.0F);
 
             // same convention as detumble: the command follows the error so the platform feels
             // the opposite. a positive heading error must produce a negative push on the platform
@@ -135,7 +165,7 @@ TEST_SUITE("ATTITUDE CONTROL") {
             AttitudeControl ac(g);
             ac.enter_pointing();
 
-            const float cmd = ac.point(0.0F, 0.0F);  // zero error, zero rate
+            const float cmd = ac.point(0.0F);  // zero error, zero rate
 
             REQUIRE(ac.pointing_in_band());
             CHECK(cmd == doctest::Approx(0.0F));
@@ -144,14 +174,13 @@ TEST_SUITE("ATTITUDE CONTROL") {
         SUBCASE("outside the band it does correct") {
             AttitudeControl ac;
             ac.enter_pointing();
-            ac.point(0.0F, 0.0F);
             REQUIRE(ac.pointing_in_band());
 
             // walk the heading past the band edge
-            ac.point(ac.gains().pointing_band * 4.0F, 1.0F);
+            ac.update(ac.gains().pointing_band * 4.0F, 1.0F, std::nullopt);
 
             CHECK_FALSE(ac.pointing_in_band());
-            CHECK(std::fabs(ac.point(0.0F, 0.0F)) > 0.0F);
+            CHECK(std::fabs(ac.point(0.0F)) > 0.0F);
         }
     }
 

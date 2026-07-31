@@ -95,6 +95,12 @@ The spacecraft operates in exactly one of six modes at any time. Their intent:
 
 The wait is deliberate rather than an immediate hop on the first cycle. A fault needs `debounce_n` consecutive bad samples to latch, so leaving BOOT any sooner would mean declaring the self-check passed before a persistently bad sensor could possibly have failed it.
 
+**REQ-MODE-011** - The flight software shall exit DETUMBLE autonomously, entering STANDBY once the measured body rate has remained inside the controller's deadband for one second of consecutive samples. The transition shall carry the Nominal trigger. A sample outside the deadband shall reset the count.
+**Type**: Functional
+**Status**: SIL-verified (SIL-013 - the vehicle nulls a 1 rad/s spin and steps down on its own, with the Nominal trigger and this requirement id in the log row. SIL-011 ends before the exit can fire and still expects DETUMBLE, so the pair pins both halves: converge first, then leave)
+**Verification**: SIL, then HIL once the wheel is back
+**Artifact**: fsw/src/executive.cpp, docs/reports/sil/SIL-013.md
+
 **REQ-MODE-009** - The mode transition log shall be a fixed-capacity buffer that allocates no memory dynamically and retains at least the 32 most recent records; when full, the oldest record shall be overwritten.  
 **Type**: Constraint  
 **Status**: unit-verified  
@@ -408,7 +414,7 @@ An inhibited fault is deliberately excluded from the three alarm rungs and colle
 
 **REQ-ADCS-002** - In POINTING the flight software shall hold a commanded single-axis attitude within a defined error band.  
 **Type**: Functional  
-**Status**: in progress - the control law is unit-verified (PD on heading error), and `SET_HEADING` now aims it: a bearing relative to wherever POINTING was entered, since nothing on this vehicle measures absolute heading. **Not claimed as SIL-verified:** at 10 Hz with rate-only sensing a 0.35 rad/s shove moved the platform 0.117 rad while the gyro read zero at every sample. A sensing limit, not a control limit
+**Status**: in progress - the control law is unit-verified (PD on wrapped heading error), and the heading is now absolute: a complementary filter blends the integrated gyro with a magnetometer compass heading, so `SET_HEADING` names a bearing in a frame that survives mode changes and reboots. The mag mounting offset (`kMagMountOffsetRad`) is uncalibrated until the rig check. **Owed: SIL against the plant with the absolute reference, then the rig**
 **Verification**: SIL (single-axis plant model) and HIL (reaction-wheel rig)  
 **Artifact**: fsw/src/attitude_control.cpp, fsw/test/test_attitude_control.cpp
 

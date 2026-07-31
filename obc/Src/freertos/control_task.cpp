@@ -9,6 +9,8 @@
 
 #include "control_task.hpp"
 
+#include <math.h>
+
 #include <cstring>
 
 #include "FreeRTOS.h"
@@ -232,11 +234,38 @@ void update_status_leds(const fsw::Executive& e, uint32_t t_ms) {
 // software: it needs the ICM-20948's full-scale setting, and a control law carrying a specific
 // part's LSB scaling stops being portable the day the imu changes (REQ-PAL-001).
 //
-// z is the yaw axis - the one the lazy susan turns about, with the imu mounted flat. the sign
-// convention against the wheel's is the thing to confirm on the rig: if a detumble command speeds
-// the platform up rather than slowing it, this is where to negate
+// the yaw axis is the imu's X, not its Z - measured on the bench 2026-07-30 by spinning the
+// platform and watching which channel moved: x swung +/-10000 counts with the spin while z saw
+// only tens of cross-coupling. the board is mounted with its x axis vertical. the sign convention
+// against the wheel's is still the thing to confirm on the rig: if a detumble command speeds the
+// platform up rather than slowing it, this is where to negate
+constexpr size_t kYawAxis = 0;
 constexpr float kGyroRadsPerCount =
     1.0F / (ICM20948_GYRO_LSB_PER_DPS * 57.29577951F);  // 1/(LSB per dps * dps per rad/s)
+
+// gyro bias, learned at rest. an uncalibrated gyro reads a few counts of offset forever, and
+// integrating that walked the heading a quarter degree every ten seconds on the bench - so the
+// first kBiasSamples valid readings are averaged and subtracted from everything after. this
+// assumes the vehicle is still while BOOT's self-checks run, which is true of a bench rig and is
+// the same assumption every consumer imu's startup calibration makes. a vehicle that boots while
+// tumbling learns a wrong bias; the recovery is a reset once stable, which SAFE already implies
+constexpr uint16_t kBiasSamples = 20;  // 2 s of samples at the 10 Hz sensor rate
+
+// mag field counts -> an absolute yaw heading. with the imu mounted x-vertical the field's y/z
+// components live in the horizontal plane, so the heading is their atan2 - a plain compass, tilt
+// ignored because the platform never tilts. indoor fields are bent, so this is repeatable rather
+// than true north, which is all a bench rig needs.
+//
+// the offset aligns zero with the camera face: point the camera at the direction that should
+// read zero, note what ATTITUDE hdg reports, and set this to minus that reading (in radians).
+// if the heading runs backwards against a spin (mag fighting the gyro in the filter), swap the
+// sign of the atan2 arguments here rather than negating the gyro
+constexpr float kMagMountOffsetRad = 0.0F;
+
+float mag_heading_rad(const fsw::imu_data_t& imu) {
+    return atan2f(static_cast<float>(imu.mag[2]), static_cast<float>(imu.mag[1])) +
+           kMagMountOffsetRad;
+}
 
 void read_sensors(fsw::Inputs& inputs) {
     sensor_set_t set{};
@@ -248,7 +277,25 @@ void read_sensors(fsw::Inputs& inputs) {
         // only when the sample is actually good - a stale or failed read must not be handed over
         // as a rate of zero, which the control law would act on as "already detumbled"
         if ((set.imu.flags & fsw::kImuFlagAccelGyroValid) != 0U) {
-            inputs.body_rate_rads = static_cast<float>(set.imu.gyro[2]) * kGyroRadsPerCount;
+            static int32_t bias_sum = 0;
+            static uint16_t bias_n = 0;
+            static float bias_counts = 0.0F;
+
+            const float raw = static_cast<float>(set.imu.gyro[kYawAxis]);
+            if (bias_n < kBiasSamples) {
+                bias_sum += set.imu.gyro[kYawAxis];
+                bias_n++;
+                if (bias_n == kBiasSamples) {
+                    bias_counts = static_cast<float>(bias_sum) / static_cast<float>(kBiasSamples);
+                }
+            }
+            inputs.body_rate_rads = (raw - bias_counts) * kGyroRadsPerCount;
+        }
+
+        // the absolute half of the attitude picture, offered only when the mag sample is good -
+        // the estimator treats absence as "coast on the gyro", which is the right degradation
+        if ((set.imu.flags & fsw::kImuFlagMagValid) != 0U) {
+            inputs.mag_heading_rad = mag_heading_rad(set.imu);
         }
     }
 

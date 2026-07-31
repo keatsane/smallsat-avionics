@@ -1,0 +1,59 @@
+# detumble is a recovery, not a residence: once the rate has sat inside the controller's deadband
+# for a full second of consecutive samples, the vehicle steps itself down to STANDBY with the
+# Nominal trigger (REQ-MODE-011). before this existed the vehicle nulled its rates and then sat
+# in DETUMBLE until a human noticed, which turns a recovery mode into a parking brake.
+#
+# the debounce is the thing worth grading: a rate passing through zero mid-oscillation must not
+# count as done, so the exit needs ten consecutive in-band samples and one bad one resets the
+# count. SIL-011 ends its timeline before the exit can fire and still expects DETUMBLE - the two
+# scenarios together pin both halves, converge first, then leave.
+#
+# starts at 1 rad/s rather than SIL-011's 2: this scenario is about the exit, and a gentler spin
+# nulls early enough that the full debounce window fits inside the timeline with margin.
+id: SIL-013
+title: detumble declares itself done and returns to STANDBY
+verifies: [REQ-MODE-011]
+timeline:
+  - { t: 0, plant: 1.0 }
+  - { t: 100, cmd: { name: SET_MODE, arg: 1, seq: 1 } }
+  - { t: 200, cmd: { name: SET_MODE, arg: 2, seq: 2 } }
+  - { t: 300 }
+  - { t: 400 }
+  - { t: 500 }
+  - { t: 600 }
+  - { t: 700 }
+  - { t: 800 }
+  - { t: 900 }
+  - { t: 1000 }
+  - { t: 1100 }
+  - { t: 1200 }
+  - { t: 1300 }
+  - { t: 1400 }
+  - { t: 1500 }
+  - { t: 1600 }
+  - { t: 1700 }
+  - { t: 1800 }
+  - { t: 1900 }
+  - { t: 2000 }
+  - { t: 2100 }
+  - { t: 2200 }
+  - { t: 2300 }
+  - { t: 2400 }
+  - { t: 2500 }
+  - { t: 2600 }
+  - { t: 2700 }
+  - { t: 2800 }
+  - { t: 2900 }
+  - { t: 3000 }
+expect:
+  mode_log:
+    - { to: STANDBY, trigger: Command, req: REQ-CMD-001 }
+    - { to: DETUMBLE, trigger: Command, req: REQ-CMD-001 }
+    # the row this scenario exists for: the vehicle leaves on its own, and the trigger says so
+    - { to: STANDBY, trigger: Nominal, req: REQ-MODE-011 }
+  acks:
+    - { seq: 2, accepted: true }
+  final:
+    mode: STANDBY
+    faults_set: []
+    plant_rate_below: 0.02

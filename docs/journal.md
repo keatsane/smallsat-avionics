@@ -31,6 +31,12 @@ pushes.
 is what returns the radio to receive; behind `!pending ||` it ran once a second and the vehicle
 was deaf almost continuously. Side effects do not belong in conditions.
 
+**A signal that is merely plausible is not a signal that is right.** The control path read gyro z
+as yaw for five weeks, and z read plausibly - noise at rest, small wiggles when touched - because
+cross-coupling gives every axis a shadow of the real motion. Only spinning the platform and
+comparing all three channels showed the spin lived on x. Check which channel actually carries the
+physics before trusting the one the datasheet suggests.
+
 **A one-way link needs repetition, not a better error rate.** 88% packet delivery sounds like a
 working link and delivered zero images: a frame spans three packets, an image needs every frame,
 and there is no ack to retransmit against. Losses fall in different places each pass, so sending
@@ -91,6 +97,15 @@ Dated evidence, newest first.
 
 ### Phase 8 - wireless link and ground station
 
+- **2026-07-30** - The design audit's structural items landed. Heading became absolute: a
+  complementary filter blends the gyro integral with a magnetometer compass heading, running in
+  every mode, so the dial tracks the platform even in STANDBY and SET_HEADING names a repeatable
+  bearing. DETUMBLE exits itself to STANDBY after a second inside the deadband (REQ-MODE-011,
+  SIL-013). The executive's three retreat clauses collapsed into a fallback table.
+- **2026-07-30** - The yaw axis is the IMU's X, not its Z: a bench spin swung gyro x by +/-10000
+  counts while z saw tens of cross-coupling - the board is mounted x-vertical, and the control
+  path had been watching the wrong channel since the plate was built. Bias is now learned from
+  the first two seconds at rest, which was worth a quarter degree of heading every ten seconds.
 - **2026-07-30** - The downlink became a protocol. Blind three-pass repetition replaced with
   selective repeat: one pass, then the ground names its missing chunks over the LoRa uplink and
   the vehicle resends exactly those out of the fifo it never consumed. Same audit fixed the

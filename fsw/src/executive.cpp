@@ -5,6 +5,8 @@
 
 #include "fsw/executive.hpp"
 
+#include <cmath>
+
 namespace fsw {
 namespace {
 
@@ -61,29 +63,25 @@ void Executive::cycle(const Inputs& inputs, uint32_t t_ms) {
         }
     }
 
-    // imu degraded fallback
-    if ((mm_.mode() == Mode::POINTING || mm_.mode() == Mode::DETUMBLE) &&
-        fm_.response_active(Fault::ACCEL_GYRO_DROPOUT)) {
-        mm_.request(Mode::STANDBY, Trigger::FaultEntry, t_ms,
-                    fm_.fault_spec(Fault::ACCEL_GYRO_DROPOUT).req_id);
-    }
-
-    // power-monitor degraded fallback: with power visibility lost, the high-power modes run blind
-    // to brownout/overcurrent, so retreat them to STANDBY - lower draw, less risk (REQ-FAULT-005)
-    if ((mm_.mode() == Mode::POINTING || mm_.mode() == Mode::DETUMBLE ||
-         mm_.mode() == Mode::DOWNLINK) &&
-        fm_.response_active(Fault::POWER_DROPOUT)) {
-        mm_.request(Mode::STANDBY, Trigger::FaultEntry, t_ms,
-                    fm_.fault_spec(Fault::POWER_DROPOUT).req_id);
-    }
-
-    // wheel degraded fallback: pointing and detumble are the two modes that actuate, and with the
-    // wheel link down a torque command goes nowhere - so retreat to STANDBY rather than hold a
-    // mode the rig cannot fly (REQ-FAULT-005)
-    if ((mm_.mode() == Mode::POINTING || mm_.mode() == Mode::DETUMBLE) &&
-        fm_.response_active(Fault::WHEEL_DROPOUT)) {
-        mm_.request(Mode::STANDBY, Trigger::FaultEntry, t_ms,
-                    fm_.fault_spec(Fault::WHEEL_DROPOUT).req_id);
+    // degraded fallbacks, one table row per (fault, modes it disqualifies) - REQ-FAULT-005.
+    // the reasoning per row: losing the imu blinds the two modes that steer; losing the power
+    // monitor blinds the three high-draw modes to brownout; losing the wheel makes a torque
+    // command go nowhere. every retreat is to STANDBY, deliberately - a fallback that picked
+    // fancier destinations would be a second mode ladder to keep correct
+    struct Fallback {
+        Fault fault;
+        uint8_t from_modes;  // bit m set = this fault disqualifies Mode m
+    };
+    static constexpr uint8_t kActive = mode_bit(Mode::POINTING) | mode_bit(Mode::DETUMBLE);
+    static constexpr Fallback kFallbacks[] = {
+        {Fault::ACCEL_GYRO_DROPOUT, kActive},
+        {Fault::POWER_DROPOUT, static_cast<uint8_t>(kActive | mode_bit(Mode::DOWNLINK))},
+        {Fault::WHEEL_DROPOUT, kActive},
+    };
+    for (const Fallback& fb : kFallbacks) {
+        if ((fb.from_modes & mode_bit(mm_.mode())) != 0U && fm_.response_active(fb.fault)) {
+            mm_.request(Mode::STANDBY, Trigger::FaultEntry, t_ms, fm_.fault_spec(fb.fault).req_id);
+        }
     }
 
     // dispatch accepted ground commands. acceptance only means the command passed validation, and
@@ -139,11 +137,36 @@ void Executive::cycle(const Inputs& inputs, uint32_t t_ms) {
     last_t_ms_ = t_ms;
     ran_ = true;
 
+    // the heading estimate advances in every mode, not only the ones that act on it - that is
+    // what lets the heading survive mode changes and the ground watch the platform turn in
+    // STANDBY. only estimation happens unconditionally; torque stays mode-gated below
+    if (inputs.body_rate_rads) {
+        ac_.update(*inputs.body_rate_rads, dt_s, inputs.mag_heading_rad);
+    }
+
     float torque_nm = 0.0F;
     if (inputs.body_rate_rads && mode_now == Mode::DETUMBLE) {
         torque_nm = ac_.detumble(*inputs.body_rate_rads);
+
+        // declare detumble done and step down to STANDBY once the rate has sat inside the
+        // deadband for a full second of consecutive samples (REQ-MODE-011). autonomous on
+        // purpose: a vehicle that nulls its rates and then waits for a human has turned a
+        // recovery mode into a parking brake. one bad sample resets the count, same shape as
+        // the fault debounce and for the same reason
+        if (std::fabs(*inputs.body_rate_rads) < ac_.gains().rate_deadband) {
+            if (detumble_done_cycles_ < kDetumbleDoneCycles) {
+                detumble_done_cycles_++;
+            } else {
+                mm_.request(Mode::STANDBY, Trigger::Nominal, t_ms, "REQ-MODE-011");
+            }
+        } else {
+            detumble_done_cycles_ = 0;
+        }
     } else if (inputs.body_rate_rads && mode_now == Mode::POINTING) {
-        torque_nm = ac_.point(*inputs.body_rate_rads, dt_s);
+        torque_nm = ac_.point(*inputs.body_rate_rads);
+    }
+    if (mode_now != Mode::DETUMBLE) {
+        detumble_done_cycles_ = 0;  // a fresh DETUMBLE earns its exit from zero
     }
     platform::set_wheel_torque_nm(torque_nm);
 

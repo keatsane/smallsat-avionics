@@ -44,9 +44,42 @@ float AttitudeControl::detumble(float rate_rads) const {
     return limit(g_.k_rate * rate_rads);
 }
 
+namespace {
+
+// wrap any angle into [-pi, pi]
+float wrap_pi(float rad) {
+    constexpr float kTwoPi = 6.28318530718F;
+    while (rad > kTwoPi / 2.0F) {
+        rad -= kTwoPi;
+    }
+    while (rad < -kTwoPi / 2.0F) {
+        rad += kTwoPi;
+    }
+    return rad;
+}
+
+}  // namespace
+
+void AttitudeControl::update(float rate_rads, float dt_s, const std::optional<float>& mag_heading) {
+    heading_ += rate_rads * dt_s;
+
+    if (mag_heading) {
+        if (!have_mag_) {
+            // the first absolute fix snaps the estimate - blending toward it from an arbitrary
+            // zero would spend seconds being deliberately wrong
+            heading_ = *mag_heading;
+            have_mag_ = true;
+        } else if (dt_s > 0.0F) {
+            const float alpha = dt_s / (g_.mag_tau_s + dt_s);
+            heading_ += alpha * wrap_pi(*mag_heading - heading_);
+        }
+    }
+}
+
+float AttitudeControl::heading() const { return wrap_pi(heading_); }
+
 void AttitudeControl::enter_pointing() {
-    heading_err_ = 0.0F;
-    target_ = 0.0F;  // a fresh entry holds where it started until the ground says otherwise
+    target_ = heading_;  // hold here until the ground names a bearing
     saturated_ = false;
 }
 
@@ -55,27 +88,13 @@ void AttitudeControl::enter_pointing() {
 // through 226 degrees of travel, when +134 the other way reaches the same bearing. a circle has
 // two ways round and the raw subtraction always picks whichever side of zero the arithmetic
 // landed on, not the shorter
-float AttitudeControl::wrapped_error() const {
-    constexpr float kTwoPi = 6.28318530718F;
-    float err = heading_err_ - target_;
-    while (err > kTwoPi / 2.0F) {
-        err -= kTwoPi;
-    }
-    while (err < -kTwoPi / 2.0F) {
-        err += kTwoPi;
-    }
-    return err;
-}
+float AttitudeControl::wrapped_error() const { return wrap_pi(heading_ - target_); }
 
 bool AttitudeControl::pointing_in_band() const {
     return std::fabs(wrapped_error()) < g_.pointing_band;
 }
 
-float AttitudeControl::point(float rate_rads, float dt_s) {
-    // heading comes from integrating the rate, because nothing on this vehicle measures it. that
-    // means it drifts, and the drift is why this holds an attitude rather than pointing at one
-    heading_err_ += rate_rads * dt_s;
-
+float AttitudeControl::point(float rate_rads) {
     // inside the band, damp the rate but stop chasing the angle. correcting an error smaller than
     // the band asks for a torque under the bearing's breakaway, the platform does not move, and
     // the wheel spends momentum on a correction that was never going to arrive
