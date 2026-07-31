@@ -39,6 +39,21 @@ bool telemetry_out_console(const uint8_t* data, size_t len);
 bool telemetry_out_downlink(const uint8_t* data, size_t len);
 
 /**
+ * @brief  hand a frame to the lora beacon, replacing any frame still waiting
+ * @param  data  a complete encoded frame
+ * @param  len   its length
+ * @return true if it was accepted
+ *
+ * Replaces rather than queues, and that is the point: a beacon broadcasts the newest state, and
+ * a heartbeat that missed its slot is worth nothing once a fresher one exists. Queueing them
+ * would mean transmitting history at 57 ms a packet.
+ *
+ * The radio work happens in the telemetry task, never in the caller - rfm95_send takes the SPI3
+ * bus lock, which the payload downlink can be holding, and the control task must not block on it.
+ */
+bool telemetry_out_beacon(const uint8_t* data, size_t len);
+
+/**
  * @brief  bytes that would fit on *both* links right now
  * @return the smaller of the two links' free space
  *

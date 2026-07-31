@@ -18,8 +18,12 @@ def describe_ports() -> str:
     return "\n".join(f"  {p.device}  {p.description}" for p in ports)
 
 
-def find_port(stlink: str | None = None) -> str:
-    """The node's serial port, by ST-Link serial number if given, else the only one present.
+def find_port(stlink: str | None = None, vid: str | None = None) -> str:
+    """The node's serial port, pinned by ST-Link serial or USB vendor id, else the only one there.
+
+    The ground station is a different problem from the two STM32 boards: it is not an ST-Link at
+    all, and its serial number is per-board so it cannot be committed. Its vendor id can - every
+    Adafruit board shares one - which pins it without hard-coding anything about one unit.
 
     Both boards enumerate as ST-Link virtual COM ports, so with the stack fully plugged in there
     is no way to tell them apart by description - and monitoring the wrong one is the same class
@@ -31,6 +35,17 @@ def find_port(stlink: str | None = None) -> str:
             if (p.serial_number or "").upper() == stlink.upper():
                 return p.device
         raise SystemExit(f"no port with st-link serial {stlink}\navailable:\n{describe_ports()}")
+
+    if vid:
+        want = int(vid, 16)
+        hits = [p for p in ports if p.vid == want]
+        if len(hits) == 1:
+            return hits[0].device
+        if not hits:
+            raise SystemExit(f"no port with usb vid 0x{want:04X}\navailable:\n{describe_ports()}")
+        raise SystemExit(
+            f"more than one port with usb vid 0x{want:04X} - name one:\n{describe_ports()}"
+        )
 
     if len(ports) == 1:
         return ports[0].device

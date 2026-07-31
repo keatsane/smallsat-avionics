@@ -273,9 +273,9 @@ BOOT means "powered on and still self-checking" - a state the vehicle enters by 
 
 **REQ-TLM-004** - The telemetry transport shall be swappable behind the frame format - UART first, radio later - with no change to the wire format.  
 **Type**: Constraint  
-**Status**: in progress  
+**Status**: in progress (the third transport exists and is byte-identical. `send_telemetry` now hands the same encoded frame to the console UART, the downlink UART, and the LoRa beacon, with no change to the frame format at any of them - which is the constraint this requirement is about. **The radio carries the heartbeat only**, and that is arithmetic rather than preference: one 21-byte heartbeat at SF7/BW125 is ~57 ms of air time, so 1 Hz is 5.7% duty while the full ~50 frames/s stream would want 2.8 seconds of air per second. Both radios are now wired to it: LoRa carries the heartbeat, and the nRF24 carries payload chunks in DOWNLINK - so the same encoded frame goes out over two UARTs and two radios with four different transports and one format. The nRF24's 32-byte packet is *shorter* than a 70-byte frame, and the driver splits rather than the frame shrinking: the receiver concatenates packets into a byte stream and the existing decoder finds its own boundaries, exactly as it does on a uart. Shrinking the frame to suit one radio would have been the wrong fix. **Owed: reception.** The OBC transmits on both, but there is no second radio to hear either until the ground station is built, so no round trip can be demonstrated yet)  
 **Verification**: inspection and HIL  
-**Artifact**: common/protocol/frame.cpp (the format, unchanged per transport), fsw/platform/stm32/platform_stm32.cpp (writes both UARTs behind one call), obc/Src/drivers/uart.c; the LoRa transport lands in phase 8
+**Artifact**: common/protocol/frame.cpp (the format, unchanged per transport), fsw/platform/stm32/platform_stm32.cpp (one call, three transports), obc/Src/devices/rfm95.c, obc/Src/freertos/telemetry_task.cpp, obc/Src/drivers/uart.c
 
 **REQ-TLM-005** - The spacecraft shall indicate current mode, worst latched fault severity with a count of latched faults, and command-link state on a local status display, carrying the same information as the heartbeat packet so the two can be read against each other.  
 **Type**: Functional  
@@ -432,7 +432,7 @@ An inhibited fault is deliberately excluded from the three alarm rungs and colle
 
 **REQ-PAY-003** - A captured frame shall be held in the camera's own buffer and read out in caller-sized chunks, so that no image-sized buffer is allocated in flight-software RAM.  
 **Type**: Constraint  
-**Status**: bench-verified (a 7299-byte frame drained to exactly its own reported length, opening FF D8 and closing FF D9, with only a 64-byte stack buffer in the loop)  
+**Status**: bench-verified (a 7299-byte frame drained to exactly its own reported length, opening FF D8 and closing FF D9, with only a 64-byte stack buffer in the loop). **Re-test owed after 2026-07-31**: the FIFO burst used to stay open across chunk reads and now closes on every one, because a burst holds chip select asserted and SPI3 is shared with the radios. The ArduChip's read pointer is expected to survive the deselect - rewinding it needs an explicit FIFO_RDPTR_RST, which is what `scan_jpeg_length` uses - but that is reasoning, not evidence, and a corrupt image is the failure it would produce  
 **Verification**: inspection and HIL  
 **Artifact**: obc/Src/devices/ov2640.c
 

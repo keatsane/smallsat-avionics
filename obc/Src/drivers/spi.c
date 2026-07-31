@@ -5,20 +5,36 @@
 
 #include "drivers/spi.h"
 
+#include "FreeRTOS.h"
 #include "board.h"
 #include "drivers/clock.h"
 #include "drivers/gpio.h"
+#include "semphr.h"
 #include "stm32f446xx.h"
+#include "task.h"
 
 #define SPI_IMU_MAX_HZ    7000000U  // 7 mhz ceiling for the ICM-20948 (next step down is 4 mhz)
 #define SPI_CAMERA_MAX_HZ 8000000U  // arducam fifo; pclk1/8 (5.625 mhz) lands just under this
 
 // per-instance state
+// one lock per spi *peripheral*, not per handle. spi3 carries the camera and both radios, each
+// with its own chip select, so the thing two tasks contend for is the bus - and a lock hanging
+// off a handle would let two devices on the same wires think they each had it
+struct spi_bus {
+    SemaphoreHandle_t mutex;
+    StaticSemaphore_t mutex_buf;
+};
+
+static struct spi_bus spi2_bus;  // imu only, but the api stays uniform
+static struct spi_bus spi3_bus;  // camera + lora + nrf24
+
 struct spi {
     SPI_TypeDef* regs;
     GPIO_TypeDef* cs_port;  // chip select gpio port
 
     uint32_t cs_pin;  // chip select gpio pin
+
+    struct spi_bus* bus;  // shared with every other device on the same peripheral
 
     spi_errors_t errors;  // bus error counts
 };
@@ -29,6 +45,12 @@ spi_t* const spi_imu = &spi_imu_inst;
 
 static struct spi spi_camera_inst;
 spi_t* const spi_camera = &spi_camera_inst;
+
+static struct spi spi_lora_inst;
+spi_t* const spi_lora = &spi_lora_inst;
+
+static struct spi spi_nrf24_inst;
+spi_t* const spi_nrf24 = &spi_nrf24_inst;
 
 // all that differs between buses: the peripheral, its clock-enable bit, the pin map, the ceiling
 typedef struct {
@@ -42,6 +64,7 @@ typedef struct {
     GPIO_TypeDef* cs_port;  // cs can sit on a different port (the camera's does)
     uint32_t cs_pin;
     uint32_t max_hz;
+    struct spi_bus* bus;
 } spi_cfg_t;
 
 // the part that's identical for every spi: max_hz, set master, enable spi
@@ -64,6 +87,7 @@ static void spi_init(spi_t* s, const spi_cfg_t* c) {
     s->regs = c->regs;
     s->cs_port = c->cs_port;
     s->cs_pin = c->cs_pin;
+    s->bus = c->bus;
 
     RCC->APB1ENR |= c->apb1_enr_bit;
     (void)RCC->APB1ENR;
@@ -93,6 +117,7 @@ void spi_imu_init(void) {
         .cs_port = IMU_CS_PORT,
         .cs_pin = IMU_CS_PIN,
         .max_hz = SPI_IMU_MAX_HZ,
+        .bus = &spi2_bus,
     };
     spi_init(spi_imu, &cfg);
 }
@@ -109,8 +134,54 @@ void spi_camera_init(void) {
         .cs_port = CAMERA_CS_PORT,
         .cs_pin = CAMERA_CS_PIN,
         .max_hz = SPI_CAMERA_MAX_HZ,
+        .bus = &spi3_bus,
     };
     spi_init(spi_camera, &cfg);
+}
+
+// a second device on an already-configured bus: same regs, same bus lock, its own chip select.
+// deliberately does not touch the peripheral - spi_camera_init owns that, and two callers
+// configuring one spi is how a clock prescaler silently becomes whichever ran last
+void spi_lora_init(void) {
+    spi_lora->regs = CAMERA_SPI;
+    spi_lora->bus = &spi3_bus;
+    spi_lora->cs_port = LORA_CS_PORT;
+    spi_lora->cs_pin = LORA_CS_PIN;
+
+    gpio_enable_port(LORA_CS_PORT);
+    LORA_CS_PORT->BSRR = (1U << LORA_CS_PIN);  // idle high before it becomes an output
+    gpio_config_output(LORA_CS_PORT, LORA_CS_PIN);
+}
+
+void spi_nrf24_init(void) {
+    spi_nrf24->regs = CAMERA_SPI;
+    spi_nrf24->bus = &spi3_bus;
+    spi_nrf24->cs_port = NRF24_CSN_PORT;
+    spi_nrf24->cs_pin = NRF24_CSN_PIN;
+
+    gpio_enable_port(NRF24_CSN_PORT);
+    NRF24_CSN_PORT->BSRR = (1U << NRF24_CSN_PIN);
+    gpio_config_output(NRF24_CSN_PORT, NRF24_CSN_PIN);
+}
+
+void spi_locks_init(void) {
+    spi2_bus.mutex = xSemaphoreCreateMutexStatic(&spi2_bus.mutex_buf);
+    spi3_bus.mutex = xSemaphoreCreateMutexStatic(&spi3_bus.mutex_buf);
+}
+
+// same rule as every other lock here: bring-up runs before the scheduler and must not call into
+// the kernel, so until then there is one thread of execution and this serialises nothing
+bool spi_bus_lock(spi_t* s) {
+    if (s->bus->mutex == NULL || xTaskGetSchedulerState() == taskSCHEDULER_NOT_STARTED) {
+        return false;
+    }
+    return xSemaphoreTake(s->bus->mutex, portMAX_DELAY) == pdTRUE;
+}
+
+void spi_bus_unlock(spi_t* s, bool locked) {
+    if (locked) {
+        (void)xSemaphoreGive(s->bus->mutex);
+    }
 }
 
 uint8_t spi_transfer_byte(spi_t* s, uint8_t tx) {

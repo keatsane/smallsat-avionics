@@ -81,4 +81,23 @@
 #define CAMERA_CS_PORT  GPIOB
 #define CAMERA_CS_PIN   0U
 
+// lora - rfm95 on the same spi3 wires as the camera, its own cs plus two control lines.
+// the bus pins are deliberately not repeated: they are the CAMERA_* ones above, because there is
+// one spi3 and three devices hanging off it (wiring.md, "the SPI3 bus as single nodes")
+#define LORA_CS_PORT   GPIOB
+#define LORA_CS_PIN    7U  // cn7-21
+#define LORA_RST_PORT  GPIOA
+#define LORA_RST_PIN   1U  // cn7-30
+#define LORA_DIO0_PORT GPIOA
+#define LORA_DIO0_PIN  0U  // cn7-28, tx-done / rx-done - polled for now, interrupt later
+
+// nrf24l01+ - the third device on spi3, the high-rate payload path. csn is the chip select; ce
+// gates the radio itself and is held high so the fifo drains without a timed pulse
+#define NRF24_CSN_PORT GPIOA
+#define NRF24_CSN_PIN  4U  // cn7-32
+#define NRF24_CE_PORT  GPIOC
+#define NRF24_CE_PIN   2U  // cn7-35
+#define NRF24_IRQ_PORT GPIOC
+#define NRF24_IRQ_PIN  3U  // cn7-37, unused while the driver polls
+
 #endif  // BOARD_H

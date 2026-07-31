@@ -18,6 +18,19 @@ void send_telemetry(const uint8_t* frame, uint32_t len) {
     // the decision that produced the frame
     (void)telemetry_out_console(frame, len);
     (void)telemetry_out_downlink(frame, len);
+
+    // the radio takes the heartbeat and nothing else, which is an air-time fact rather than a
+    // preference. one 21-byte heartbeat at SF7/BW125 is ~57 ms on the air; at 1 Hz that is 5.7%
+    // duty and comfortable. the full stream is about five frames per 100 ms cycle, which would
+    // want 2.8 seconds of air time per second of flight - not a tuning problem, an impossible one.
+    //
+    // so LoRa is the beacon: mode, faults and link state, once a second. bulk data has the wired
+    // downlink now and the nRF24 later, which is exactly the dual-link split the architecture
+    // asked for (REQ-TLM-004). the frame is byte-identical on all three - the whole point
+    // byte 2 is the message id: the layout is sync(2), id(1), len(1), payload, crc(2)
+    if (len >= kFrameOverhead && frame[2] == static_cast<uint8_t>(MsgId::Heartbeat)) {
+        (void)telemetry_out_beacon(frame, len);
+    }
 }
 
 // torque -> q-axis volts for this motor. SimpleFOC's voltage torque mode drives V_q, and the

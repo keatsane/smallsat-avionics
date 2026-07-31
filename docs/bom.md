@@ -17,7 +17,7 @@ Bench hardware that is actually in use. More sensors and actuator parts get adde
 | AS5600 magnetic encoder + diametric magnet | 1 | ~$10.00 | Rotor position for sensored FOC. Wired to the ESC, not the OBC. Verified at 0x36 with the magnet detected, and one hand revolution reads 6.26 rad against 6.28 theoretical. |
 | 4in ball-bearing lazy-susan turntable | 1 | ~$12.00 | The pivot the platform spins on - the wheel's torque only shows if the platform turns nearly friction-free. |
 | RFM95W 900 MHz LoRa breakout (Adafruit #3072) | 1 | $19.95 | The low-rate TT&C link, satellite side. Wired onto the shared SPI3 bus with its own CS/DIO0/RST; no driver yet. |
-| nRF24L01+PA+LNA 2.4 GHz transceiver | 1 | ~$8.50 | The high-rate payload downlink, satellite side. Also on SPI3, with its own CSN/CE/IRQ. Wants a 10 uF cap right at its VCC or the link browns out. |
+| nRF24L01+PA+LNA 2.4 GHz transceiver | 2 | ~$8.50 | The high-rate payload downlink. They come in pairs, so one is the satellite side on SPI3 with its own CSN/CE/IRQ, and the other is the ground station's receiver. Wants a 10 uF cap right at its VCC or the link browns out. |
 | 915 MHz right-angle SMA antenna | 1 | ~$4.00 | Screws onto the edge-launch SMA on the LoRa board; the right angle lets it lie flat on the top plate. |
 | 2.4 GHz SMA stub antenna | 1 | ~$3.50 | For the nRF24, which arrived bare. |
 | MP1584EN buck converter | 2 | ~$2.00 each | 14.8 V down to 5 V for the Nucleo's E5V pin, and to 3.3 V for the radios. Both adjustable, so both need setting with a meter before anything is connected to them. |
@@ -28,7 +28,10 @@ Bench hardware that is actually in use. More sensors and actuator parts get adde
 | XT60 connectors | 3 pairs | ~$8.00 | The battery and the ESC feed - anything carrying motor current. |
 | Protoboard, 0.1in double-sided | assorted | ~$10.00 | The OBC slice, sensor board, power distribution board, LED array, and radio module. |
 
-The PTC fuse and the ground-station parts get added as they actually go into the build.
+| Adafruit Feather M0 RFM95 (900 MHz) | 1 | ~$34.95 | The ground station. Chosen over a separate Teensy because the LoRa radio is already on the board, SPI stays free for the nRF24 receiver, I2C is free for the display, and it is its own USB serial port - a Teensy would have meant wiring a second RFM95 to gain nothing. |
+| SSD1306 0.96in 128x64 I2C OLED | 1 | ~$6.00 | The ground station's local readout. Picked over an I2C 16x2 LCD for two reasons: those LCD backpacks are 5 V parts whose I2C pull-ups would put 5 V on the Feather's 3.3 V pins, and 128x64 shows mode, faults, link and sequence at once where 2x16 characters cannot. |
+
+The PTC fuse gets added as it actually goes into the build.
 
 ## Datasheets and references
 

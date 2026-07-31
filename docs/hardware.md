@@ -105,6 +105,12 @@ Where every object goes, how it must be oriented, and how close it can sit to it
 
 ### Not on the satellite
 
+**Ground LoRa antenna: a soldered wire, not a connector (decided 2026-07-29).** The Feather M0 RFM95 (#3178) ships with no antenna connector, and the board on the bench has no usable uFL or edge-SMA footprint either - checked on the part, not from a drawing. So the antenna is a **quarter-wave wire soldered into the ANT through-hole: 8.2 cm at 915 MHz** (c/f/4; insulated wire runs a few percent short, so 7.8-8.2 cm is the window). One joint, no connector, and the ground box has room for it to stand up straight.
+
+The two ends deliberately do not match, and do not need to: a link needs each end resonant at 915 MHz and properly fed, not identical hardware. The satellite keeps the right-angle SMA stub because it has to lie flat on a spinning plate; the ground box gets the wire because nothing there is space-constrained. A straight quarter-wave is often the better radiator of the two - screw-on stubs are helicals compromised for size.
+
+Caveat if range ever disappoints: a quarter-wave monopole wants a counterpoise, and the Feather's small ground pour is a poor one. Soldering a second 8.2 cm wire to a GND pad pointing the other way makes it a rough dipole, which helps more than swapping antennas would. And per the part constraints above, **solder the wire before the first transmit** - the Feather is the one board here whose antenna is something to remember rather than something already attached.
+
 These live in the 3D-printed ground station, not the spacecraft: the **SSD1306 OLED**, the **LoRa Feather receiver (#3178)**, the **second nRF24**, and the **Teensy host**.
 
 ## 3D-printed parts and CAD (Fusion 360 -> `cad/`)

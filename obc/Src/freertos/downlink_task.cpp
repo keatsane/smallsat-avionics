@@ -6,6 +6,7 @@
 #include "downlink_task.hpp"
 
 #include "FreeRTOS.h"
+#include "devices/nrf24.h"
 #include "devices/ov2640.h"
 #include "protocol/frame.hpp"
 #include "protocol/msg.hpp"
@@ -65,6 +66,12 @@ bool send_chunk() {
                                        reinterpret_cast<const uint8_t*>(&p), sizeof(p), buf);
     (void)telemetry_out_console(buf, n);
     (void)telemetry_out_downlink(buf, n);
+
+    // and over the air on the high-rate radio - this is the traffic the nrf24 exists for, and the
+    // reason DOWNLINK is a mode rather than a label. called from this task and not the control
+    // task because it reaches for the spi3 bus, and this is the one that should wait for it.
+    // a full radio fifo drops the packet rather than blocking; the wired links still carry it
+    (void)nrf24_send(buf, n);
 
     if (++s_chunk >= s_chunks) {
         s_chunks = 0U;  // whole image sent

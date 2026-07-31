@@ -7,7 +7,9 @@
 
 #include "FreeRTOS.h"
 #include "console.hpp"
+#include "devices/rfm95.h"
 #include "drivers/uart.h"
+#include "protocol/frame.hpp"
 #include "rtos_tasks.h"
 #include "semphr.h"
 #include "stream_buffer.h"
@@ -52,6 +54,14 @@ uint32_t s_dropped = 0;  // guarded by s_lock
 
 // only this task reads, so the drain scratch can be static and keep the stack small
 uint8_t s_drain[128];
+
+// the lora beacon's outbound slot - exactly one frame deep, guarded by s_lock. one slot rather
+// than a queue because a beacon says what is true now: at 57 ms of air time a packet, a backlog
+// would broadcast an ever-staler picture and never catch up
+uint8_t s_beacon[fsw::kFrameMaxSize];
+size_t s_beacon_len = 0U;
+bool s_beacon_pending = false;
+uint32_t s_beacon_dropped = 0U;  // newer state replaced an untransmitted one
 
 // the uart is passed rather than derived from the handle: until telemetry_task_create runs both
 // handles are null, so any "which buffer is this" test would answer the same for both links
@@ -103,6 +113,29 @@ void report_drops(void) {
     }
 }
 
+// push the newest beacon frame if the radio is free. skipped entirely while a transmit is still
+// in the air - the packet waits and gets replaced by whatever is true when the radio next frees
+void service_beacon(void) {
+    if (!s_beacon_pending || !rfm95_tx_done()) {
+        return;
+    }
+
+    uint8_t frame[fsw::kFrameMaxSize];
+    size_t len = 0U;
+
+    (void)xSemaphoreTake(s_lock, portMAX_DELAY);
+    len = s_beacon_len;
+    for (size_t i = 0U; i < len; i++) {
+        frame[i] = s_beacon[i];
+    }
+    s_beacon_pending = false;
+    (void)xSemaphoreGive(s_lock);
+
+    // outside the lock: this reaches for the spi3 bus, and holding two locks to send a beacon is
+    // how a payload downlink ends up waiting on a radio
+    (void)rfm95_send(frame, len);
+}
+
 void telemetry_task(void*) {
     for (;;) {
         // every telemetry frame goes to both links, so in practice the console is what wakes this
@@ -110,6 +143,7 @@ void telemetry_task(void*) {
         drain(s_console, uart_console, pdMS_TO_TICKS(kIdleWaitMs));
         drain(s_downlink, uart_downlink, 0);
 
+        service_beacon();
         report_drops();
         task_health_checkin(TASK_ID_TELEMETRY);
     }
@@ -123,6 +157,24 @@ bool telemetry_out_console(const uint8_t* data, size_t len) {
 
 bool telemetry_out_downlink(const uint8_t* data, size_t len) {
     return enqueue(s_downlink, uart_downlink, data, len);
+}
+
+bool telemetry_out_beacon(const uint8_t* data, size_t len) {
+    if (data == nullptr || len == 0U || len > sizeof(s_beacon) || s_lock == nullptr) {
+        return false;
+    }
+
+    (void)xSemaphoreTake(s_lock, portMAX_DELAY);
+    if (s_beacon_pending) {
+        s_beacon_dropped++;  // the one being replaced never made it onto the air
+    }
+    for (size_t i = 0U; i < len; i++) {
+        s_beacon[i] = data[i];
+    }
+    s_beacon_len = len;
+    s_beacon_pending = true;
+    (void)xSemaphoreGive(s_lock);
+    return true;
 }
 
 size_t telemetry_out_room(void) {

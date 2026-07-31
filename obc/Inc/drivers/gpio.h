@@ -59,6 +59,13 @@ void gpio_config_output(GPIO_TypeDef* port, uint32_t pin);
  * @param  otype  push-pull or open-drain
  * @param  speed  output slew-rate setting
  */
+/**
+ * @brief  configure a pin as a floating digital input
+ * @param  port  gpio port
+ * @param  pin   pin number
+ */
+void gpio_config_input(GPIO_TypeDef* port, uint32_t pin);
+
 void gpio_config_af(GPIO_TypeDef* port, uint32_t pin, uint8_t af, gpio_otype_t otype,
                     gpio_speed_t speed);
 

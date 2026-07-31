@@ -89,7 +89,28 @@ fsw-build:
 # portable flight software built for the host, and it is also cross-compiled into the obc image
 [group('build')]
 [doc('build all three - the host flight software, the obc image, and the esc node')]
-build-all: fsw-build obc-build esc-build
+build-all: fsw-build obc-build esc-build gsw-build
+
+# ---------------------------------------------------------------- ground station
+# feather m0 with the rfm95 on board - receives the beacon and is its own usb serial port
+
+# build the ground station firmware
+[group('gsw')]
+gsw-build:
+    & "{{pio}}" run -d gsw -e gsw
+
+# build and flash the ground station over usb (double-tap reset if the port is not found)
+[group('gsw')]
+gsw-flash:
+    & "{{pio}}" run -d gsw -e gsw -t upload
+
+# the same console the obc uses, pointed at the feather instead of the st-link. read-only because
+# the lora link is one way for now - the vehicle transmits and nothing uplinks to it, so a prompt
+# would take commands with nowhere to send them
+[group('gsw')]
+[doc('ground console over the air - same decoder as obc-monitor; --all shows per-cycle telemetry')]
+gsw-monitor *flags:
+    python tools/uart_monitor.py --vid 239A --read-only {{flags}}
 
 # ---------------------------------------------------------------- testing
 

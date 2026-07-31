@@ -27,6 +27,13 @@ typedef struct {
 // means changing this - they are one decision, so they live next to each other
 #define ICM20948_GYRO_LSB_PER_DPS 32.8F
 
+// a boot bias further from zero than this says the rig was moving while the 64-sample
+// calibration ran, so the offset absorbed real motion and every later reading is over-corrected.
+// ~6 deg/s, comfortably outside the datasheet's typical zero-rate offset and comfortably inside
+// anything a hand-knock produces. it matters most in POINTING, which integrates rate into a
+// heading and turns a small constant error into drift that grows all session
+#define ICM20948_GYRO_BIAS_SUSPECT 200
+
 /**
  * @brief  wake and configure the imu
  * @return true if who_am_i read, false otherwise

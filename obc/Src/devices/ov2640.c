@@ -11,13 +11,10 @@
 
 #include "devices/ov2640.h"
 
-#include "FreeRTOS.h"
 #include "devices/ov2640_regs.h"
 #include "drivers/i2c.h"
 #include "drivers/spi.h"
 #include "drivers/systick.h"
-#include "semphr.h"
-#include "task.h"
 
 #define OV2640_SCCB_ADDR 0x30U  // the sensor's sccb address on i2c1
 
@@ -60,31 +57,16 @@ static uint32_t frame_read = 0U;   // how much of it has been handed out
 static bool burst_open = false;    // a burst read is mid-flight, cs still asserted
 static bool configured = false;    // init got all the way through
 
-// the camera is the one device two tasks reach - the control task polls its health, the downlink
-// task drains its fifo. the guarded resource is the driver, not just spi3: a burst read leaves cs
-// asserted across calls, so a bus-level lock in spi_select/spi_deselect could not express it and
-// would be released by whichever task happened to close the burst. locking the public api instead
-// keeps the state machine and the bus transaction consistent together.
+// the camera is reached by two tasks - the control task polls its health, the downlink task
+// drains its fifo - and it shares spi3 with both radios. one lock covers both problems: the spi3
+// bus lock is taken across every public call here, so it serialises the driver's state machine
+// and the bus together. nothing else on spi3 can be mid-transaction while the camera is.
 //
-// phase 8 note: the radios join spi3, and a burst holding cs low would let them clock the camera.
-// whatever arbitrates the bus then has to make the camera close its burst before yielding
-static SemaphoreHandle_t cam_mutex;
-static StaticSemaphore_t cam_mutex_buf;
+// this used to be the camera's own mutex, which was enough while the camera was alone on the
+// bus and is not enough now that the radios have drivers coming
+static bool cam_lock(void) { return spi_bus_lock(spi_camera); }
 
-// same rule as the uart and console locks: bring-up runs before the scheduler and must not call
-// into the kernel, so until then there is one thread of execution and this serialises nothing
-static bool cam_lock(void) {
-    if (cam_mutex == NULL || xTaskGetSchedulerState() == taskSCHEDULER_NOT_STARTED) {
-        return false;
-    }
-    return xSemaphoreTake(cam_mutex, portMAX_DELAY) == pdTRUE;
-}
-
-static void cam_unlock(bool locked) {
-    if (locked) {
-        (void)xSemaphoreGive(cam_mutex);
-    }
-}
+static void cam_unlock(bool locked) { spi_bus_unlock(spi_camera, locked); }
 
 // ---- arduchip helpers - bit 7 of the address selects write ----
 
@@ -337,9 +319,17 @@ static size_t read_chunk_locked(uint8_t* buf, size_t n) {
     }
     frame_read += n;
 
-    // frame fully drained - close the burst and go idle so the next capture starts clean
+    // close it every call, not just at the end of the frame. the burst used to span as many
+    // calls as the frame took, which saved re-sending one command byte per chunk - but it leaves
+    // chip select asserted between calls, and the moment a radio shares spi3 that means the
+    // camera is clocked by traffic meant for something else. the arduchip's read pointer
+    // survives the deselect (it takes an explicit FIFO_RDPTR_RST to rewind, which is what
+    // scan_jpeg_length uses), so re-issuing the command resumes where this left off.
+    //
+    // costs one byte per 56-byte chunk, under 2%, against a whole class of bus corruption
+    burst_close();
+
     if (frame_read >= frame_bytes) {
-        burst_close();
         state = OV2640_IDLE;
         frame_bytes = 0U;
         frame_read = 0U;
@@ -366,7 +356,10 @@ static void discard_locked(void) {
 // above are the originals, renamed - keeping the wrappers separate means the early returns inside
 // them did not have to grow an unlock on every path
 
-void ov2640_lock_init(void) { cam_mutex = xSemaphoreCreateMutexStatic(&cam_mutex_buf); }
+// the camera has no lock of its own any more - it uses the spi3 bus lock, created by
+// spi_locks_init. kept as a no-op so main's bring-up list still names everything that has to be
+// ready, and so this note has somewhere to live
+void ov2640_lock_init(void) {}
 
 bool ov2640_capture_start(void) {
     const bool l = cam_lock();

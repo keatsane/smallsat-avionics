@@ -8,7 +8,9 @@
 #include "control_task.hpp"
 #include "devices/icm20948.h"
 #include "devices/ina228.h"
+#include "devices/nrf24.h"
 #include "devices/ov2640.h"
+#include "devices/rfm95.h"
 #include "devices/tmp117.h"
 #include "devices/ws2812.h"
 #include "downlink_task.hpp"
@@ -18,6 +20,7 @@
 #include "drivers/iwdg.h"
 #include "drivers/panic.h"
 #include "drivers/reset.h"
+#include "drivers/spi.h"
 #include "drivers/systick.h"
 #include "drivers/uart.h"
 #include "fsw/platform.hpp"
@@ -29,10 +32,12 @@
 
 namespace {
 
-bool imu_ok = false;     // did the imu answer at init - gates the sensor task's reads
-bool power_ok = false;   // power monitor
-bool temp_ok = false;    // temperature sensor
-bool camera_ok = false;  // payload camera
+bool imu_ok = false;            // did the imu answer at init - gates the sensor task's reads
+bool power_ok = false;          // power monitor
+bool temp_ok = false;           // temperature sensor
+bool camera_ok = false;         // payload camera
+bool radio_ok = false;          // lora beacon
+bool payload_radio_ok = false;  // nrf24 payload downlink
 
 }  // namespace
 
@@ -84,6 +89,15 @@ static void init(void) {
         int16_t bias[3];
         icm20948_gyro_bias(bias);
         console_printf("IMU gyro bias: %d %d %d\r\n", bias[0], bias[1], bias[2]);
+
+        // the bias is only as good as how still the rig was for the 64 samples that measured it
+        for (int i = 0; i < 3; i++) {
+            const int mag = (bias[i] < 0) ? -bias[i] : bias[i];
+            if (mag > ICM20948_GYRO_BIAS_SUSPECT) {
+                console_puts("IMU BIAS SUSPECT - reset with the rig stationary\r\n");
+                break;
+            }
+        }
     }
 
     if (!power_ok) {
@@ -99,6 +113,18 @@ static void init(void) {
         console_puts("CAMERA INIT FAIL\r\n");
     }
 
+    // after the camera on purpose - both live on spi3 and the camera's init is what configures
+    // the peripheral; the radio only adds its own chip select on top
+    radio_ok = rfm95_init();
+    if (radio_ok) {
+        console_puts("LORA: up\r\n");
+    } else {
+        console_puts("LORA INIT FAIL\r\n");
+    }
+
+    payload_radio_ok = nrf24_init();
+    console_puts(payload_radio_ok ? "NRF24: up\r\n" : "NRF24 INIT FAIL\r\n");
+
     // no esc check here - it spends several seconds aligning foc before it says anything.
     // the control task reports the link the moment it comes up
     fsw::platform::set_wheel_torque_nm(0.0F);
@@ -109,6 +135,7 @@ int main(void) {
 
     uart_locks_init();    // first kernel call in the program, and after the console can report it
     console_lock_init();  // same rule - board bring-up must not call into the kernel
+    spi_locks_init();     // one lock per bus; spi3 is shared by the camera and both radios
     ov2640_lock_init();
 
     // after bring-up, before the scheduler. starting it earlier would have the dog counting

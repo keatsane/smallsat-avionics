@@ -69,6 +69,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="ground console for the avionics node")
     ap.add_argument("port", nargs="?", help="serial port; omit to find it automatically")
     ap.add_argument("--stlink", help="pin the port by ST-Link serial number")
+    ap.add_argument("--vid", help="pin the port by USB vendor id in hex, e.g. 239A for adafruit")
     ap.add_argument("-b", "--baud", type=int, default=115200)
     ap.add_argument("--raw", action="store_true", help="also echo every raw byte as hex")
     # kinds: HEARTBEAT, IMU, POWER, TEMP, CAMERA, UART, COMMAND, COMMAND_ACK,
@@ -130,7 +131,7 @@ def main() -> int:
         color = kind_color.get(kind)
         emit(f"{color}{line}\x1b[0m" if use_color and color else line)
 
-    port = args.port or find_port(args.stlink)
+    port = args.port or find_port(args.stlink, args.vid)
     ser = open_port(port, args.baud, timeout=0.1)
 
     tx = threading.Lock()  # the reader thread's keep-alive and the prompt both transmit
@@ -260,7 +261,11 @@ def main() -> int:
 
     try:
         if args.read_only:
-            stop.wait()
+            # polled rather than a bare stop.wait(): an untimed Event.wait() blocks inside the C
+            # layer on windows and never returns to python to run the signal handler, so ctrl-c
+            # is swallowed and the only way out is closing the terminal
+            while not stop.wait(0.2):
+                pass
         elif interactive:
             with patch_stdout():
                 while True:

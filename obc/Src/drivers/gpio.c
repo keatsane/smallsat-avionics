@@ -35,6 +35,13 @@ void gpio_config_output(GPIO_TypeDef* port, uint32_t pin) {
     port->MODER |= (0x1UL << (pin * 2U));
 }
 
+void gpio_config_input(GPIO_TypeDef* port, uint32_t pin) {
+    // mode 00 is input and is also the reset value for most pins - set explicitly anyway, since
+    // "it happens to be right after reset" stops being true the moment a pin is reused
+    port->MODER &= ~(0x3UL << (pin * 2U));
+    port->PUPDR &= ~(0x3UL << (pin * 2U));  // no pull - the radio drives dio0 both ways
+}
+
 void gpio_config_af(GPIO_TypeDef* port, uint32_t pin, uint8_t af, gpio_otype_t otype,
                     gpio_speed_t speed) {
     port->MODER &= ~(0x3UL << (pin * 2U));
