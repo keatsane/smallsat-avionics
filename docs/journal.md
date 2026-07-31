@@ -109,6 +109,11 @@ Dated evidence, newest first.
 
 ### Phase 8 - wireless link and ground station
 
+- **2026-07-31** - The one-word mission ran on battery: `shoot` walked point, capture, downlink,
+  and park by itself, 451 chunks at 95% first-pass delivery, two request rounds, and
+  `image_0018.jpg` on disk in twelve seconds. The first over-the-air `poll POWER` closed
+  REQ-TLM-006, and switching the vehicle off put LOST and the age of the silence on the ground
+  station's screen instead of a confident ghost.
 - **2026-07-31** - The heartbeat carries the bus voltage now: on battery it is a vital sign, and
   the ground station's status panel draws it as a battery gauge mapped to the working range
   (13.6 V "land now" to 16.8 V full). The same panel pass gave both screens fixed regions, and

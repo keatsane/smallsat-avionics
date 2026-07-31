@@ -295,7 +295,7 @@ The retransmission rule exists because the ground resends: the LoRa link is half
 
 **REQ-TLM-006** - The ground shall be able to request a single frame of a named telemetry kind over the low-rate link. The full sensor stream shall not ride that link.
 **Type**: Functional
-**Status**: unit-verified (the `REQUEST_TELEMETRY` command carries a wire message id; the platform lets exactly one matching frame ride the beacon. The stream restriction is arithmetic: the full stream wants ~2.8 s of air time per second of flight. **Owed: the poll observed over the air**)
+**Status**: demonstrated over the air (2026-07-31 - `poll POWER` from the ground console returned one POWER frame over the beacon, on battery power with no cable: bus 16.68 V, 108 mA. The stream restriction is arithmetic: the full stream wants ~2.8 s of air time per second of flight)
 **Verification**: unit test, then demonstration over the radio
 **Artifact**: fsw/src/executive.cpp, fsw/test/test_executive.cpp, obc/Src/freertos/telemetry_task.cpp
 
