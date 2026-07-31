@@ -476,21 +476,31 @@ def format_frame(msg_id: int, payload: bytes) -> str:
         # channel occupancy, always shown: the useful reading is how it moves when the vehicle
         # starts transmitting, and a field that appears and disappears cannot be compared
         rf = f"  ch {d['busy_pct']}% busy"
-        panels = (1 if d["flags"] & GROUND_FLAG_PANEL1 else 0) + (
-            1 if d["flags"] & GROUND_FLAG_PANEL2 else 0
-        )
+        # the addresses that actually acked on the bus, named rather than counted - "oled x1" left
+        # it ambiguous which panel was missing, and the whole question is whether 0x3D is there
+        addrs = []
+        if d["flags"] & GROUND_FLAG_PANEL1:
+            addrs.append("3C")
+        if d["flags"] & GROUND_FLAG_PANEL2:
+            addrs.append("3D")
+        panels = "+".join(addrs) if addrs else "none"
         return (
             f"{'GROUND':<12} t={d['t_ms']} ms  lora {lora} ({d['lora_frames']} frames)  "
             f"nrf24 {nrf} ({d['nrf24_packets']} pkt, {d['nrf24_frames']} frames){rf}  "
-            f"oled x{panels}"
+            f"oled {panels}"
         )
     if msg_id == MSG_DOWNLINK_STATUS and len(payload) == 16:
         d = decode_downlink_status(payload)
-        pct = (d["chunk"] * 100 // d["chunks"]) if d["chunks"] else 0
+        radio = f"radio sent={d['radio_sent']} dropped={d['radio_dropped']}"
+        # chunks==0 means nothing is in flight. drawing a bar for that is how a finished pass ends
+        # up looking like a stalled one, sitting at 100% for as long as the vehicle stays in the
+        # mode - the useful reading while idle is that the link is alive at all
+        if d["chunks"] == 0:
+            return f"{'DOWNLINK':<12} idle  {radio}"
+        pct = d["chunk"] * 100 // d["chunks"]
         return (
             f"{'DOWNLINK':<12} image={d['image_id']}  {progress_bar(d['chunk'], d['chunks'])} "
-            f"{d['chunk']}/{d['chunks']} ({pct}%)  radio sent={d['radio_sent']} "
-            f"dropped={d['radio_dropped']}"
+            f"{d['chunk']}/{d['chunks']} ({pct}%)  {radio}"
         )
     if msg_id == MSG_CAMERA_STATUS and len(payload) == 9:
         d = decode_camera_data(payload)

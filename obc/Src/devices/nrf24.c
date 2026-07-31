@@ -43,10 +43,18 @@
 // reference designs. the ground station has to agree, so this is a link parameter not a taste
 #define RF_CHANNEL 76U
 
-// 1 Mbps at 0 dBm. not the part's 2 Mbps top speed on purpose: 2 Mbps costs ~3 dB of receiver
-// sensitivity and these PA+LNA modules are known to be fussy at it, and 1 Mbps is already about
-// 180x the LoRa beacon. revisit if the payload ever outruns it
-#define RF_SETUP_1MBPS 0x06U
+// 1 Mbps, minimum transmit power.
+//
+// not the part's 2 Mbps top speed on purpose: 2 Mbps costs ~3 dB of receiver sensitivity and these
+// PA+LNA modules are known to be fussy at it, and 1 Mbps is already about 180x the LoRa beacon.
+//
+// the power bits are 00 (-18 dBm at the chip) rather than 11 (0 dBm), which is the setting a link
+// budget would call absurd and a bench needs. both ends carry a power amplifier and a low-noise
+// amplifier, and they sit a foot apart: at full output the receiver's LNA is driven far past the
+// linear range, and an overloaded front end does not degrade gracefully - it just stops decoding.
+// measured at full power, 570 packets went out and 224 arrived. the module's own PA still adds
+// about 20 dB on top of this, so there is plenty of margin for a room
+#define RF_SETUP_1MBPS 0x00U
 
 // the link's address, shared with the ground station. "SSAV1" in ascii - any five bytes work as
 // long as both ends agree, and something legible beats a magic number nobody can check

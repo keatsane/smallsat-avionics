@@ -440,7 +440,7 @@ An inhibited fault is deliberately excluded from the three alarm rungs and colle
 
 **REQ-PAY-004** - In DOWNLINK the flight software shall direct the payload buffer to be emptied to the ground, and the platform shall do so in chunks at a rate bounded by the link and without blocking the control cycle. Each chunk shall identify its image, its index, and the total count, so that a contact pass ending mid-image leaves a resumable set of chunks rather than an unusable partial stream.  
 **Type**: Functional  
-**Status**: bench-verified (2026-07-30, task-based path: a capture commanded in POINTING downlinked as 110 chunks in about a second and reassembled to a 6117-byte file with intact markers. The fsw-paced path it replaced took three. The fsw signals whether to downlink and the platform paces it - the chunks-per-cycle bound was a link property sitting on the wrong side of the PAL)  
+**Status**: bench-verified on the wired link (2026-07-30: a capture commanded in POINTING reassembled to a 6117-byte file with intact markers). The fsw signals whether to downlink and the platform paces it - the chunks-per-cycle bound was a link property sitting on the wrong side of the PAL. **The pacing is now set by the radio rather than the uart**, since an unpaced stream lost two thirds of its packets at the receiver, so the wired downlink is deliberately slower than the ~1 s it used to take. **Owed: the same over the air**  
 **Verification**: unit test and HIL  
 **Artifact**: fsw/src/executive.cpp, fsw/test/test_executive.cpp, obc/Src/freertos/downlink_task.cpp, tools/ground/payload.py, tools/tests/test_payload.py
 

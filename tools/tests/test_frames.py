@@ -302,10 +302,13 @@ def test_downlink_status_renders_a_progress_bar():
     assert quarter.count("#") < whole.count("#")
 
 
-def test_downlink_status_survives_a_zero_total():
-    # a status frame sent when nothing is in flight must not divide by zero
-    line = format_frame(frames.MSG_DOWNLINK_STATUS, struct.pack("<IHHHIH", 1, 0, 0, 0, 0, 0))
-    assert "0/0 (0%)" in line
+def test_an_idle_downlink_reads_as_idle_not_as_a_full_bar():
+    # nothing in flight is chunks=0. a bar drawn for that sits at 100% for as long as the vehicle
+    # stays in DOWNLINK, which reads as a stall
+    line = format_frame(frames.MSG_DOWNLINK_STATUS, struct.pack("<IHHHIH", 1, 7, 0, 0, 900, 5))
+    assert "idle" in line
+    assert "#" not in line
+    assert "sent=900" in line
 
 
 def test_ground_status_reports_a_dead_receiver():
@@ -329,13 +332,18 @@ def test_ground_status_reports_channel_occupancy():
     )
 
 
-def test_ground_status_counts_the_panels():
+def test_ground_status_names_the_panel_addresses():
+    # which address is missing is the whole question when a second panel does not light, so the
+    # line names them rather than counting them
     both = frames.GROUND_FLAG_PANEL1 | frames.GROUND_FLAG_PANEL2
-    assert "oled x2" in format_frame(
+    assert "oled 3C+3D" in format_frame(
         frames.MSG_GROUND_STATUS, struct.pack("<IIIIBB", 1, 0, 0, 0, 0, both)
     )
-    assert "oled x1" in format_frame(
+    assert "oled 3C" in format_frame(
         frames.MSG_GROUND_STATUS, struct.pack("<IIIIBB", 1, 0, 0, 0, 0, frames.GROUND_FLAG_PANEL1)
+    )
+    assert "oled none" in format_frame(
+        frames.MSG_GROUND_STATUS, struct.pack("<IIIIBB", 1, 0, 0, 0, 0, 0)
     )
 
 

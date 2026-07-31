@@ -22,6 +22,18 @@ namespace {
 // image is waiting, long enough that a task at this priority is not spinning on a full buffer
 constexpr TickType_t kPollMs = 20;
 
+// pause between chunks while an image is moving.
+//
+// the link's slowest part is not the air, it is the ground station's per-packet work: a 70-byte
+// frame is three nRF24 packets, the receiver's fifo holds three, and anything it cannot collect in
+// time is gone. unpaced, 588 packets went out and 379 arrived - and because the losses come in
+// runs rather than scattered, a frame that spans three packets almost never survived one. 196
+// chunks produced a single decoded frame.
+//
+// so the transmitter waits instead. this costs downlink time on every link, wired ones included,
+// and that is the trade: a slower stream that arrives beats a faster one that does not
+constexpr TickType_t kChunkGapMs = 4;
+
 StaticTask_t s_tcb;
 StackType_t s_stack[TASK_STACK_DOWNLINK];
 
@@ -35,9 +47,12 @@ uint16_t s_chunk = 0;
 uint16_t s_chunks = 0;        // 0 means no image in flight
 uint16_t s_chunks_total = 0;  // survives the end of the image, so the last report reads N of N
 
-// how often the progress frame goes out while an image is moving. 1 Hz matches the heartbeat and
-// costs one more beacon slot per second; anything faster spends air time the uplink wants back
-constexpr uint32_t kStatusPeriodMs = 1000;
+// how often the progress frame goes out. faster while an image is actually moving, because a
+// 6 KB image is gone in about two seconds and a 1 Hz report showed the transfer exactly never -
+// the whole burst finished inside one period, and the only frame the ground ever saw said "idle".
+// 500 ms costs about 11% of the beacon's air time, and only during a pass
+constexpr uint32_t kStatusActiveMs = 500;
+constexpr uint32_t kStatusIdleMs = 1000;
 uint32_t s_next_status_ms = 0;
 
 // say how far the downlink has got, on the *other* radio.
@@ -49,9 +64,13 @@ uint32_t s_next_status_ms = 0;
 void send_status(void) {
     fsw::downlink_status_t d{};
     d.t_ms = millis();
+    // zeros while nothing is moving. holding the last image's numbers left a bar sitting at
+    // 100% for as long as the vehicle stayed in DOWNLINK, which reads as a stall rather than as
+    // a finished pass
+    const bool in_flight = (s_chunks != 0U);
     d.image_id = s_image_id;
-    d.chunk = s_chunk;
-    d.chunks = s_chunks_total;
+    d.chunk = in_flight ? s_chunk : 0U;
+    d.chunks = in_flight ? s_chunks_total : 0U;
     d.radio_sent = nrf24_sent();
     const uint32_t dropped = nrf24_dropped();
     d.radio_dropped = (dropped > 0xFFFFU) ? 0xFFFFU : static_cast<uint16_t>(dropped);
@@ -61,14 +80,31 @@ void send_status(void) {
                                        reinterpret_cast<const uint8_t*>(&d), sizeof(d), buf);
     (void)telemetry_out_console(buf, n);
     (void)telemetry_out_downlink(buf, n);
-    (void)telemetry_out_beacon(buf, n);
 
-    // and over the payload radio itself, which makes this a link check as well as a report. the
-    // nrf24 is transmit-only and otherwise silent unless an image is moving, so a ground station
-    // that hears nothing could not tell a broken link from an idle one - and proving the link
-    // meant capturing an image every time. parked in DOWNLINK the packet counter now moves once a
-    // second, so antennas and placement can be tried without the whole capture dance
-    (void)nrf24_send(buf, n);
+    // one radio, not both - the ground station forwards everything it decodes, so sending this on
+    // both put two identical lines on the console every second.
+    //
+    // which one depends on what is happening. while an image is moving the report belongs on the
+    // LoRa beacon: the nRF24 is saturated with the payload, and adding to it would slow the thing
+    // being reported on. while nothing is moving it belongs on the nRF24, where it is the link
+    // check that lets the payload radio be tested without capturing an image first
+    if (in_flight) {
+        (void)telemetry_out_beacon(buf, n);
+    } else {
+        (void)nrf24_send(buf, n);
+    }
+}
+
+// emit a progress frame if one is due. the period depends on whether an image is moving, so this
+// is asked rather than scheduled by the caller
+void service_status(void) {
+    const uint32_t now = millis();
+    if (!s_active || (int32_t)(now - s_next_status_ms) < 0) {
+        return;
+    }
+    const bool in_flight = (s_chunks != 0U);
+    send_status();
+    s_next_status_ms = now + (in_flight ? kStatusActiveMs : kStatusIdleMs);
 }
 
 // put one chunk on both links; false when there is nothing left to send
@@ -85,7 +121,7 @@ bool send_chunk() {
         }
         s_image_id++;
         s_chunk = 0U;
-        s_next_status_ms = millis();  // first progress frame goes out on the next pass
+        s_next_status_ms = millis();  // due immediately, so a pass opens with 0 of N
         s_chunks = static_cast<uint16_t>((remaining + fsw::kPayloadChunkBytes - 1U) /
                                          fsw::kPayloadChunkBytes);
         s_chunks_total = s_chunks;
@@ -137,17 +173,18 @@ void downlink_task(void*) {
                 break;  // no image waiting, or this one just finished
             }
             task_health_checkin(TASK_ID_DOWNLINK);
+
+            // reported from inside the loop, because this loop does not exit until the image is
+            // gone. reporting only after it meant the first progress frame a downlink ever sent
+            // was the one saying it had finished
+            service_status();
+            vTaskDelay(pdMS_TO_TICKS(kChunkGapMs));
         }
 
-        // reported once a second for as long as the vehicle is in DOWNLINK, whether or not an
-        // image is moving. that keeps the payload link continuously observable while still only
-        // using it in the mode it belongs to - the radio stays silent in every other mode, which
-        // is what makes DOWNLINK a real mode rather than a label
-        const uint32_t now = millis();
-        if (s_active && (int32_t)(now - s_next_status_ms) >= 0) {
-            send_status();
-            s_next_status_ms = now + kStatusPeriodMs;
-        }
+        // and while parked in DOWNLINK with nothing moving, where it is the payload link's
+        // keepalive - the radio stays silent in every other mode, which is what makes DOWNLINK a
+        // mode rather than a label
+        service_status();
 
         task_health_checkin(TASK_ID_DOWNLINK);
         vTaskDelay(pdMS_TO_TICKS(kPollMs));

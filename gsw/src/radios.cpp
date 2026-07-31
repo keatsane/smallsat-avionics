@@ -76,7 +76,10 @@ static constexpr uint8_t NRF_CONFIG_RX = 0x7F;
 static constexpr uint8_t NRF_STATUS_RX_DR = 0x40;
 static constexpr uint8_t NRF_FIFO_RX_EMPTY = 0x01;
 static constexpr uint8_t kNrfChannel = 76;
-static constexpr uint8_t kNrfRfSetup = 0x06;  // 1 Mbps, 0 dBm
+// 1 Mbps, minimum transmit power - the satellite's RF_SETUP_1MBPS, byte for byte. this end never
+// transmits, so only the data-rate bits matter here; the power bits are matched anyway so the two
+// files keep reading the same
+static constexpr uint8_t kNrfRfSetup = 0x00;
 static constexpr uint8_t kNrfAddrWidth = 5;
 
 // fixed 32-byte packets, because the satellite pads to that. static width means both ends must

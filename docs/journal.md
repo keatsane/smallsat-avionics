@@ -31,6 +31,12 @@ pushes.
 is what returns the radio to receive; behind `!pending ||` it ran once a second and the vehicle
 was deaf almost continuously. Side effects do not belong in conditions.
 
+**A receiver's fifo depth is a rate limit on the transmitter.** The nRF24 holds three packets and
+a frame spans three, so anything the ground could not collect in time took a whole frame with it -
+588 packets sent, 379 received, one frame decoded. Independent packet loss would have left a
+quarter of the frames intact; losses in runs left none. Pace the sender to what the receiver can
+take.
+
 **A health message sent once, at boot, is not observability.** The ground station said whether
 its radios came up exactly once, before anyone had opened a terminal - so a dead payload receiver
 and a working one hearing nothing produced identical evidence for three sessions, while the
@@ -76,6 +82,11 @@ Dated evidence, newest first.
 
 ### Phase 8 - wireless link and ground station
 
+- **2026-07-30** - Payload link proven, and the first real numbers off it. Strapping the second
+  OLED to 0x3D exposed that `Adafruit_SSD1306::begin` reports a panel on an address with nothing
+  on it, so the bus is probed directly now. With the link up, an image downlink put 588 packets on
+  the air and 379 arrived - and only one frame decoded, because a frame spans three packets and
+  the losses come in runs. The transmitter is paced from here.
 - **2026-07-30** - The vehicle was transmitting the whole time. A downlink progress frame on the
   LoRa beacon reported 186/186 chunks and 549 nRF24 packets while the ground received nothing, so
   the failure is the ground station's receiver and never was the satellite. The ground station now

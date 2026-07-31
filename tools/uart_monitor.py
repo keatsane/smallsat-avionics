@@ -27,12 +27,16 @@ from pathlib import Path
 from ground.colors import LINK_COLORS, colorize_heartbeat, paint
 from ground.commands import CommandError, parse, usage
 from ground.console import make_session
-from ground.filters import KINDS, PER_CYCLE_KINDS, Filters
+from ground.filters import KINDS, QUIET_KINDS, Filters
 from ground.frames import (
     MSG_COMMAND_ACK,
+    MSG_DOWNLINK_STATUS,
+    MSG_GROUND_STATUS,
     MSG_PAYLOAD_DATA,
     FrameDecoder,
     decode_command_ack,
+    decode_downlink_status,
+    decode_ground_status,
     decode_payload_data,
     encode_command,
     format_frame,
@@ -104,7 +108,7 @@ def main() -> int:
     ap.add_argument(
         "--all",
         action="store_true",
-        help=f"also show the per-cycle stream ({', '.join(PER_CYCLE_KINDS)})",
+        help=f"also show the quiet kinds ({', '.join(QUIET_KINDS)})",
     )
     args = ap.parse_args()
 
@@ -247,6 +251,39 @@ def main() -> int:
             return
         send(cmd_id, arg, line.upper())
 
+    # what each end counted at the start of the current downlink pass, so the end of it can be
+    # reported as a delivery rate rather than as two numbers nobody wants to subtract by hand.
+    # both are already on the wire - the satellite's packet count rides the progress frame and the
+    # ground station's rides its own health frame - and the pass is the only place they mean
+    # anything together
+    pass_start: dict | None = None
+    ground_now = {"packets": 0, "frames": 0}
+
+    def note_pass(d: dict) -> None:
+        """Watch a downlink begin and end, and say what fraction of it arrived."""
+        nonlocal pass_start
+        if d["chunks"] > 0:
+            if pass_start is None:
+                pass_start = {
+                    "sent": d["radio_sent"],
+                    "packets": ground_now["packets"],
+                    "frames": ground_now["frames"],
+                    "chunks": d["chunks"],
+                }
+            return
+        if pass_start is None:
+            return  # idle, and it was idle before - nothing to close out
+
+        sent = d["radio_sent"] - pass_start["sent"]
+        got = ground_now["packets"] - pass_start["packets"]
+        frames = ground_now["frames"] - pass_start["frames"]
+        pct = (got * 100 // sent) if sent else 0
+        show(
+            f"{'LINK':<12} pass done  {pass_start['chunks']} chunks  "
+            f"packets {got}/{sent} ({pct}%)  frames {frames}"
+        )
+        pass_start = None
+
     decoder = FrameDecoder()
     text = bytearray()  # printable bytes between frames - firmware debug prints
     stop = threading.Event()
@@ -304,6 +341,12 @@ def main() -> int:
                     else:
                         if frame[0] == MSG_COMMAND_ACK:
                             outstanding.pop(decode_command_ack(frame[1])["seq"], None)
+                        elif frame[0] == MSG_GROUND_STATUS:
+                            g = decode_ground_status(frame[1])
+                            ground_now["packets"] = g["nrf24_packets"]
+                            ground_now["frames"] = g["nrf24_frames"]
+                        elif frame[0] == MSG_DOWNLINK_STATUS:
+                            note_pass(decode_downlink_status(frame[1]))
                         show(format_frame(*frame))
                 elif hunting and decoder.state == "sync0":
                     # stray byte outside any frame: debug text from the firmware
@@ -314,7 +357,7 @@ def main() -> int:
 
     print(f"listening on {port} at {args.baud} 8N1 (ctrl-c to quit)")
     if default_quiet:
-        print(f"per-cycle telemetry hidden ({', '.join(PER_CYCLE_KINDS)}) - --all shows it")
+        print(f"hidden by default ({', '.join(QUIET_KINDS)}) - --all or /show brings them back")
     print("TASKS reads <task>: <state> <stack words still free> <age of last check-in>")
 
     interactive = not args.read_only and sys.stdin.isatty()

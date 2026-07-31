@@ -37,6 +37,11 @@ Adafruit_SSD1306 oled2(kWidth, kHeight, &Wire, -1);
 
 bool ready = false;
 bool ready2 = false;
+
+// what the bus said, kept apart from whether the panel then initialised - "nothing is at 0x3D" and
+// "something is at 0x3D and would not start" are different problems with different fixes
+bool found_status = false;
+bool found_payload = false;
 bool ever_heard = false;
 uint32_t last_hb_ms = 0;
 uint32_t next_draw_ms = 0;
@@ -59,12 +64,31 @@ uint8_t count_bits(uint32_t v) {
     return n;
 }
 
+// does anything acknowledge its address on the bus?
+//
+// done here rather than left to Adafruit_SSD1306::begin, which reported a panel on 0x3D that was
+// not there: its detection is one beginTransmission/endTransmission pair, and endTransmission does
+// not reliably report a missing device on every core. the symptom was two modules both sitting on
+// 0x3C, both drawing the status screen, while the firmware believed it had two panels and wrote
+// half its output into nothing.
+//
+// a write of one byte is a stronger test than an empty transmission - a device that acks its
+// address but not a data byte is not a device this can drive
+bool i2c_present(uint8_t addr) {
+    Wire.beginTransmission(addr);
+    Wire.write(0x00);  // the SSD1306's command-stream control byte, harmless on its own
+    return Wire.endTransmission() == 0;
+}
+
 }  // namespace
 
 bool display_begin() {
     Wire.begin();
 
-    ready = oled.begin(SSD1306_SWITCHCAPVCC, kStatusAddr);
+    found_status = i2c_present(kStatusAddr);
+    found_payload = i2c_present(kPayloadAddr);
+
+    ready = found_status && oled.begin(SSD1306_SWITCHCAPVCC, kStatusAddr);
     if (ready) {
         oled.clearDisplay();
         oled.setTextColor(SSD1306_WHITE);
@@ -83,9 +107,10 @@ bool display_begin() {
         oled.display();
     }
 
-    // the second panel is allowed not to exist. begin() on an address nothing answers returns
-    // false and costs one failed i2c transaction, so this is not worth gating behind a build flag
-    ready2 = oled2.begin(SSD1306_SWITCHCAPVCC, kPayloadAddr);
+    // the second panel is allowed not to exist, and is only brought up if the bus says it is
+    // there. two modules on one address is the likely mistake, and it has to read as "one panel"
+    // rather than as two - otherwise half the output goes to an address nothing is listening on
+    ready2 = found_payload && oled2.begin(SSD1306_SWITCHCAPVCC, kPayloadAddr);
     if (ready2) {
         oled2.clearDisplay();
         oled2.setTextColor(SSD1306_WHITE);
@@ -108,9 +133,9 @@ bool display_begin() {
     return ready;
 }
 
-bool display_have_status_panel() { return ready; }
+bool display_have_status_panel() { return found_status; }
 
-bool display_have_payload_panel() { return ready2; }
+bool display_have_payload_panel() { return found_payload; }
 
 void display_downlink(const fsw::downlink_status_t& in) {
     dl = in;

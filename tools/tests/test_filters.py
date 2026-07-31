@@ -4,15 +4,28 @@ The directives look trivial and are not: `show` has to widen whichever set is in
 the obvious thing - removing the kind from `only` - hides the thing that was just asked for.
 """
 
-from ground.filters import ALWAYS_SHOWN, KINDS, PER_CYCLE_KINDS, Filters
+from ground.filters import ALWAYS_SHOWN, KINDS, QUIET_KINDS, Filters
 
 
-def test_the_default_hides_only_the_per_cycle_stream():
+def test_the_default_hides_the_quiet_kinds_and_nothing_else():
     f = Filters.quiet()
     assert f.visible("HEARTBEAT")
     assert f.visible("TASKS")
-    for kind in PER_CYCLE_KINDS:
+    for kind in QUIET_KINDS:
         assert not f.visible(kind)
+
+    # the downlink progress bar is deliberately not among them: it only appears while an image is
+    # moving, and that is exactly when it is worth seeing
+    assert f.visible("DOWNLINK")
+
+
+def test_the_ground_stations_own_health_can_be_brought_back():
+    # hidden by default because it says nothing while the link works. the moment it stops working
+    # it is the only line that can say so, so it has to be one directive away
+    f = Filters.quiet()
+    assert not f.visible("GROUND")
+    f.apply("show", {"GROUND"})
+    assert f.visible("GROUND")
 
 
 def test_all_shows_everything():

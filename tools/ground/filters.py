@@ -10,6 +10,12 @@ nothing.
 # scrolls anything worth reading off the screen before it can be read
 PER_CYCLE_KINDS = ("IMU", "POWER", "TEMP", "CAMERA")
 
+# hidden at startup on top of the per-cycle stream. GROUND is the ground station's own health once
+# a second, and it is worth exactly nothing when the link is working and everything when it is
+# not - so it stays available rather than deleted. `/show GROUND` is the first move when the
+# payload link goes quiet, because a receiver that failed to initialise is otherwise invisible
+QUIET_KINDS = PER_CYCLE_KINDS + ("GROUND",)
+
 # every line kind the console can show. the local-echo kinds at the end never come off the wire
 KINDS = (
     "HEARTBEAT",
@@ -23,6 +29,7 @@ KINDS = (
     "CAMERA",
     "PAYLOAD",
     "DOWNLINK",
+    "LINK",
     "GROUND",
     "UART",
     "COMMAND",
@@ -49,8 +56,8 @@ class Filters:
 
     @classmethod
     def quiet(cls) -> "Filters":
-        """The startup default: everything except the per-cycle stream."""
-        return cls(hide=set(PER_CYCLE_KINDS))
+        """The startup default: everything except the per-cycle stream and the ground's own health."""
+        return cls(hide=set(QUIET_KINDS))
 
     def visible(self, kind: str) -> bool:
         if kind in ALWAYS_SHOWN:
@@ -65,7 +72,7 @@ class Filters:
         if verb == "all":
             self.only, self.hide = set(), set()
         elif verb == "quiet":
-            self.only, self.hide = set(), set(PER_CYCLE_KINDS)
+            self.only, self.hide = set(), set(QUIET_KINDS)
         elif verb == "only" and kinds:
             self.only, self.hide = set(kinds), set()
         elif verb == "show" and kinds:

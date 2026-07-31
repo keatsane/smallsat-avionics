@@ -17,9 +17,9 @@ declared bench inhibits. Still owed: the PTC fuse before the LiPo ever runs.
 **Software:** phases 0-6 done. Phase 7 has detumble SIL-verified; pointing is written but its
 error is not observable on this rig (see REQ-ADCS-002). Phase 8 has the wireless link running
 both ways - beacon and acks on LoRa, commands up from the ground console, and payload chunks on
-nRF24. The vehicle transmits a whole image correctly (186/186 chunks, confirmed by the downlink
-progress frame); **nothing arrives at the ground station, and that receiver is the one thing
-standing between here and the phase 8 deliverable.**
+nRF24. The payload link is proven end to end (packets arrive and frames decode); what is left is
+**packet loss during a burst** - 588 sent, 379 received, one frame recovered. The transmitter is
+now paced; the phase 8 deliverable waits on that measurement being repeated.
 
 **Next, unblocked:**
 
