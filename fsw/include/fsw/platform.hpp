@@ -36,14 +36,15 @@ void set_wheel_torque(int16_t torque_mv);
 void capture_image(void);
 
 /**
- * @brief  put one chunk of a captured image on the link
- * @return true if a chunk went out, false if there is nothing waiting
+ * @brief  say whether the payload buffer should be draining to the ground
+ * @param  active  true while the vehicle is in DOWNLINK
  *
- * the image never enters flight-software memory - the payload's own buffer holds it and this
- * reads straight out of it (REQ-PAY-003), so the fsw decides only *when* to downlink, not where
- * the bytes live
+ * the image never enters flight-software memory - the payload's own buffer holds it and the
+ * platform reads straight out of it (REQ-PAY-003). the fsw decides only *whether* to downlink;
+ * how fast is a property of the link, which is knowledge that belongs on this side of the
+ * boundary. call every cycle, so leaving DOWNLINK stops the stream
  */
-bool send_payload_chunk(void);
+void set_payload_downlink(bool active);
 
 }  // namespace fsw::platform
 

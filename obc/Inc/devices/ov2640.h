@@ -33,6 +33,14 @@ typedef struct {
 } ov2640_sample_t;
 
 /**
+ * @brief  create the driver's mutex
+ * The control task polls the camera's health while the downlink task drains its fifo, so the
+ * public api below is serialised. Same rule as uart_locks_init: call once after the board is up
+ * and before the scheduler starts, never from bring-up.
+ */
+void ov2640_lock_init(void);
+
+/**
  * @brief  bring up the camera - arduchip link, sensor id, then jpeg configuration
  * @return true if the whole chain came up
  */

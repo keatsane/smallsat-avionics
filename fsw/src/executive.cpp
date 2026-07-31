@@ -118,16 +118,11 @@ void Executive::cycle(const Inputs& inputs, uint32_t t_ms) {
     }
 
     // DOWNLINK is the mode that empties the payload buffer, and this is the whole of what makes
-    // it different from STANDBY. a few chunks a cycle rather than the whole image at once: the
-    // link is shared with telemetry, and a pass that ends early should leave a partial image the
-    // ground can resume, not a stalled control loop (REQ-PAY-004)
-    if (mm_.mode() == Mode::DOWNLINK) {
-        for (uint8_t i = 0; i < kPayloadChunksPerCycle; ++i) {
-            if (!platform::send_payload_chunk()) {
-                break;  // nothing waiting - the image is done, or there never was one
-            }
-        }
-    }
+    // it different from STANDBY. said every cycle rather than only on the edges, so dropping out
+    // of DOWNLINK - including a safing retreat - stops the stream without needing its own hook.
+    // how fast the buffer drains is the platform's call: the rate is a property of the link, and
+    // a number chosen here would be this side of the boundary guessing at the other (REQ-PAY-004)
+    platform::set_payload_downlink(mm_.mode() == Mode::DOWNLINK);
 }
 
 }  // namespace fsw

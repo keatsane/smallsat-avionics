@@ -9,18 +9,49 @@
 #include <cstdio>
 #include <cstring>
 
-#include "drivers/uart.h"
+#include "FreeRTOS.h"
+#include "semphr.h"
+#include "task.h"
+#include "telemetry_task.hpp"
+
+namespace {
+
+// vsnprintf writes into a caller buffer but still reaches newlib's shared reentrancy state, and
+// configUSE_NEWLIB_REENTRANT is 0 - there is one copy of that state for the whole system. the line
+// buffer below is per-call, so this lock is only about newlib
+SemaphoreHandle_t s_fmt_lock;
+StaticSemaphore_t s_fmt_lock_buf;
+
+bool fmt_lock(void) {
+    if (s_fmt_lock == nullptr || xTaskGetSchedulerState() == taskSCHEDULER_NOT_STARTED) {
+        return false;
+    }
+    return xSemaphoreTake(s_fmt_lock, portMAX_DELAY) == pdTRUE;
+}
+
+}  // namespace
+
+void console_lock_init(void) { s_fmt_lock = xSemaphoreCreateMutexStatic(&s_fmt_lock_buf); }
 
 void console_puts(const char* s) {
-    uart_write(uart_console, reinterpret_cast<const uint8_t*>(s), std::strlen(s));
+    // no formatting, so no lock needed - the enqueue is atomic on its own
+    (void)telemetry_out_console(reinterpret_cast<const uint8_t*>(s), std::strlen(s));
 }
 
 void console_printf(const char* fmt, ...) {
     char line[96];
+
+    const bool locked = fmt_lock();
+
     va_list ap;
     va_start(ap, fmt);
     const int n = std::vsnprintf(line, sizeof(line), fmt, ap);
     va_end(ap);
+
+    if (locked) {
+        (void)xSemaphoreGive(s_fmt_lock);
+    }
+
     if (n <= 0) {
         return;
     }
@@ -29,5 +60,5 @@ void console_printf(const char* fmt, ...) {
     if (len >= sizeof(line)) {
         len = sizeof(line) - 1U;
     }
-    uart_write(uart_console, reinterpret_cast<const uint8_t*>(line), len);
+    (void)telemetry_out_console(reinterpret_cast<const uint8_t*>(line), len);
 }

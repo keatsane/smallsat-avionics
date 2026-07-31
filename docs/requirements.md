@@ -311,7 +311,7 @@ BOOT means "powered on and still self-checking" - a state the vehicle enters by 
 
 **REQ-WDG-001** - An independent hardware watchdog shall reset the on-board computer if the flight software stops servicing it within the watchdog window.  
 **Type**: Functional  
-**Status**: HIL-verified (both halves. Service: HIL-003 observed the board feed its own watchdog in all 60 reports of a 60 s window, each one gated on every task with a liveness deadline having checked in - control and sensors at 500 ms, five missed cycles each. Bite: demonstrated on the bench by removing the control task's check-in, after which the console reported `WATCHDOG UNFED` alongside that task's missing check-in for four consecutive seconds, the board reset itself, and the next banner read `reset=iwdg-watchdog`. The withheld pet appearing in telemetry before the reset is what makes the reset attributable rather than mysterious. The IWDG starts after board bring-up with a guaranteed floor of 3 s)  
+**Status**: HIL-verified (both halves. Service: HIL-003 observed the board feed its own watchdog in all 60 reports of a 60 s window, each one gated on every task with a liveness deadline having checked in - control and sensors at 500 ms, five missed cycles each. Bite: demonstrated on the bench by removing the control task's check-in, after which the console reported `WATCHDOG UNFED` alongside that task's missing check-in for four consecutive seconds, the board reset itself, and the next banner read `reset=iwdg-watchdog`. The withheld pet appearing in telemetry before the reset is what makes the reset attributable rather than mysterious. The IWDG starts after board bring-up with a guaranteed floor of 3 s. On 2026-07-30 the mechanism earned its keep unprompted: a single `WATCHDOG UNFED` during a payload downlink was the only symptom of a real defect - the downlink task reported liveness once per image rather than once per chunk - which on a full-resolution frame would have withheld three consecutive pets and reset the board mid-contact. The warning is what made a latent reset visible while the frame was still small enough to survive it)  
 **Verification**: HIL (demonstrated reset)  
 **Artifact**: obc/Src/drivers/iwdg.c, obc/Src/freertos/health_task.cpp
 
@@ -396,12 +396,12 @@ An inhibited fault is deliberately excluded from the three alarm rungs and colle
 **REQ-ADCS-001** - In DETUMBLE the flight software shall command the reaction wheel to reduce the measured body rate below a defined threshold.  
 **Type**: Functional  
 **Status**: planned  
-**Verification**: SIL (NASA 42) and HIL (reaction-wheel rig)
+**Verification**: SIL (single-axis plant model) and HIL (reaction-wheel rig)
 
 **REQ-ADCS-002** - In POINTING the flight software shall hold a commanded single-axis attitude within a defined error band.  
 **Type**: Functional  
 **Status**: planned  
-**Verification**: SIL (NASA 42) and HIL (reaction-wheel rig)
+**Verification**: SIL (single-axis plant model) and HIL (reaction-wheel rig)
 
 **REQ-ADCS-003** - Actuator commands shall be saturation-limited, and sustained saturation shall raise a dedicated actuator fault added with the actuator-control path.  
 **Type**: Functional  
@@ -418,9 +418,9 @@ An inhibited fault is deliberately excluded from the three alarm rungs and colle
 
 **REQ-PAY-002** - Loss of the payload camera shall raise CAMERA_DROPOUT; the payload is not required for vehicle safety, so the fault shall latch and report without changing mode.  
 **Type**: Functional  
-**Status**: in progress (detection and reporting are unit-verified; not yet demonstrated against real hardware)  
+**Status**: bench-verified (the camera's SPI3 harness pulled on a live board: CAMERA_DROPOUT latched within one heartbeat, the vehicle stayed in STANDBY, and reconnecting plus a reset came up clean. Caveat: the harness is shared, so this demonstrates the fault path rather than isolating the camera - a camera that failed while wired would raise CAMERA_DROPOUT alone)  
 **Verification**: unit test and HIL  
-**Artifact**: fsw/src/sensor_monitor.cpp, fsw/test/test_sensor_monitor.cpp
+**Artifact**: fsw/src/sensor_monitor.cpp, fsw/test/test_sensor_monitor.cpp, docs/wiring.md (the ungrounded-camera mechanism found by this test)
 
 **REQ-PAY-003** - A captured frame shall be held in the camera's own buffer and read out in caller-sized chunks, so that no image-sized buffer is allocated in flight-software RAM.  
 **Type**: Constraint  
@@ -428,11 +428,11 @@ An inhibited fault is deliberately excluded from the three alarm rungs and colle
 **Verification**: inspection and HIL  
 **Artifact**: obc/Src/devices/ov2640.c
 
-**REQ-PAY-004** - In DOWNLINK the flight software shall empty the payload buffer to the ground a bounded number of chunks per control cycle. Each chunk shall identify its image, its index, and the total count, so that a contact pass ending mid-image leaves a resumable set of chunks rather than an unusable partial stream.  
+**REQ-PAY-004** - In DOWNLINK the flight software shall direct the payload buffer to be emptied to the ground, and the platform shall do so in chunks at a rate bounded by the link and without blocking the control cycle. Each chunk shall identify its image, its index, and the total count, so that a contact pass ending mid-image leaves a resumable set of chunks rather than an unusable partial stream.  
 **Type**: Functional  
-**Status**: bench-verified (a commanded capture in POINTING downlinked in DOWNLINK as 121 chunks over about three seconds and reassembled on the ground to a 6759-byte file whose JPEG markers were intact at both ends)  
+**Status**: bench-verified (re-run 2026-07-30 on the task-based path: a commanded capture in POINTING downlinked as 110 chunks in about one second and reassembled on the ground to a 6117-byte file with intact JPEG markers, no dropped frames. The earlier fsw-paced path did 121 chunks in about three seconds). Reworded 2026-07-30: the original text put the chunks-per-cycle bound in the flight software, but that number was the uart ring size divided by the frame size - a link property. The fsw now signals whether to downlink and the platform paces it, which is the same behavior with the knowledge on the correct side of the PAL.  
 **Verification**: unit test and HIL  
-**Artifact**: fsw/src/executive.cpp, fsw/platform/stm32/platform_stm32.cpp, tools/ground/payload.py, tools/tests/test_payload.py
+**Artifact**: fsw/src/executive.cpp, fsw/test/test_executive.cpp, obc/Src/freertos/downlink_task.cpp, tools/ground/payload.py, tools/tests/test_payload.py
 
 The per-cycle bound is a real-time budget rather than a preference: the UART's transmit ring is 256 bytes and telemetry already spends about 80 of it each cycle, so a larger burst would block in `uart_write` waiting for the ring to drain and stall the control loop. The image length sent is the JPEG length found by scanning for the end-of-image marker, not the camera FIFO's reported length - those differ by a few hundred bytes of padding, which would otherwise be transmitted during a contact pass.
 

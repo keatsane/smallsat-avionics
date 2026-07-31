@@ -14,7 +14,7 @@ SIL shim (host exe,           STM32 HIL node
 injected time + faults)       (bare-metal UART packets first; sensors and watchdog later)
 ```
 
-On the SIL side, scenarios in `fsw/sil/scenarios/` drive the unmodified flight-software library through a small shim executable, and the runner grades the observed behavior and writes reports to `docs/reports/` (the details live in [verification.md](verification.md)). A physics plant model joins when real sensor and attitude dynamics matter - NASA's 42 simulator in the ADCS phase.
+On the SIL side, scenarios in `fsw/sil/scenarios/` drive the unmodified flight-software library through a small shim executable, and the runner grades the observed behavior and writes reports to `docs/reports/` (the details live in [verification.md](verification.md)). A physics plant model joins the harness when attitude dynamics matter - a single-axis rigid body with one reaction wheel, written in-repo, in the ADCS phase.
 
 ## Language split
 

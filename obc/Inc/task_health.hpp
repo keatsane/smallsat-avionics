@@ -19,8 +19,8 @@
 enum TaskId : uint8_t {
     TASK_ID_CONTROL = 0,
     TASK_ID_SENSORS = 1,
-    TASK_ID_HEALTH = 2,     // this task - it becomes the watchdog when the iwdg lands
-    TASK_ID_UPLINK = 3,     // reserved
+    TASK_ID_HEALTH = 2,  // this task - it becomes the watchdog when the iwdg lands
+    TASK_ID_UPLINK = 3,
     TASK_ID_TELEMETRY = 4,  // reserved
     TASK_ID_DOWNLINK = 5,   // reserved
     TASK_ID_IDLE = 6,       // the kernel's own - reported for its stack, never checks in

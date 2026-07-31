@@ -55,12 +55,6 @@ class Executive {
     static constexpr uint8_t kBootCheckCycles = 3;
     uint8_t boot_cycles_ = 0;
 
-    // image chunks put on the link per cycle in DOWNLINK. four is a budget, not a preference: the
-    // uart's transmit ring is 256 bytes and telemetry already spends ~80 of it each cycle, so a
-    // larger burst would sit blocked in uart_write waiting for the ring to drain. at this rate a
-    // 7 KB frame takes about three seconds, which is also long enough to watch happen
-    static constexpr uint8_t kPayloadChunksPerCycle = 4;
-
     // wrap a wire message in a frame and hands it to the link
     template <typename T>
     void send(MsgId id, const T& msg) {

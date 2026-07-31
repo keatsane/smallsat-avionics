@@ -1,28 +1,19 @@
 # Wiring reference and build guide
 
-The bench sheet. hardware.md holds the reasoning, the parts, and the placement rules - this file is "what wire goes where, in what order", so nothing has to be reconstructed mid-solder.
+The bench sheet: what wire goes where. `hardware.md` holds the reasoning, the parts, and the placement rules; `journal.md` holds how any of it went.
 
-## Scope of this build session
-
-**In:** power distribution (fuse, switch, distribution board, both bucks), the Nucleo and its morpho slice, the sensor protoboard (IMU + INA228 + TMP117 + camera), the ESC with its bulk cap, the motor phases, and the AS5600 encoder.
-
-**Deferred:** the radios. The rest of the comms plate is done - the switch is wired (freestanding, not yet mounted) so the rig powers on and off without cycling the pack connector, and the **LED array is live** (2026-07-26), driven from PA8 by TIM1_CH1 + DMA with all three beads addressable.
+Everything below is built and verified as of 2026-07-26 except **the radios and the 3.3 V buck that feeds them**, which are Phase 8 and marked as deferred where they appear.
 
 ## Things that silently destroy parts - read before touching a board
 
-None of these announce themselves. A chip killed this way looks perfect, measures perfect, and simply does not work - exactly what happened to the first INA228, whose cause was never established after fifteen eliminated hypotheses.
+None of these announce themselves. A chip killed this way looks perfect, measures perfect, and does not work.
 
-**ESD (the invisible one).** A human feels a static discharge at ~3000 V; **a chip dies at ~100 V**. You will never know it happened. Touch a grounded metal object before handling any board, work off carpet, avoid synthetic clothing, handle boards by the edges, keep them in anti-static bags. An anti-static wrist strap is ~$8 and is the single highest-value item on the bench.
-
-**Soldering on a connected board.** Disconnect *everything* first - power, USB, every cable. A board with one grounded point and a hot iron is an ESD path straight through whatever you are touching.
-
-**Ungrounded iron tips.** An ESD-safe station only protects if the tip is actually grounded through its seating; a loose or poorly-seated tip defeats it entirely. Measure **AC volts from tip to mains earth** with the iron hot - a good station reads near zero, tens of millivolts means it is injecting into every joint you make.
-
-**Heat near the chip.** Repeated rework beside a fine-pitch package thermally stresses its joints and the die. **Use screw terminals or existing connectors wherever the board provides them**, and get any soldering done in one pass rather than reworking the same area repeatedly.
-
-**Connection order - ground and VCC first, high voltage last.** A chip with high voltage on its inputs and a floating or intermittent ground has no valid reference, and current finds its way out through whatever pins *are* at a defined potential - typically the I2C lines. This is why intermittent connectors are a hazard to silicon, not just an annoyance.
-
-**Board-specific jumper traps.** On the Adafruit INA228, VBUS must connect to **either** VIN+ (via the back jumper) **or** VIN- (via a wire) - **never both**. Bridged to both, VBUS shorts across the shunt and puts full system current through a signal-sized trace beside the chip. **Preferred: close the back VBUS-to-VIN+ jumper and run no VBUS wire at all** - Adafruit's intended configuration, one less hand-soldered joint near the chip, and it makes the mistake structurally impossible. Read the vendor's own pinout/jumper page before wiring any new breakout; this hazard is documented and easy to miss.
+- **ESD.** A human feels ~3000 V; a chip dies at ~100 V. Ground yourself before handling a board, work off carpet, handle by the edges. A wrist strap is ~$8.
+- **Never solder on a connected board.** Disconnect power, USB, every cable - a grounded board and a hot iron is an ESD path through you.
+- **Ungrounded iron tips defeat an ESD-safe station.** With the iron hot, measure AC volts tip to mains earth: near zero is good, tens of millivolts is injecting into every joint.
+- **Minimise rework near fine-pitch packages** - use screw terminals or existing connectors, and solder in one pass.
+- **Connection order: ground and VCC first, high voltage last.** A chip with no valid ground reference passes current out through whatever pins are at a defined potential, typically the I2C lines.
+- **Adafruit INA228 jumper trap:** VBUS goes to **either** VIN+ (back jumper) **or** VIN- (a wire), **never both** - bridged, it shorts the shunt and puts system current through a signal trace. Preferred is the back jumper and no VBUS wire. Read any new breakout's pinout page before wiring it.
 
 ## Two rules that decide where caps and grounds go
 
@@ -98,19 +89,21 @@ Two rails: a **+V rail** (main ~14.8 V) and the **star ground** - every ground i
 
 **Set each buck's output with a meter BEFORE any load is connected** - a buck trimmed to 12 V into the Nucleo E5V destroys it. Power the board from the PSU (14.8 V, limit ~200 mA), trim the 5 V buck to 5.0 V and confirm the 3.3 V buck reads 3.3 V, all with their outputs open. Verify main+ to star-ground reads **open** (no short) before ever applying battery power.
 
-**Fuse form factor (decided 2026-07-21):** automotive blade fuses are the wrong scale for this build - the molded inline holders are too bulky, and the spade-terminal workaround is a loose fit that does not inspire confidence. **The fuse is deferred to the Phase-8 battery harness**, where it belongs anyway (in the open lead near the pack, not crammed in the stack) and where the PSU's current limit no longer stands in as protection. Build the board now with a **bare main + input lead**. When the battery goes in, fit a **PTC resettable fuse** - selected part **Littelfuse RUEF300** (30 V, 3 A hold, radial through-hole; solders into the board in series with main+, no holder/blade, auto-resets). Its 3 A hold clears the ~1-2 A load and spin-up without nuisance-tripping and trips ~6 A, and its **100 A interrupt rating** comfortably covers realistic pack fault current. **Not yet ordered - open Phase-8 buy.** Amazon PPTC stock is flaky (multiple 30V/3A listings came up unavailable), so DigiKey (RUEF300, guaranteed stock; the 17-week figure is manufacturer lead time, not shelf stock) is the reliable source - grab qty 5-10 with the next DigiKey order so shipping is already covered, since the part is not needed until the battery harness. Bourns MF-R300 / Littelfuse 30R300 are identical equivalents if an in-stock one turns up first. Alternative: a small inline 5x20 mm glass/ceramic holder with a fast-blow fuse. The bench PSU's current limit is the fault protection until then. The fuse is non-negotiable before the LiPo ever runs - only its form and timing are flexible.
+**Fuse: deferred to the Phase-8 battery harness, bare main + lead until then.** Blade fuses are the wrong scale here (bulky inline holders, loose spade fit). The selected part is a **Littelfuse RUEF300** PTC - 30 V, 3 A hold, radial through-hole, soldered in series with main+, auto-resetting. 3 A clears the ~1-2 A load and spin-up without nuisance-tripping, trips ~6 A, 100 A interrupt. Bourns MF-R300 and Littelfuse 30R300 are equivalents. **Not yet ordered** - see Carried work in `roadmap.md`. The bench PSU's current limit is the only protection until it is fitted, and **it must be fitted before the LiPo ever runs**.
 
-**Switch and battery are accounted for, not built yet:** the switch is a series element in the main + lead (`battery+ -> fuse -> switch -> board`), inserted later by cutting that lead and landing the ends on the switch tabs - leave slack. The fuse is deferred with it (see the fuse note above), landing inline nearest the source end when the battery harness is built. The main-bus INA228 relocation (from the sensor board to inline on this board's input, for total pack draw) is also a Phase-8 change.
+**Switch and battery are accounted for, not built yet:** the switch is a series element in the main + lead (`battery+ -> fuse -> switch -> board`), inserted later by cutting that lead onto the switch tabs - leave slack. The main-bus INA228 relocation (sensor board to inline on this board's input, for total pack draw) is also Phase 8.
 
 **Leave the 3.3 V buck completely unwired this session** - nothing uses it until the radios arrive at Phase 8, and an unterminated live rail is just a short waiting to happen.
 
 **Nucleo power, staged.** Keep the Nucleo on **USB (jumper on U5V)** while bringing up sensors - fewer variables, and you need USB for the console anyway. Only move the jumper to **E5V** and feed CN7-6 from the 5 V buck once you are deliberately testing the full power chain. The jumper selects one or the other; it will not power from USB while set to E5V.
 
-**Gotcha that cost an hour (2026-07-26):** with JP5 left on U5V, external 5 V on CN7-6 is simply ignored - the buck reads a healthy 4.9 V at the connector while the MCU stays dark. LD1 keeps blinking because the ST-LINK is powered from USB regardless, which makes it look like the board is alive. **The definitive "MCU is running" indicator is LD2 blinking green** (the firmware's 1 Hz heartbeat), not LD1. And measure at **CN7-6 itself**, not at the cable end - voltage at the connector proves the buck works, not that it arrives.
+**With JP5 on U5V, external 5 V on CN7-6 is ignored** - the buck reads a healthy 4.9 V while the MCU stays dark, and LD1 keeps blinking because the ST-LINK runs off USB regardless. **LD2 blinking green is the only "MCU is running" indicator**, not LD1. Measure at CN7-6 itself, not at the cable end.
 
-**Marginal cables caused three separate multi-hour debugs on this build** - the switch loop reading open under load, the camera's SPI cable whose bad connector *also* stopped the INA228 acknowledging on I2C, and the 3.3 V buck feed collapsing the rail to 1.1 V with no short present. **When a symptom is confusing, suspect the most recently made cable before suspecting silicon.** In every case the electrical tests on the components came back clean, because the components were fine.
+**Suspect the newest cable before the silicon.** Three multi-hour debugs on this build were marginal cables, and the component tests came back clean every time.
 
-**Connector reliability (2026-07-26):** intermittent JST-XH joints on the power path caused several hours of phantom faults - continuity passing on the bench, then dropping out when the board was tilted. Root cause is crimping **30 AWG into XH terminals**, which are rated 22-30 AWG and grip poorly at the thin end. **Use 24-26 AWG on the power connectors**, check each crimp grips both conductor and insulation, tug-test every terminal, and confirm each clicks into its housing (a seated terminal cannot be pushed back out from the front). An intermittent connector on a rig that vibrates will fail in service and present as a firmware bug.
+**Every device gets its ground on the same connector as its power.** A powered device whose ground arrives on a signal connector floats when that connector is out, and hunts for a return through its I/O pins - on a shared bus that is enough to take a *different* device off the air. Cost a day when the camera did it to the INA228 (2026-07-26, mechanism found 2026-07-30; see `journal.md`).
+
+**Crimp 24-26 AWG on the power connectors**, not 30 - XH terminals are rated 22-30 and grip poorly at the thin end. Check each crimp grips conductor and insulation, tug-test it, and confirm it clicks into its housing.
 
 ## Signal connections
 
@@ -199,14 +192,8 @@ The I2C bus arrives **once** and is distributed on the board. Do not run separat
 
 - **IMU (SparkFun ICM-20948):** in SPI mode the I2C-looking labels change role - **SCL = SCK, SDA = MOSI, AD0 = MISO**, plus CS. VIN and GND to the rails. **Tie FSYNC to GND**; leave INT (data-ready, unused since the driver polls) and AUX_DA/AUX_CL (the internal path to the AK09916 magnetometer) unconnected.
 - **TMP117:** VIN, GND, SDA, SCL to the rails. **INT** is a hardware limit-alert output - unused, the driver polls. ADDR unconnected defaults to 0x48.
-- **INA228:** VIN/GND/SDA/SCL to the rails; VIN+ and VIN- out to the power board. **VBUS** is the bus-voltage sense pin, and on this breakout it is **an isolated pin connected to nothing** (verified 2026-07-26: with no jumper fitted it reads open to both VIN+ and VIN-). **It must be wired to VIN- locally on the sensor board** - the load-side tap, matching the INA228 datasheet's high-side application circuit. It never needs a wire to the power board.
-
-**This explains the "floating-bus" UNDERVOLTAGE seen on the bench:** an unconnected VBUS makes the chip measure a floating pin and report nonsense, which tripped the fault. Bus voltage was never actually being measured until this jumper was fitted.
-
-A single VBUS-to-VIN- wire creates **no bypass around the shunt** - VBUS feeds only a high-impedance measurement input, so no current flows through it; current still goes VIN+ -> shunt -> VIN-. (What *would* be harmful is VBUS being tied to both sides, which parallels the shunt with a ~0 ohm path: current measurement collapses to zero and system current is routed through a signal-sized trace.)
-
-**Expect VIN+, VIN- and VBUS to all show continuity with each other** once wired - the 15 mohm shunt reads as a dead short on any multimeter. That is healthy, not a fault. ALRT unconnected.
-- **ArduCAM OV2640: all 8 pins are needed.** It is a two-bus device - **I2C configures** the sensor's registers (resolution, format, exposure) and **SPI reads the JPEG** out of the FIFO; neither can do the other's job. Only 5 leave the board on connector 3 (GND + the four SPI lines); VCC, SDA, SCL tap the board rails.
+- **INA228:** VIN/GND/SDA/SCL to the rails; VIN+ and VIN- out to the power board. **VBUS** is the bus-voltage sense pin and on this breakout it is isolated, connected to nothing - **wire it to VIN- locally on the sensor board** (the load-side tap, per the datasheet's high-side circuit). It never runs to the power board. Left floating, the chip measures a floating pin and reports nonsense, which is what tripped the bench UNDERVOLTAGE before the jumper was fitted. One VBUS-to-VIN- wire bypasses nothing - VBUS is a high-impedance input. ALRT unconnected. **VIN+, VIN- and VBUS all showing continuity is healthy**, not a short: the 15 mohm shunt reads as a dead short on any meter.
+- **ArduCAM OV2640: all 8 pins are needed** - I2C configures the sensor, SPI reads the JPEG out of the FIFO, and neither does the other's job. Five leave the board on connector 3 (GND + the four SPI lines); VCC, SDA, SCL tap the board rails, **and so does a second GND** (added 2026-07-30, see the ground rule above). It is the only device fed from two runs, so it is the only one that can be powered without a reference - both grounds are deliberate.
 
 Connectors 1 and 2 run to the **CN10 side** of the slice; connector 3 runs to the **CN7 side**.
 
@@ -240,29 +227,25 @@ Earlier plans had the shunt inline with the 3V3 logic rail, which would have rea
 
 **J8 pad order (confirmed against the user manual):** GND, 5V, Z+/H3, B+/H2, A+/H1. So SDA lands on **B+/H2**, SCL on **Z+/H3**, GND on the GND pad, and A+/H1 goes unused.
 
-**The AS5600 breakout has no regulator** (one IC, plus C1/C2 and R1-R4: R1 = 0 ohm link, R2/R3 = 10k - the I2C pull-ups - and R4 = 1k). R2/R3 are the SDA/SCL pull-ups, so **add none** - in parallel with the ESC's reported ~10k on the Hall lines that gives ~5k effective, essentially the textbook 4.7k, and more would over-pull the bus so the AS5600 struggles to drive it low. Diagnostic once powered: SDA/SCL should idle at ~**3.3 V**; if they idle near 5 V the ESC's Hall pull-ups reference 5 V, which puts 5 V on a 3.3 V-powered AS5600 and wants sorting before a long run. Its VCC feeds the chip more or less directly: **take 3.3 V from the ESC's J4 SWD pads, not J8's 5 V.** That is safe on every AS5600 variant and keeps the whole bus at 3.3 V matching the G431's logic. **J4 pad order (UM2516 Table 6): 1 = SWDIO, 2 = SWCLK, 3 = MCU VDD (3V3), 4 = GND** - so 3V3 and GND are the two pads at one end of the row, GND outermost. The manual's "if the daughterboard is removed" caveat applies to the SWD *signals*, not the power pins; the 3V3 rail is live whenever the board is powered. The manual does not document how pin 1 is marked, so establish orientation with a **continuity test** rather than a voltage probe: beep from any large ground (J8 GND, battery negative, a mounting hole) to each end pad - the end that beeps is pad 4/GND, and 3V3 is the pad next to it. Getting this backwards means soldering VCC onto SWDIO, which back-drives an MCU pin and cannot source the sensor anyway. The AS5600's ~6.5 mA is nothing to that rail. Note the encoder harness therefore lands on **two** ESC connectors: VCC on J4, SDA/SCL/GND on J8.
+**The AS5600 breakout has no regulator**, and its R2/R3 are already the 10k I2C pull-ups - **add none**. In parallel with the ESC's ~10k on the Hall lines that gives ~5k effective, near the textbook 4.7k; more would over-pull the bus.
 
-**J8's supply line is 5 V, not 3.3 V.** Either power the AS5600 from it *if* the breakout has an onboard regulator (check for a SOT-23 near VCC, and check where its I2C pull-ups tie - pull-ups referenced to 5 V put 5 V on the STM32's pins), or source 3.3 V from the ESC's SWD header to keep the whole bus at 3.3 V. Community experience: J8's built-in 10k pull-ups are marginal for I2C, and external **4.7k** fixes a flaky bus. Also, readings taken with the board on USB power alone report incorrect velocity - use external supply when validating.
+**Power the AS5600 from the ESC's J4 SWD pads (3.3 V), not J8's 5 V** - J8's supply is 5 V, and a 5 V-referenced pull-up puts 5 V on a 3.3 V part. **J4 pad order (UM2516 Table 6): 1 = SWDIO, 2 = SWCLK, 3 = MCU VDD (3V3), 4 = GND**, so 3V3 and GND are the two pads at one end, GND outermost. The manual does not say how pin 1 is marked, so **find orientation by continuity, not by probing voltage**: beep from any large ground to each end pad; the end that beeps is pad 4/GND and 3V3 is next to it. Backwards means soldering VCC onto SWDIO. The 3V3 rail is live whenever the board is powered, and the AS5600's ~6.5 mA is nothing to it. The encoder harness therefore lands on **two** ESC connectors: VCC on J4, SDA/SCL/GND on J8.
+
+Once powered, SDA/SCL must idle at ~3.3 V - near 5 V means the Hall pull-ups reference 5 V and wants sorting first. Validate on an external supply, not USB alone; USB-only reports incorrect velocity.
 
 **Confirm the J8 pad order against UM2516 or the board schematic before soldering** - pad order varies by revision.
 
 Cut the motor's long phase leads down to a tidy length, but keep the encoder's 4-wire run **physically separated from the three phase wires**. Phase lines are switched PWM and AS5600 I2C is noise-sensitive.
 
-### Bench-checking the AS5600 before it meets the ESC
+### AS5600 checks
 
-Verify the encoder standalone - it is far easier to debug on its own than wired into the ESC.
+**Verified 2026-07-21** - STATUS masked 0x20, AGC 36, I2C scan found 0x36, one hand rotation read 6.26 rad against 6.28 theoretical.
 
-**Unpowered (multimeter):** VCC-GND must read open, not a short (a near-0 ohm reading is a solder bridge). DIR-GND must beep, confirming the jumper. SDA-VCC and SCL-VCC should each read **~10k**, which positively confirms R2/R3 are the pull-ups. Check every adjacent pin pair for unexpected bridges. Then beep each pad to the far end of its wire - confirms no broken conductor and verifies which wire is which at the ESC end, since colour alone is not proof.
+**Air gap is tuned by AGC, not by eye.** Read register 0x1A: at 3.3 V the range is 0-128 and the target is **60-70** (low means too close, high too far). Move the magnet ~0.25 mm at a time, staying inside the 0.5-3 mm spec. Register 0x0B (STATUS) carries the magnet bits - **mask with 0x38**, since bits 0-2 and 6-7 read as garbage; **0x20** is the ideal result.
 
-**Powered (bench PSU, 3.3 V, current limit ~50 mA):** draw should be **~5-10 mA** (limit-slamming means a short, ~0 mA means nothing is connected). SDA and SCL idle at **~3.3 V**; DIR reads **0 V**.
+**Standalone bench check**, if the encoder ever needs re-verifying off the ESC: VCC-GND open and DIR-GND beeping unpowered, SDA-VCC and SCL-VCC each ~10k; ~5-10 mA draw at 3.3 V with SDA/SCL idling at 3.3 V and DIR at 0 V; then probe the analog `OUT` pin while rotating the magnet a full turn - it must sweep smoothly and wrap exactly once. That last test covers the chip, the joints, the magnet and the gap together.
 
-**Functional test, no I2C master needed:** the AS5600's `OUT` pin gives an analog voltage proportional to angle by default. Probe it and rotate the magnet through a full turn - the voltage must sweep **smoothly and monotonically, wrapping exactly once per revolution**. Endpoints do not matter (the default range does not reach the rails); smoothness and a single wrap do. Erratic jumps, dead zones, or multiple wraps point at the magnet - wrong magnetisation, off-centre, or air gap out of range. This one test validates the chip, the solder joints, the magnet, and the gap together.
-
-**Tuning the air gap with AGC (do this, don't eyeball it).** Read register 0x1A over I2C: at 3.3 V the range is 0-128 and you want **60-70**. Low AGC means the magnet is too close, high means too far. With an adjustable magnet stem, move it ~0.25 mm at a time and re-read, keeping total gap inside the 0.5-3 mm spec and MD set / ML+MH clear at every step. Register 0x0B (STATUS) carries those bits - mask it with **0x38**, since bits 0-2 and 6-7 are reserved and read as garbage; **0x20** is the ideal masked result.
-
-**Bring-up result (2026-07-21):** STATUS 0x67 (masked 0x20 - magnet detected, gain not railed), AGC 36 (valid, slightly close), SDA/SCL idle 3.3 V, I2C scan found 0x36, and one full hand rotation gave 6.26 rad against a theoretical 6.28. Encoder subsystem verified end to end.
-
-**Trim all solder tails flush.** A long tail resting against a mounting screw is not shorting anything *yet*, but the screw is a floating conductor - the moment a second tail or wire touches it, it bridges two nets. On a vibrating rig that is a latent fault that appears weeks later.
+**Trim all solder tails flush.** A screw is a floating conductor; the moment a second tail touches it, it bridges two nets.
 
 ## Intra-layer vs inter-layer at a glance
 
@@ -291,35 +274,21 @@ There are no printed wire channels except the one in the gimbal section that kee
 | E - motor phases | A, B, C (3) | twist all three, isolated; this is the one in the gimbal channel |
 | F - encoder -> ESC | 3V3, GND, SDA, SCL (4) | bundle together, route separately from E |
 
-**The hard rule: never bundle the motor phases (E) with anything, and never with the encoder (F).** The phases are switched PWM carrying amps and they radiate; AS5600 I2C is weak, slow, open-drain, and exactly what that noise corrupts. The ESC power pair (D) stays off the signal side for the same reason.
+**The hard rule: never bundle the motor phases (E) with anything, least of all the encoder (F).** The phases are switched PWM carrying amps; AS5600 I2C is weak, slow, open-drain, and exactly what that corrupts. The ESC power pair (D) stays off the signal side too.
 
-Bundling same-bus wires together is actively good, not merely tolerable - one bus shares a return path, so keeping its wires together (with their own GND in the bundle) minimises loop area and makes them quieter.
-
-Three habits do most of the work:
-
-- **Twist power pairs** (+/-) and **twist the three motor phases**. In both cases the currents largely cancel, so the bundle radiates far less.
-- **Cross noisy and signal bundles at 90 degrees, never parallel.** Perpendicular crossings barely couple; parallel runs do. This matters more than raw separation, which is scarce inside 100 mm.
-- **Every bundle carries its own ground wire** - never let a signal find its return through some other path.
-- **Twist each conductor with its return path.** For a DC power pair the current goes out the + and back the -, so those two are the loop: twist them. For signals the return flows in **ground**, so each signal wants ground adjacent. The encoder's four wires therefore twist as **one bundle** (GND stays near both I2C lines) - do *not* split them into a VCC+GND pair and an SDA+SCL pair, which feels natural but is the worst case: it leaves both signals with no nearby return and couples SCL's edges straight into SDA.
-
-Mechanically: a gentle service loop at each connector so it unplugs without tension, the bundle anchored a couple of cm *back* from the connector so vibration works the anchor and not the solder joint, and nothing that can ever flop into the flywheel's swept volume.
+- **Twist each conductor with its return.** Power pairs (+/-) and the three motor phases twist so the currents cancel. Signals return in ground, so ground rides in the same bundle - the encoder's four wires twist as **one** bundle, never split into a VCC+GND pair and an SDA+SCL pair, which leaves both signals with no nearby return.
+- **Bundling same-bus wires together is good**, not merely tolerable: one shared return, minimum loop area.
+- **Cross noisy and signal bundles at 90 degrees, never parallel** - this matters more than separation, which is scarce inside 100 mm.
+- **Service loop at every connector**, bundle anchored a couple of cm back from it so vibration works the anchor and not the joint, and nothing able to flop into the flywheel's swept volume.
 
 ## Build order
 
-Actual sequence, revised to the bottom-up order the build followed. **Stage 0 (gimbal layer) is complete and functionally verified (2026-07-21):** AS5600 proven over USB, motor running closed-loop FOC off the bench PSU at up to ~344 RPM, and the **reaction-wheel effect demonstrated** - stepping the wheel T0 -> T8 -> T0 kicks the platform each way. The smooth commutation also retroactively clears the odd in-circuit phase-resistance reading (14/14/28 ohm): it was the ESC's output stage in parallel, as suspected, since three healthy windings are a precondition for smooth FOC.
+The build is complete (2026-07-26). Four rules from it that apply to any rework:
 
-The remaining order is chosen by dependency and risk: signal work runs on USB power with no LiPo and no motor, so it comes before the power chain, which is only needed once VBAT is required for the motor.
-
-1. ~~Slice onto the Nucleo~~ **DONE 2026-07-22** - one board spanning CN7+CN10 (no bridge needed), three rails, verified 3.3 V, no shorts, clean boot.
-2. ~~XH headers onto the slice~~ **DONE** - all ten, two columns in numeric order (see layout above).
-3. **Sensor protoboard connectors**, then bring up sensors **one at a time** on the console - I2C first (INA228, then TMP117 on the chain), then the IMU on SPI2, then the camera. Confirm each answers before wiring the next; chasing one bad joint is easy, chasing four is not.
-4. **ESC <-> OBC UART**, TX to RX, verified with a serial round-trip.
-5. **Power chain, unpowered:** fuse -> switch -> distribution board, then buck inputs and the 5 V output. Leave the 3.3 V buck entirely unwired. Solder the switch wires to its spade tabs and heat-shrink them.
-6. **Verify rails with a multimeter before connecting any load.** Feed the distribution board from the PSU with the current limit low (~300 mA); confirm 5 V reads 5 V and nothing is warm. **Do not skip this** - it is the step that catches a reversed rail before it kills a board.
-7. **Move the Nucleo to E5V** and test the full chain on the switch.
-8. **ESC VBAT + the bulk cap** across VIN+/GND, can anchored - then motor bring-up, which also settles whether the odd in-circuit phase-resistance reading was just the ESC output stage.
-
-**First power-on runs off the bench PSU with the current limit set low, not the LiPo.** A current-limited supply turns a wiring mistake into a shrug; a 100C pack turns it into smoke.
+- **Signals before power.** Signal work runs on USB with no LiPo and no motor; the power chain is only needed once the motor wants VBAT.
+- **Bring up sensors one at a time** and confirm each answers on the console before wiring the next. Chasing one bad joint is easy, chasing four is not.
+- **Verify every rail with a meter before connecting a load**, PSU current limit low (~300 mA). This is the step that catches a reversed rail before it kills a board.
+- **First power-on always runs off the bench PSU, never the LiPo.** A current-limited supply turns a wiring mistake into a shrug; a 100C pack turns it into smoke.
 
 ## Deferred - how the comms plate comes in later
 

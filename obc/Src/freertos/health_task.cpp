@@ -9,11 +9,11 @@
 
 #include "drivers/iwdg.h"
 #include "drivers/systick.h"
-#include "drivers/uart.h"
 #include "protocol/frame.hpp"
 #include "protocol/msg.hpp"
 #include "rtos_tasks.h"
 #include "task_health.hpp"
+#include "telemetry_task.hpp"
 
 namespace {
 
@@ -107,8 +107,8 @@ void health_task(void*) {
                                            reinterpret_cast<const uint8_t*>(&h), sizeof(h), buf);
         // both links, like every other piece of housekeeping - a contact pass wants to know the
         // computer is healthy as much as the bench does
-        uart_write(uart_console, buf, n);
-        uart_write(uart_downlink, buf, n);
+        (void)telemetry_out_console(buf, n);
+        (void)telemetry_out_downlink(buf, n);
     }
 }
 

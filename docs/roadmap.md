@@ -12,8 +12,9 @@ The companion documents: `journal.md` (the done-log), `hardware.md` (the physica
 - **Phase 5 is complete and bench-proven (2026-07-29).** The whole payload arc ran on real silicon: `SET_MODE DETUMBLE -> POINTING -> CAPTURE_IMAGE -> SET_MODE DOWNLINK`, 121 chunks reassembled to a 6759-byte jpeg on disk with its markers intact at both ends. The ESC node is physically out of the stack pending a replacement board, so `WHEEL_DROPOUT` and `COMMAND_LINK_LOSS` run under the declared bench-inhibit list.
 - **Phase 6 is closed (2026-07-29).** Kernel, task model, task-health telemetry, stacks sized from measured peaks, a watchdog that bites, and HIL-003 passing 7/7 as the graded evidence. REQ-RT-002, REQ-RT-003 and REQ-WDG-001 are HIL-verified; REQ-FAULT-005 is SIL-verified.
 - **The docs are consolidated and edited (2026-07-29).** Eleven files down to nine, the planning documents folded in and cut against a boundary - architecture holds decisions and structure, hardware holds the physical objects and mechanical constraints, bom holds the parts, wiring holds the pin map. `README.md` has a documentation index and `requirements.md` a section table of contents. The pass caught a stale mode-bead color table, three undocumented scenarios, and a SIL-007 description that predated its own rewrite.
-- **Next action: phase 7, gated on the replacement ESC board.** The wheel link's flight software is finished and green on the host; what is missing is the wire. Until the board arrives, the useful work is host-side and runs without the rig: the NASA 42 single-axis model and the control law itself.
-- **A test-coverage audit ran 2026-07-29**, mapping all 60 requirements to their claimed verification: 21 unit, 15 SIL, 8 bench, 7 HIL, the rest planned or in progress. The one genuine SIL gap was REQ-FAULT-005's retreats, now closed by SIL-009 and SIL-010. Remaining owed evidence is hardware-gated (REQ-PAY-002 wants the camera unplugged on a live board; REQ-TLM-004 waits on the radios) or is phase 7's ADCS set.
+- **Next action: phase 7, gated on the replacement ESC board.** The wheel link's flight software is finished and green on the host; what is missing is the wire. Until the board arrives, the useful work is host-side and runs without the rig: the single-axis plant model and the control law itself. **NASA 42 was evaluated and set aside (2026-07-30)** - the reasoning is under Simulation below.
+- **A test-coverage audit ran 2026-07-29**, mapping all 60 requirements to their claimed verification: 21 unit, 15 SIL, 8 bench, 7 HIL, the rest planned or in progress. The one genuine SIL gap was REQ-FAULT-005's retreats, now closed by SIL-009 and SIL-010. Remaining owed evidence is hardware-gated (REQ-TLM-004 waits on the radios) or is phase 7's ADCS set. **REQ-PAY-002 closed 2026-07-30** - the camera-unplug test ran, and it also found the cause of July's two-devices-one-cable mystery: the camera was grounded only through its SPI3 connector, so pulling that harness left it powered but floating and it took the INA228 off the I2C bus with it. Fixed with a second ground on the camera's power run; the mechanism is written up in `wiring.md`.
+- **The task model is complete and bench-proven (2026-07-30):** control, health, sensors, uplink, telemetry, downlink. The telemetry task owns both output uarts so no producer blocks on the wire, and the payload downlink paces itself against buffer space instead of a chunks-per-cycle constant - a 6117-byte frame now goes out in about a second against three on the old path. The run also surfaced a latent watchdog reset: the downlink task reported liveness only after a loop whose length is the image's length, which starved its 500 ms deadline and would have reset the board on a full-resolution frame. Fixed by checking in per chunk. **Owed: one confirming run** on a larger frame.
 - **Still owed from phase 5:** the ESC wire - the OBC sees zero bytes (`waiting=0 ore=0 fe=0 ne=0`), so PA10 must reach the ESC's TX (PB3 on J3) and PA9 its RX (PB4), crossed not straight, with the ESC's USB **out** (J3 and its ST-Link VCP are the same USART2) and a common ground. Suspect the cable's landing pins first. The `TEMP esc rx:` block in `obc/Src/main.cpp` prints every 2 s until the first status frame arrives; delete it once `ESC: up at N ms, flags=0x0F` appears.
 
 Update this block every working session. Historical detail belongs in `journal.md` - keep this block describing the *current* state, not the path to it.
@@ -97,11 +98,11 @@ Defined once in `common/protocol/state.hpp` (C++) as an index enum. The live set
 
 ### Phase 7 - ADCS: closed-loop attitude control
 
-**Goal:** closed-loop single-axis attitude control, shown **both** in NASA 42 **and** on the physical reaction-wheel rig, the two overlaid. The control loop is the highest-priority FreeRTOS task from Phase 6.
-**Learn:** rigid-body attitude basics (angular momentum, reaction-wheel torque), a simple PD/PID, 42's flight-software socket, basic sensor fusion.
-**Tools:** **42** for the physics; the oscilloscope for the motor-drive PWM and phases; the printed reaction-wheel rig.
+**Goal:** closed-loop single-axis attitude control, shown **both** in the plant model **and** on the physical reaction-wheel rig, the two overlaid. The control loop is the highest-priority FreeRTOS task from Phase 6.
+**Learn:** rigid-body attitude basics (angular momentum, reaction-wheel torque), a simple PD/PID, numerical integration of the plant, basic sensor fusion.
+**Tools:** the in-repo plant model for the physics; the oscilloscope for the motor-drive PWM and phases; the printed reaction-wheel rig.
 **Steps:**
-1. **Sim first** - model a single-axis body + reaction wheel + gyro in 42; connect the control loop (running on the host) over 42's socket; watch it detumble and point in the 3D view, and log it.
+1. **Sim first** - a single-axis body + reaction wheel + gyro as a plant model the SIL harness steps; run the control law against it on the host; plot the rate collapsing and the attitude settling.
 2. **Then the rig** - the same control law on the STM32 driving the gimbal motor through the B-G431B-ESC1 + flywheel, IMU on the platform, free to rotate on the low-friction mount. Tumble it, the wheel detumbles it and holds a commanded heading.
 3. **Overlay** - log both, plot sim against rig for the same controller.
 4. **The camera becomes a second rate sensor (decided 2026-07-29).** A small raw frame (~80x60 grayscale or RGB565, a second OV2640 configuration alongside the JPEG one), a horizontal band collapsed to a 1-D intensity profile, cross-correlated against the previous frame: the peak shift is angular displacement in pixels, and over the frame interval that is **deg/s**. Roughly 3200 multiply-accumulates over +/-20 shifts on an 80-wide profile - nothing for a 180 MHz M4F with an FPU, comfortably 10 Hz. Sub-pixel by parabolic interpolation on the correlation peak.
@@ -131,13 +132,17 @@ Defined once in `common/protocol/state.hpp` (C++) as an index enum. The live set
 
 ---
 
-## Simulation - NASA 42 (Phase 7)
+## Simulation - the plant model (Phase 7)
 
-The simulator is **NASA's 42** (open source, GSFC, by Eric Stoneking; `ericstoneking/42`). One tool, committed to.
+A single-axis rigid body with one reaction wheel, written in-repo and driven by the existing SIL harness. **NASA 42 was evaluated and set aside (2026-07-30).**
 
-**Why:** it models exactly what's needed - rigid-body attitude dynamics, reaction wheels, gyros, magnetometers, and the space environment - and has a **socket interface** so external flight software reads sensor data and sends actuator commands each timestep. Lightweight C, runs on Linux/WSL, with a 3D OpenGL view.
+**Why not 42.** It is a serious tool and its value is environment fidelity: IGRF geomagnetic field, gravity harmonics, drag, solar pressure, eclipse, plus sensor and actuator models and a 3D view. None of that describes a lazy susan on a bench. The rig is one wheel on one axis, and the dynamics that matter are conservation of angular momentum about that axis plus turntable friction - and **42 does not model the thing that will actually dominate the rig's behaviour**, which is stiction in a cheap bearing. That would have to be added to the plant model either way. Against that, the cost is real: 42 is developed on Linux and macOS and this bench is Windows, so it means MSYS2 or WSL; its input files are a format to learn; and its socket interface is a different shape from the current stdin-timeline shim, so it would be a second harness rather than an extension of the first. Days of work, most of it on build and configuration rather than on attitude control.
 
-**How (Phase 7):** model a single-axis rigid body + one reaction wheel + a gyro in 42 (same setup as the bench); 42 runs the physics and outputs simulated gyro/attitude each step; the flight software's controller - the same control law that runs on the STM32 - connects over the socket, reads the gyro, computes a wheel-torque command, and sends it back. Watch it detumble and point in the 3D view, log the response, then run the same controller on the physical bench and overlay the two. "Same code, simulated satellite and real hardware" is the demo.
+**What replaces it.** Platform inertia, wheel inertia, commanded torque, momentum exchange, and a tunable friction term. It runs inside the harness that already exists, and the control law - the interesting part - is identical either way. The visual is a plot of rate against time, which is what step 3's sim-versus-rig overlay needs anyway; a 3D render is decoration, a settling curve is evidence.
+
+**The better validation, and the reason this is not a downgrade:** once the ESC returns, the plant model can be checked against the *real rig* - measured platform response to a commanded wheel torque. Agreement with hardware beats agreement between two simulations.
+
+**Revisit if the scope changes.** 42 earns its complexity the moment the mission becomes orbital: detumble from a deployment tumble using magnetorquers against a modelled field, sun-pointing, eclipse-aware power. If that ever becomes the story, the small model stays as the bench-validation model and 42 joins alongside it.
 
 **Set aside (on record):** Basilisk (CU Boulder - heavier Python astro framework, more than needed); cFS / NOS3 (NASA FSW framework / full sim - much bigger, aimed at a Linux flight computer, out of scope); OpenC3 COSMOS (not a sim - a telemetry ground-station dashboard, optional Phase 8 polish only).
 
@@ -154,5 +159,5 @@ What each phase unlocks on the hypothetical resume. Phases 1-6 are earned.
 | 3 | SIL fault injection; requirements and the V-model |
 | 5 | sensor integration; IMU/SPI; power telemetry |
 | 6 | FreeRTOS task model; watchdog validation |
-| 7 | attitude control / reaction wheel; sensor fusion; NASA 42 simulation; Fusion 360 |
+| 7 | attitude control / reaction wheel; sensor fusion; plant modelling and numerical integration; Fusion 360 |
 | 8 | LoRa wireless link; untethered demo; full V&V package |

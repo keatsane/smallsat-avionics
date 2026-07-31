@@ -24,6 +24,7 @@
 #include "sensor_task.hpp"
 #include "task.h"
 #include "task_health.hpp"
+#include "uplink_task.hpp"
 
 namespace {
 
@@ -49,27 +50,6 @@ bool read_wheel_status() {
         if (f && f->msg_id == static_cast<uint8_t>(fsw::MsgId::WheelStatus) &&
             f->len == sizeof(fsw::wheel_status_t)) {
             std::memcpy(&wheel, f->payload, sizeof(wheel));
-            got = true;
-        }
-    }
-    return got;
-}
-
-// drain one uplink and keep the newest command; returns true if one arrived.
-//
-// only the newest survives a cycle, because Inputs carries one command - a burst arriving inside
-// a single 100 ms cycle loses all but the last. that is acceptable rather than overlooked: every
-// command is acked (REQ-CMD-003), so a ground station sees the gap and resends. it stops being
-// acceptable the moment anything scripts commands faster than the cycle rate
-bool read_command(uart_t* u, fsw::frame_parser_t* parser, fsw::command_t* out) {
-    bool got = false;
-    uint8_t b = 0U;
-
-    while (uart_read_byte(u, &b)) {
-        auto f = fsw::frame_decode(parser, b);
-        if (f && f->msg_id == static_cast<uint8_t>(fsw::MsgId::Command) &&
-            f->len == sizeof(fsw::command_t)) {
-            std::memcpy(out, f->payload, sizeof(*out));
             got = true;
         }
     }
@@ -216,18 +196,11 @@ void control_task(void*) {
             inputs.wheel = wheel;
         }
 
-        // drain both uplinks - the ground can reach the obc over the st-link vcp on the bench or
-        // the pc6/pc7 header the radio will land on, and telemetry already goes out both. drain
-        // each unconditionally rather than short-circuiting, or the quiet one's ring fills up
-        {
-            static fsw::frame_parser_t console_uplink;
-            static fsw::frame_parser_t downlink_uplink;
-            fsw::command_t cmd{};
-            const bool from_console = read_command(uart_console, &console_uplink, &cmd);
-            const bool from_radio = read_command(uart_downlink, &downlink_uplink, &cmd);
-            if (from_console || from_radio) {
-                inputs.command = cmd;
-            }
+        // one command per cycle, because Inputs carries one. the uplink task holds the rest until
+        // the cycles that can take them, so a burst is delayed rather than dropped
+        fsw::command_t cmd{};
+        if (uplink_task_take(&cmd)) {
+            inputs.command = cmd;
         }
 
         exec.cycle(inputs, millis());

@@ -47,8 +47,14 @@ void capture_image(void) {
     std::printf("CAPTURE\n");  // observable, so a scenario can grade the dispatch
 }
 
-bool send_payload_chunk(void) {
-    return false;  // no payload in SIL - image bytes are hardware, not decision logic
+// no image bytes in SIL - they are hardware, not decision logic. the edges are still observable so
+// a scenario can grade that DOWNLINK started the stream and leaving it stopped the stream
+void set_payload_downlink(bool active) {
+    static bool last = false;
+    if (active != last) {
+        last = active;
+        std::printf("PAYLOAD %s\n", active ? "ON" : "OFF");
+    }
 }
 
 }  // namespace fsw::platform

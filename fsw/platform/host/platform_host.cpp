@@ -25,8 +25,10 @@ int capture_calls = 0;
 
 void capture_image(void) { capture_calls++; }
 
-bool send_payload_chunk(void) {
-    return false;  // no payload on the host - there is never anything waiting
-}
+// no payload on the host, so the backend records the flag rather than moving bytes - whether the
+// executive asked is the part the unit tests can grade (REQ-PAY-004). the tests declare it extern
+bool payload_downlink_active = false;
+
+void set_payload_downlink(bool active) { payload_downlink_active = active; }
 
 }  // namespace fsw::platform

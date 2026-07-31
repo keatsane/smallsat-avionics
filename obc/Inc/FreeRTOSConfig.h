@@ -50,6 +50,11 @@ extern uint32_t SystemCoreClock;
 #define configUSE_QUEUE_SETS          0
 #define configQUEUE_REGISTRY_SIZE     8
 
+/* the telemetry task's handoff. a byte stream rather than a queue of messages because the output
+ * is variable-length text as well as fixed frames, and the writers only need "these bytes, in this
+ * order" - the framing is already in the bytes */
+#define configUSE_STREAM_BUFFERS 1
+
 /* off: every periodic job here is a task doing vTaskDelayUntil, so the timer daemon would be a
  * task and a queue bought for nothing. turn it on with the first job that genuinely needs a
  * one-shot callback */

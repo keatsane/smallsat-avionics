@@ -88,6 +88,20 @@ void uart_flush(uart_t* u);
 bool uart_read_byte(uart_t* u, uint8_t* out);
 
 /**
+ * @brief  have this uart's rx isr notify a task when a byte lands
+ * @param  u    the uart
+ * @param  task the task to notify, or NULL to stop notifying
+ *
+ * Lets a reader block on arrival instead of polling the ring every control cycle. The isr gives a
+ * counting notification and nothing else - the task still drains with uart_read_byte, so the
+ * one-producer/one-consumer rule on the rx ring is unchanged. Two uarts may notify the same task;
+ * the notification says "something arrived", not which port.
+ *
+ * Must be called before the scheduler starts, or from the task that will wait.
+ */
+void uart_set_rx_waiter(uart_t* u, void* task);
+
+/**
  * @brief  number of received bytes waiting in the rx buffer
  * @param  u  target uart handle
  * @return count of unread bytes

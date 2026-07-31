@@ -34,7 +34,11 @@ set(CMAKE_CXX_STANDARD 17)
 
 set(REPO_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/..)
 
-file(GLOB_RECURSE OBC_SOURCES
+# CONFIGURE_DEPENDS is load-bearing, not decoration: a plain glob is evaluated once at configure
+# time, so adding a source and rebuilding links the old file list and the new symbol comes out
+# undefined. that has cost this project a debugging session three times now, each time reading as
+# a mysterious linker error rather than a build-system one
+file(GLOB_RECURSE OBC_SOURCES CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/Src/*.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Src/*.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Startup/*.s
@@ -42,7 +46,7 @@ file(GLOB_RECURSE OBC_SOURCES
 
 # the portable flight software, cross-compiled into the image alongside its stm32 backend - the
 # same sources the host unit tests build, which is the claim the whole fsw/obc split rests on
-file(GLOB_RECURSE FSW_SOURCES
+file(GLOB_RECURSE FSW_SOURCES CONFIGURE_DEPENDS
     ${REPO_ROOT}/fsw/src/*.cpp
     ${REPO_ROOT}/fsw/platform/stm32/*.cpp
 )
@@ -62,6 +66,7 @@ set(FREERTOS_SOURCES
     ${FREERTOS_DIR}/tasks.c
     ${FREERTOS_DIR}/queue.c
     ${FREERTOS_DIR}/list.c
+    ${FREERTOS_DIR}/stream_buffer.c
     ${FREERTOS_DIR}/portable/GCC/ARM_CM4F/port.c
 )
 

@@ -11,10 +11,13 @@
 
 #include "devices/ov2640.h"
 
+#include "FreeRTOS.h"
 #include "devices/ov2640_regs.h"
 #include "drivers/i2c.h"
 #include "drivers/spi.h"
 #include "drivers/systick.h"
+#include "semphr.h"
+#include "task.h"
 
 #define OV2640_SCCB_ADDR 0x30U  // the sensor's sccb address on i2c1
 
@@ -56,6 +59,32 @@ static uint32_t frame_bytes = 0U;  // size latched when the capture completed
 static uint32_t frame_read = 0U;   // how much of it has been handed out
 static bool burst_open = false;    // a burst read is mid-flight, cs still asserted
 static bool configured = false;    // init got all the way through
+
+// the camera is the one device two tasks reach - the control task polls its health, the downlink
+// task drains its fifo. the guarded resource is the driver, not just spi3: a burst read leaves cs
+// asserted across calls, so a bus-level lock in spi_select/spi_deselect could not express it and
+// would be released by whichever task happened to close the burst. locking the public api instead
+// keeps the state machine and the bus transaction consistent together.
+//
+// phase 8 note: the radios join spi3, and a burst holding cs low would let them clock the camera.
+// whatever arbitrates the bus then has to make the camera close its burst before yielding
+static SemaphoreHandle_t cam_mutex;
+static StaticSemaphore_t cam_mutex_buf;
+
+// same rule as the uart and console locks: bring-up runs before the scheduler and must not call
+// into the kernel, so until then there is one thread of execution and this serialises nothing
+static bool cam_lock(void) {
+    if (cam_mutex == NULL || xTaskGetSchedulerState() == taskSCHEDULER_NOT_STARTED) {
+        return false;
+    }
+    return xSemaphoreTake(cam_mutex, portMAX_DELAY) == pdTRUE;
+}
+
+static void cam_unlock(bool locked) {
+    if (locked) {
+        (void)xSemaphoreGive(cam_mutex);
+    }
+}
 
 // ---- arduchip helpers - bit 7 of the address selects write ----
 
@@ -215,7 +244,7 @@ bool ov2640_init(void) {
     return true;
 }
 
-bool ov2640_capture_start(void) {
+static bool capture_start_locked(void) {
     if (!configured || state == OV2640_CAPTURING) {
         return false;
     }
@@ -235,7 +264,7 @@ bool ov2640_capture_start(void) {
     return true;
 }
 
-ov2640_state_t ov2640_poll(uint32_t t_ms) {
+static ov2640_state_t poll_locked(uint32_t t_ms) {
     if (state != OV2640_CAPTURING) {
         return state;
     }
@@ -260,7 +289,7 @@ ov2640_state_t ov2640_poll(uint32_t t_ms) {
     return state;
 }
 
-ov2640_sample_t ov2640_read(void) {
+static ov2640_sample_t read_locked(void) {
     ov2640_sample_t s;
 
     // a burst read leaves cs asserted, and the health check would corrupt it
@@ -274,13 +303,13 @@ ov2640_sample_t ov2640_read(void) {
     return s;
 }
 
-uint32_t ov2640_frame_bytes(void) {
+static uint32_t frame_bytes_locked(void) {
     return (state == OV2640_READY) ? (frame_bytes - frame_read) : 0U;
 }
 
 bool ov2640_frame_ready(void) { return state == OV2640_READY; }
 
-size_t ov2640_read_chunk(uint8_t* buf, size_t n) {
+static size_t read_chunk_locked(uint8_t* buf, size_t n) {
     if (state != OV2640_READY || buf == NULL || n == 0U) {
         return 0U;
     }
@@ -318,15 +347,71 @@ size_t ov2640_read_chunk(uint8_t* buf, size_t n) {
     return n;
 }
 
-uint8_t ov2640_chip_reg(uint8_t reg) {
+static uint8_t chip_reg_locked(uint8_t reg) {
     burst_close();  // a raw read mid-burst would corrupt the frame
     return chip_read(reg);
 }
 
-void ov2640_discard(void) {
+static void discard_locked(void) {
     burst_close();
     fifo_flush();
     state = OV2640_IDLE;
     frame_bytes = 0U;
     frame_read = 0U;
+}
+
+// ---- locked wrappers ----
+//
+// every entry point that touches the bus or the state machine goes through the mutex. the bodies
+// above are the originals, renamed - keeping the wrappers separate means the early returns inside
+// them did not have to grow an unlock on every path
+
+void ov2640_lock_init(void) { cam_mutex = xSemaphoreCreateMutexStatic(&cam_mutex_buf); }
+
+bool ov2640_capture_start(void) {
+    const bool l = cam_lock();
+    const bool r = capture_start_locked();
+    cam_unlock(l);
+    return r;
+}
+
+ov2640_state_t ov2640_poll(uint32_t t_ms) {
+    const bool l = cam_lock();
+    const ov2640_state_t r = poll_locked(t_ms);
+    cam_unlock(l);
+    return r;
+}
+
+ov2640_sample_t ov2640_read(void) {
+    const bool l = cam_lock();
+    const ov2640_sample_t r = read_locked();
+    cam_unlock(l);
+    return r;
+}
+
+uint32_t ov2640_frame_bytes(void) {
+    const bool l = cam_lock();
+    const uint32_t r = frame_bytes_locked();
+    cam_unlock(l);
+    return r;
+}
+
+size_t ov2640_read_chunk(uint8_t* buf, size_t n) {
+    const bool l = cam_lock();
+    const size_t r = read_chunk_locked(buf, n);
+    cam_unlock(l);
+    return r;
+}
+
+uint8_t ov2640_chip_reg(uint8_t reg) {
+    const bool l = cam_lock();
+    const uint8_t r = chip_reg_locked(reg);
+    cam_unlock(l);
+    return r;
+}
+
+void ov2640_discard(void) {
+    const bool l = cam_lock();
+    discard_locked();
+    cam_unlock(l);
 }

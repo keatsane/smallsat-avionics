@@ -36,6 +36,10 @@ struct uart {
     // producer and one task the only consumer
     SemaphoreHandle_t tx_mutex;
     StaticSemaphore_t tx_mutex_buf;
+
+    // set when a task wants waking on arrival rather than polling the ring (uart_set_rx_waiter).
+    // volatile because the isr reads it and a task writes it
+    TaskHandle_t volatile rx_waiter;
 };
 
 // uart_init fills regs into the handle from the cfg below, so the instances start empty
@@ -194,6 +198,8 @@ bool uart_read_byte(uart_t* u, uint8_t* out) {
     return true;
 }
 
+void uart_set_rx_waiter(uart_t* u, void* task) { u->rx_waiter = (TaskHandle_t)task; }
+
 size_t uart_rx_available(uart_t* u) {
     return (size_t)((u->rx_head - u->rx_tail) & (BUF_SIZE - 1U));
 }
@@ -229,6 +235,13 @@ static void uart_isr(uart_t* u) {
         if (next != u->rx_tail) {
             u->rx_buf[u->rx_head] = b;
             u->rx_head = next;
+            // wake the reader if one asked. counting notification, so bytes arriving faster than
+            // the task drains them do not lose the wake-up - it simply has work waiting
+            if (u->rx_waiter != NULL) {
+                BaseType_t woken = pdFALSE;
+                vTaskNotifyGiveFromISR(u->rx_waiter, &woken);
+                portYIELD_FROM_ISR(woken);
+            }
         } else {
             u->errors.dropped++;  // rx buffer full - byte discarded
         }

@@ -32,6 +32,9 @@ from ground.runner import (
 
 SHIM_TIMEOUT_S = 10
 
+# platform actions the shim prints when the fsw dispatches one - see fsw/sil/sil_shim.cpp
+ACTION_TAGS = {"WHEEL", "CAPTURE", "PAYLOAD"}
+
 EXPECT_KEYS = {"mode_log", "acks", "final"}
 FINAL_KEYS = {"mode", "faults_set"}
 
@@ -162,6 +165,11 @@ def parse_output(stdout: str) -> tuple:
             events.append(Event(tag, "", _kv(parts[1:])))
         elif tag == "EVENT":
             events.append(Event(tag, parts[1], _kv(parts[2:])))
+        elif tag in ACTION_TAGS:
+            # actions the shim carried out for the fsw, so a scenario can grade dispatch and not
+            # only state. WHEEL and CAPTURE would have died here too - no scenario had triggered
+            # one yet, so the gap only showed when PAYLOAD started printing
+            events.append(Event(tag, parts[1] if len(parts) > 1 else "", {}))
         else:
             die(f"unrecognized shim output line: '{line}'")
     return events, acks

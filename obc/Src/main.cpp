@@ -11,6 +11,7 @@
 #include "devices/ov2640.h"
 #include "devices/tmp117.h"
 #include "devices/ws2812.h"
+#include "downlink_task.hpp"
 #include "drivers/clock.h"
 #include "drivers/gpio.h"
 #include "drivers/i2c.h"
@@ -23,6 +24,8 @@
 #include "sensor_task.hpp"
 #include "task.h"
 #include "task_health.hpp"
+#include "telemetry_task.hpp"
+#include "uplink_task.hpp"
 
 namespace {
 
@@ -104,7 +107,9 @@ static void init(void) {
 int main(void) {
     init();
 
-    uart_locks_init();  // first kernel call in the program, and after the console can report it
+    uart_locks_init();    // first kernel call in the program, and after the console can report it
+    console_lock_init();  // same rule - board bring-up must not call into the kernel
+    ov2640_lock_init();
 
     // after bring-up, before the scheduler. starting it earlier would have the dog counting
     // through the sensor inits, which deliberately spend time waiting on hardware; starting it
@@ -114,9 +119,14 @@ int main(void) {
     iwdg_init(3000U);
 
     // nothing runs until the scheduler starts, so creation order is not a startup order - each
-    // task's own file owns its stack, its priority, and whatever it needs to be told at init
+    // task's own file owns its stack, its priority, and whatever it needs to be told at init.
+    // what does order these calls is what they allocate: telemetry owns the buffers the others
+    // report through, so it is created first
+    telemetry_task_create();
     control_task_create(camera_ok);
+    uplink_task_create();
     sensor_task_create(imu_ok, power_ok, temp_ok);
+    downlink_task_create();
     health_task_create();  // last, so every slot it reports on is already registered
 
     systick_kernel_tick_enable();  // hand the tick over before anything expects to be scheduled
