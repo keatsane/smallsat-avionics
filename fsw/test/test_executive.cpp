@@ -9,6 +9,7 @@ using namespace fsw;
 namespace fsw::platform {
 extern int capture_calls;
 extern uint8_t capture_resolution;
+extern uint8_t polled_msg_id;
 extern bool payload_downlink_active;
 }  // namespace fsw::platform
 
@@ -223,6 +224,19 @@ TEST_SUITE("EXECUTIVE REQUIREMENTS") {
             exec.cycle(still, 300);
 
             CHECK(exec.modes().mode() == Mode::STANDBY);  // the debounce held
+        }
+    }
+
+    TEST_CASE("REQ-TLM-006") {
+        SUBCASE("a telemetry request reaches the platform with its message id") {
+            Executive exec;
+
+            Inputs poll;
+            poll.command = command_t{static_cast<uint8_t>(Command::REQUEST_TELEMETRY), 0x08, 1};
+            exec.cycle(poll, 100);
+
+            CHECK(exec.commands().log().back().accepted);
+            CHECK(platform::polled_msg_id == 0x08);
         }
     }
 

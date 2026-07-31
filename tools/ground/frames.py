@@ -185,7 +185,21 @@ def decode_command_ack(payload: bytes) -> dict:
 
 # commands - mirror FSW_COMMAND_LIST in common/protocol/state.hpp (drift-checked by test_frames).
 # a command's index here is its id on the wire
-COMMANDS = ["NOOP", "SET_MODE", "CLEAR_FAULT", "CAPTURE_IMAGE", "SET_HEADING"]
+COMMANDS = ["NOOP", "SET_MODE", "CLEAR_FAULT", "CAPTURE_IMAGE", "SET_HEADING", "REQUEST_TELEMETRY"]
+
+# what REQUEST_TELEMETRY can ask for, by the name the console already prints for that kind. the
+# values are wire message ids - the one catalog here that is a mapping rather than an index,
+# because msg ids are not contiguous
+POLL_TARGETS = {
+    "IMU": 0x07,
+    "POWER": 0x08,
+    "TEMP": 0x09,
+    "CAMERA": 0x11,
+    "UART": 0x04,
+    "LORA": 0x05,
+    "NRF24": 0x06,
+    "TASKS": 0x30,
+}
 
 # image sizes CAPTURE_IMAGE can ask for - mirrors FSW_RESOLUTION_LIST in state.hpp, index is the
 # wire value (drift-checked by test_frames)

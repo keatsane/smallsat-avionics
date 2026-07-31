@@ -173,7 +173,19 @@ bool telemetry_out_console(const uint8_t* data, size_t len) {
     return enqueue(s_console, uart_console, data, len);
 }
 
+// the poll gate: one message id the ground asked to see once, over the radio. a single volatile
+// byte - written by the control task, read wherever frames flow - and the benign race (two frames
+// of the same kind in one cycle both matching) costs one extra beacon at worst
+static volatile uint8_t s_poll_id = 0U;
+
+void telemetry_poll(uint8_t msg_id) { s_poll_id = msg_id; }
+
 bool telemetry_out_downlink(const uint8_t* data, size_t len) {
+    // frame layout: sync(2), id(1), len(1), payload, crc(2)
+    if (s_poll_id != 0U && len > 2U && data[2] == s_poll_id) {
+        s_poll_id = 0U;
+        (void)telemetry_out_beacon(data, len);
+    }
     return enqueue(s_downlink, uart_downlink, data, len);
 }
 

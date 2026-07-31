@@ -30,6 +30,11 @@ void capture_image(uint8_t resolution) {
     capture_resolution = resolution;
 }
 
+// recorded so the dispatch is gradeable, like the capture calls above
+uint8_t polled_msg_id = 0;
+
+void poll_telemetry(uint8_t msg_id) { polled_msg_id = msg_id; }
+
 // no payload on the host, so the backend records the flag rather than moving bytes - whether the
 // executive asked is the part the unit tests can grade (REQ-PAY-004). the tests declare it extern
 bool payload_downlink_active = false;

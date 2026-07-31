@@ -256,6 +256,11 @@ constexpr float kGyroRadsPerCount =
 // tumbling learns a wrong bias; the recovery is a reset once stable, which SAFE already implies
 constexpr uint16_t kBiasSamples = 20;  // 2 s of samples at the 10 Hz sensor rate
 
+// the widest a quiet window may spread before it is called motion and restarted. a rig at rest
+// wobbles a few counts; deliberate handling is hundreds. ~2 dps of spread at the 16.4 counts/dps
+// scale splits those cleanly
+constexpr int16_t kBiasQuietCounts = 32;
+
 // mag field counts -> an absolute yaw heading. with the imu mounted x-vertical the field's y/z
 // components live in the horizontal plane, so the heading is their atan2 - a plain compass, tilt
 // ignored because the platform never tilts. indoor fields are bent, so this is repeatable rather
@@ -386,16 +391,34 @@ void read_sensors(fsw::Inputs& inputs) {
         // only when the sample is actually good - a stale or failed read must not be handed over
         // as a rate of zero, which the control law would act on as "already detumbled"
         if ((set.imu.flags & fsw::kImuFlagAccelGyroValid) != 0U) {
+            // bias is learned from the first QUIET two seconds, not the first two seconds. the
+            // difference wedged the vehicle on the bench: a boot that happened while the platform
+            // was being handled learned the motion as bias, read a phantom 144 deg/s at rest
+            // forever after, and autonomous detumble latched on a spin that did not exist. so the
+            // window restarts whenever the samples spread wider than a rig at rest ever does,
+            // and only a window that stayed quiet end to end is allowed to become the bias
             static int32_t bias_sum = 0;
+            static int16_t bias_min = INT16_MAX;
+            static int16_t bias_max = INT16_MIN;
             static uint16_t bias_n = 0;
             static float bias_counts = 0.0F;
+            static bool bias_locked = false;
 
-            const float raw = static_cast<float>(set.imu.gyro[kYawAxis]);
-            if (bias_n < kBiasSamples) {
-                bias_sum += set.imu.gyro[kYawAxis];
+            const int16_t raw_i = set.imu.gyro[kYawAxis];
+            const float raw = static_cast<float>(raw_i);
+            if (!bias_locked) {
+                bias_sum += raw_i;
+                bias_min = (raw_i < bias_min) ? raw_i : bias_min;
+                bias_max = (raw_i > bias_max) ? raw_i : bias_max;
                 bias_n++;
-                if (bias_n == kBiasSamples) {
+                if (static_cast<int16_t>(bias_max - bias_min) > kBiasQuietCounts) {
+                    bias_sum = 0;  // the platform moved - this window is poisoned, start over
+                    bias_min = INT16_MAX;
+                    bias_max = INT16_MIN;
+                    bias_n = 0;
+                } else if (bias_n == kBiasSamples) {
                     bias_counts = static_cast<float>(bias_sum) / static_cast<float>(kBiasSamples);
+                    bias_locked = true;
                 }
             }
             inputs.body_rate_rads = (raw - bias_counts) * kGyroRadsPerCount;

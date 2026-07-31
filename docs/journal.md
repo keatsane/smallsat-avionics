@@ -31,6 +31,12 @@ pushes.
 is what returns the radio to receive; behind `!pending ||` it ran once a second and the vehicle
 was deaf almost continuously. Side effects do not belong in conditions.
 
+**Two correct instructions can compose into a trap.** The bias needed two still seconds at boot;
+the compass needed a calibration turn right after power-up. An operator doing both in the told
+order poisoned the bias with the turn, and the vehicle wedged itself detumbling a spin that
+existed only in the arithmetic. Calibration steps that share a clock must be checked against each
+other, not just each against the hardware.
+
 **Never pace a half-duplex transmission off the other end's frames.** A request triggered by the
 vehicle's own status frame launches phase-locked to the vehicle's transmit schedule, and if the
 phase is wrong it is wrong every time - eight consecutive selective-repeat requests landed in the
@@ -103,6 +109,13 @@ Dated evidence, newest first.
 
 ### Phase 8 - wireless link and ground station
 
+- **2026-07-31** - First battery boot: 16.75 V on the main bus through the new PTC fuse, radio
+  telemetry with no bench supply. The same session found the bias trap it sprang: the gyro bias
+  was learned from the first two seconds after power-on, and a boot that happened while the
+  platform was being handled read a phantom 144 deg/s at rest forever - autonomous detumble
+  latched on a spin that did not exist. Bias now locks only from a window that stayed quiet end
+  to end. And the ground can now `poll` one frame of any telemetry kind over the beacon
+  (REQ-TLM-006), since the full sensor stream can never ride the low-rate link.
 - **2026-07-30** - The console grew a mission: `shoot [size] [bearing]` walks point, aim,
   capture, downlink, park as one command, advancing each step on telemetry evidence rather than
   on having sent something. The compass gained a spike gate and smoothing after bench headings

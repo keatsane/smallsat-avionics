@@ -54,6 +54,16 @@ bool telemetry_out_downlink(const uint8_t* data, size_t len);
 bool telemetry_out_beacon(const uint8_t* data, size_t len);
 
 /**
+ * @brief  let the next frame carrying this message id ride the beacon, once
+ * @param  msg_id  the wire id to match, 0 to cancel
+ *
+ * Every telemetry frame from every task passes through telemetry_out_downlink, so the match is
+ * made there - which means anything on the wire can be polled, sensor frames and task health
+ * alike, without each producer knowing polling exists.
+ */
+void telemetry_poll(uint8_t msg_id);
+
+/**
  * @brief  bytes that would fit on *both* links right now
  * @return the smaller of the two links' free space
  *

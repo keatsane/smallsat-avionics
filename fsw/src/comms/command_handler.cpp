@@ -26,6 +26,9 @@ constexpr CommandSpec kCommandTable[kCommandCount] = {
                           mode_bit(Mode::DOWNLINK)),
      "REQ-CMD-001"},
     /* SET_HEADING   */ {mode_bit(Mode::POINTING), "REQ-ADCS-002"},
+    // legal everywhere including SAFE, deliberately: asking a safed vehicle what its power
+    // reading is happens to be exactly when the answer matters most
+    /* REQUEST_TELEMETRY */ {kAllModes, "REQ-TLM-006"},
 };
 
 static_assert(sizeof(kCommandTable) / sizeof(kCommandTable[0]) == kCommandCount,

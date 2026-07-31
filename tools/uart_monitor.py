@@ -57,6 +57,7 @@ def directives() -> str:
         "    /hide IMU               hide these\n"
         "    /filters                what is showing right now\n"
         "    shoot [size] [bearing]  the whole imaging sequence as one command\n"
+        "    poll IMU|POWER|TEMP|... one frame of that kind over the radio, on request\n"
         f"    kinds: {', '.join(KINDS)}"
     )
 

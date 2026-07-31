@@ -5,7 +5,7 @@ typo is refused on the ground instead of arriving as a valid-looking wrong id. S
 one-shot sender and the interactive monitor so both accept exactly the same syntax.
 """
 
-from ground.frames import COMMANDS, FAULTS, MODES, RESOLUTIONS, heading_arg
+from ground.frames import COMMANDS, FAULTS, MODES, POLL_TARGETS, RESOLUTIONS, heading_arg
 
 # which catalog a command's argument is drawn from; absent means the command takes no argument
 ARG_CATALOG = {"SET_MODE": MODES, "CLEAR_FAULT": FAULTS, "CAPTURE_IMAGE": RESOLUTIONS}
@@ -23,6 +23,15 @@ class CommandError(ValueError):
 def resolve(command: str, arg: str | None) -> tuple[int, int]:
     """Command name + argument name -> the (cmd_id, arg) pair that goes on the wire."""
     command = command.upper()
+
+    # REQUEST_TELEMETRY (typed as POLL for short) names a telemetry kind; the wire carries that
+    # kind's message id. this is the radio-friendly answer to "what is the power reading" - one
+    # frame on request instead of a stream the link cannot afford
+    if command in ("POLL", "REQUEST_TELEMETRY"):
+        if arg is None or arg.upper() not in POLL_TARGETS:
+            raise CommandError(f"poll needs a telemetry kind - one of: {', '.join(POLL_TARGETS)}")
+        return COMMANDS.index("REQUEST_TELEMETRY"), POLL_TARGETS[arg.upper()]
+
     if command not in COMMANDS:
         raise CommandError(f"unknown command {command!r} - one of: {', '.join(COMMANDS)}")
 

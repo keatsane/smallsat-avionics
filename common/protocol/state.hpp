@@ -12,12 +12,13 @@
 #include <cstdint>
 
 // command ids - X(name). a command's order here is its id, carried in command_t.cmd_id
-#define FSW_COMMAND_LIST(X)                                          \
-    X(NOOP)          /* link keep-alive / test */                    \
-    X(SET_MODE)      /* request a mode transition (arg = mode id) */ \
-    X(CLEAR_FAULT)   /* clear a latched fault (arg = fault id) */    \
-    X(CAPTURE_IMAGE) /* take a photo (arg = resolution id) */        \
-    X(SET_HEADING)   /* aim POINTING at a bearing (arg = binary angle) */
+#define FSW_COMMAND_LIST(X)                                                   \
+    X(NOOP)              /* link keep-alive / test */                         \
+    X(SET_MODE)          /* request a mode transition (arg = mode id) */      \
+    X(CLEAR_FAULT)       /* clear a latched fault (arg = fault id) */         \
+    X(CAPTURE_IMAGE)     /* take a photo (arg = resolution id) */             \
+    X(SET_HEADING)       /* aim POINTING at a bearing (arg = binary angle) */ \
+    X(REQUEST_TELEMETRY) /* beacon one frame of a telemetry kind (arg = msg id) */
 
 // SET_HEADING's argument is a binary angle: one byte spanning a full turn, so a step is 360/256 =
 // 1.406 degrees. a byte cannot hold degrees and this is the standard way round it - the same

@@ -293,6 +293,12 @@ The retransmission rule exists because the ground resends: the LoRa link is half
 **Verification**: inspection and HIL  
 **Artifact**: common/protocol/frame.cpp (the format, unchanged per transport), fsw/platform/stm32/platform_stm32.cpp (one call, three transports), obc/Src/devices/rfm95.c, obc/Src/freertos/telemetry_task.cpp, obc/Src/drivers/uart.c
 
+**REQ-TLM-006** - The ground shall be able to request a single frame of a named telemetry kind over the low-rate link. The full sensor stream shall not ride that link.
+**Type**: Functional
+**Status**: unit-verified (the `REQUEST_TELEMETRY` command carries a wire message id; the platform lets exactly one matching frame ride the beacon. The stream restriction is arithmetic: the full stream wants ~2.8 s of air time per second of flight. **Owed: the poll observed over the air**)
+**Verification**: unit test, then demonstration over the radio
+**Artifact**: fsw/src/executive.cpp, fsw/test/test_executive.cpp, obc/Src/freertos/telemetry_task.cpp
+
 **REQ-TLM-005** - The spacecraft shall indicate current mode, worst latched fault severity with a count of latched faults, and command-link state on a local status display, carrying the same information as the heartbeat packet so the two can be read against each other.  
 **Type**: Functional  
 **Status**: bench-verified (2026-07-30 - two faults latched and inhibited, the bead held blue and winked twice per cycle against a heartbeat naming exactly those two. Inhibited faults are counted: they are latched, which is what the requirement asks)  

@@ -65,6 +65,8 @@ void set_wheel_torque_nm(float torque_nm) {
     uart_write(uart_esc, buf, n);
 }
 
+void poll_telemetry(uint8_t msg_id) { telemetry_poll(msg_id); }
+
 void capture_image(uint8_t resolution) {
     // the catalog id maps to this sensor's tables here, on the backend side of the boundary. the
     // enums are declared in the same order deliberately, and the static_assert is what keeps that

@@ -46,6 +46,17 @@ void set_wheel_torque_nm(float torque_nm);
 void capture_image(uint8_t resolution);
 
 /**
+ * @brief  beacon the next telemetry frame carrying this message id, once
+ * @param  msg_id  the wire id of the wanted frame (MsgId in msg.hpp)
+ *
+ * The low-rate radio cannot carry the full sensor stream - it would want 2.8 s of air time per
+ * second - so the beacon carries heartbeats and acks, and everything else is wired-console only.
+ * This is the middle path: the ground names a kind, the platform lets exactly one matching frame
+ * ride the beacon, and the stream stays cheap the rest of the time.
+ */
+void poll_telemetry(uint8_t msg_id);
+
+/**
  * @brief  say whether the payload buffer should be draining to the ground
  * @param  active  true while the vehicle is in DOWNLINK
  *

@@ -66,6 +66,8 @@ void set_wheel_torque_nm(float torque_nm) {
     std::printf("WHEEL %d\n", static_cast<int>(torque_nm * 1000.0F));
 }
 
+void poll_telemetry(uint8_t msg_id) { std::printf("POLL %u\n", static_cast<unsigned>(msg_id)); }
+
 void capture_image(uint8_t resolution) {
     // the size is printed too, so a scenario can grade that the argument reached the payload and
     // not merely that a capture was dispatched

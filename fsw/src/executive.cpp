@@ -103,6 +103,12 @@ void Executive::cycle(const Inputs& inputs, uint32_t t_ms) {
             case Command::CLEAR_FAULT:
                 fm_.clear(static_cast<Fault>(inputs.command->arg), t_ms);
                 break;
+            case Command::REQUEST_TELEMETRY:
+                // which frame ids exist on the wire is the platform's business, not validated
+                // here - an id nothing ever emits simply never matches, and the ground command
+                // catalog is what keeps the operator inside the useful set
+                platform::poll_telemetry(inputs.command->arg);
+                break;
             case Command::SET_HEADING:
                 // a binary angle over the wire, radians in here - the conversion belongs at the
                 // edge, like every other unit that crosses this boundary
