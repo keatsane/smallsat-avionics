@@ -6,7 +6,11 @@ needs a terminal, a script does not.
 """
 
 from ground.commands import ARG_CATALOG
-from ground.frames import COMMANDS
+from ground.frames import COMMANDS, POLL_TARGETS, RESOLUTIONS
+
+# the console-side verbs that are not spacecraft commands but complete like them - the mission
+# macro and the telemetry poll alias. their argument sets live beside them
+LOCAL_VERBS = ("SHOOT", "POLL")
 
 PROMPT = "cmd> "
 
@@ -67,7 +71,7 @@ def make_session(kinds=()):
             # completing the first word unless a space has already closed it
             if len(parts) <= 1 and not text.endswith(" "):
                 stem = parts[0] if parts else ""
-                names = DIRECTIVES if stem.startswith("/") else COMMANDS
+                names = DIRECTIVES if stem.startswith("/") else COMMANDS + list(LOCAL_VERBS)
                 for name in names:
                     if name.upper().startswith(stem.upper()):
                         yield Completion(name, start_position=-len(stem))
@@ -85,7 +89,14 @@ def make_session(kinds=()):
                         yield Completion(kind, start_position=-len(stem))
                 return
 
-            catalog = ARG_CATALOG.get(head.upper())
+            # the local verbs and the poll alias carry their own argument sets
+            head_up = head.upper()
+            if head_up in ("POLL", "REQUEST_TELEMETRY"):
+                catalog = list(POLL_TARGETS)
+            elif head_up == "SHOOT":
+                catalog = list(RESOLUTIONS)  # a bearing is also legal, but numbers self-complete
+            else:
+                catalog = ARG_CATALOG.get(head_up)
             if catalog is None:
                 return  # this command takes no argument - nothing to offer
             stem = parts[1].upper() if len(parts) > 1 else ""

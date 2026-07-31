@@ -103,23 +103,30 @@ def main() -> int:
     use_color = sys.stdout.isatty() and not args.no_color
     if use_color and sys.platform == "win32":
         os.system("")  # enable ANSI escape processing in the windows console
+    # the palette rule: the vitals and events each get their own color; the bulk data kinds
+    # (sensor streams, health counters, the ground station's own line) stay plain, so a colored
+    # line always means something happened rather than something was measured. HEARTBEAT is not
+    # here - it is painted field by field to match the satellite's status beads
     kind_color = {
-        "HEARTBEAT": "\x1b[1;36m",  # bold cyan
-        "COMMAND": "\x1b[33m",
-        "COMMAND_ACK": "\x1b[33m",
-        "UART": "\x1b[33m",
-        "TEXT": "\x1b[2m",  # dim
-        "SENT": "\x1b[1;32m",  # bold green - the local side of the conversation
-        "REQUEST": "\x1b[1;32m",  # ditto - the ground naming the chunks it wants again
+        # vitals and events, one color each
+        "ATTITUDE": "\x1b[1;33m",  # bold yellow - the pointing picture beside the heartbeat
         "MISSION": "\x1b[1;34m",  # bold blue - the shoot macro narrating its steps
+        "BOOT": "\x1b[1;37m",  # bold white - a reset is always worth noticing
+        # the local side of the conversation
+        "SENT": "\x1b[1;32m",  # bold green
+        "REQUEST": "\x1b[1;32m",  # ditto - the ground naming the chunks it wants again
         "REJECT": "\x1b[1;31m",  # bold red - refused here, never reached the wire
-        "PAYLOAD": "\x1b[35m",  # magenta - bulk data, distinct from the health stream
-        "DOWNLINK": "\x1b[1;35m",  # bold magenta - the progress of that bulk data
+        "COMMAND_ACK": "\x1b[33m",  # yellow - the vehicle's answer
+        "COMMAND": "\x1b[33m",
+        # the payload story
+        "PAYLOAD": "\x1b[35m",  # magenta - bulk data arriving
+        "DOWNLINK": "\x1b[1;35m",  # bold magenta - the vehicle's progress report on it
         "LINK": "\x1b[1;35m",  # the same, since it is that pass's closing line
-        "TASKS": "\x1b[36m",  # cyan, plainer than the heartbeat's - same cadence, less to read
-        "LINKERR": "\x1b[1;31m",  # bold red - a frame arrived corrupt, which is never routine
-        "FILTER": "\x1b[1;34m",  # bold blue - console state, not anything the spacecraft said
-        "GROUND": "\x1b[36m",  # cyan - the ground station talking about itself, not the vehicle
+        # trouble and console state
+        "LINKERR": "\x1b[1;31m",  # bold red - a corrupt frame is never routine
+        "FILTER": "\x1b[34m",  # blue - console state, not anything the spacecraft said
+        "TEXT": "\x1b[2m",  # dim - firmware debug prints
+        # everything else - IMU, POWER, TEMP, CAMERA, GROUND, TASKS, UART, WHEEL_* - is plain
     }
 
     # rebound to prompt_toolkit's printer once the prompt owns the terminal (see console.py)

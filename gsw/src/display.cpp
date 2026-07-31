@@ -209,8 +209,6 @@ void draw_payload_panel(uint32_t nrf_packets, uint32_t nrf_frames, bool nrf_up) 
     oled2.println("PAYLOAD");
     oled2.setTextSize(1);
 
-    draw_dial(kWidth - 16, 15, 13);
-
     const bool active = ever_downlinked && (millis() - last_dl_ms) < kDownlinkStaleMs;
 
     oled2.setCursor(0, 20);
@@ -224,6 +222,11 @@ void draw_payload_panel(uint32_t nrf_packets, uint32_t nrf_frames, bool nrf_up) 
         oled2.print("/");
         oled2.print(dl.chunks);
     }
+
+    // the dial draws after the text and clears its own corner first, same hard-section rule as
+    // the battery gauge - a wide img line ends under the dial's box instead of inside the dial
+    oled2.fillRect(96, 0, kWidth - 96, 30, SSD1306_BLACK);
+    draw_dial(kWidth - 16, 15, 13);
 
     // a drawn bar rather than characters - the one thing here readable at a glance
     const int16_t bar_y = 32;
@@ -254,6 +257,12 @@ void draw_payload_panel(uint32_t nrf_packets, uint32_t nrf_frames, bool nrf_up) 
 // working range - 13.6 V (the undervoltage fault, "land now") to 16.8 V (full) - so 0% on this
 // gauge means the flight software is about to safe, not that the cells are at damage voltage
 void draw_battery(Adafruit_SSD1306& d, int16_t x, int16_t y, uint16_t bus_mv) {
+    // the region clears its own box first, so whatever was drawn before it - a long mode name,
+    // anything - cannot bleed underneath. hard sections rather than hoped-for spacing: the first
+    // layout put the percent to the left of the glyph, and STANDBY at double height reached
+    // exactly far enough to sit on top of the 95
+    d.fillRect(x - 2, 0, kWidth - (x - 2), 20, SSD1306_BLACK);
+
     d.drawRect(x, y, 20, 9, SSD1306_WHITE);
     d.fillRect(x + 20, y + 2, 2, 5, SSD1306_WHITE);  // the nub
 
@@ -264,7 +273,8 @@ void draw_battery(Adafruit_SSD1306& d, int16_t x, int16_t y, uint16_t bus_mv) {
         d.fillRect(x + 2, y + 2, fill, 5, SSD1306_WHITE);
     }
 
-    d.setCursor(x - 25, y + 1);
+    // the percent sits under the glyph, inside the same cleared column
+    d.setCursor(x + 1, y + 11);
     d.print(pct);
     d.print("%");
 }
@@ -293,7 +303,7 @@ void draw_status_panel(const display_counts_t& c) {
     oled.setTextSize(1);
 
     if (ever_heard && hb.bus_mv != 0U) {
-        draw_battery(oled, kWidth - 23, 1, hb.bus_mv);
+        draw_battery(oled, kWidth - 24, 1, hb.bus_mv);
     }
 
     if (!ever_heard) {
