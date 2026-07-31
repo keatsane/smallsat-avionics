@@ -7,6 +7,8 @@
  * small addition on top of it.
  */
 
+#include "devices/nrf24.h"
+#include "devices/rfm95.h"
 #include "drivers/iwdg.h"
 #include "drivers/systick.h"
 #include "protocol/frame.hpp"
@@ -41,6 +43,24 @@ uint16_t checkin_age(const slot_t& s, uint32_t now_ms) {
     }
     const uint32_t age = now_ms - s.last_ms;
     return (age >= 0xFFFFU) ? 0xFFFEU : static_cast<uint16_t>(age);
+}
+
+// one radio's health on the wire. the two radios report the same shape because the question is
+// the same for both: is it configured, is it still answering, how much has it carried, and how
+// much was offered that it could not take
+static void send_radio_status(fsw::MsgId id, uint32_t sent, uint32_t dropped, bool answering) {
+    fsw::radio_status_t r{};
+    r.t_ms = millis();
+    r.sent = sent;
+    r.dropped = (dropped > 0xFFFFU) ? 0xFFFFU : static_cast<uint16_t>(dropped);
+    r.flags = static_cast<uint8_t>((answering ? fsw::kRadioFlagAnswering : 0U) |
+                                   (answering ? fsw::kRadioFlagConfigured : 0U));
+
+    uint8_t buf[fsw::kFrameMaxSize];
+    const size_t n = fsw::frame_encode(static_cast<uint8_t>(id),
+                                       reinterpret_cast<const uint8_t*>(&r), sizeof(r), buf);
+    (void)telemetry_out_console(buf, n);
+    (void)telemetry_out_downlink(buf, n);
 }
 
 void health_task(void*) {
@@ -109,6 +129,14 @@ void health_task(void*) {
         // computer is healthy as much as the bench does
         (void)telemetry_out_console(buf, n);
         (void)telemetry_out_downlink(buf, n);
+
+        // and the radios' own health, from the same task for the same reason: this is platform
+        // state, not flight-software state, so it is assembled here rather than by the executive.
+        // deliberately not sent over the radios themselves - a dead radio cannot report that it
+        // is dead, so the wired links are the only ones this is worth anything on
+        send_radio_status(fsw::MsgId::LoraStatus, rfm95_sent(), telemetry_out_beacon_dropped(),
+                          rfm95_alive());
+        send_radio_status(fsw::MsgId::Nrf24Status, nrf24_sent(), nrf24_dropped(), nrf24_alive());
     }
 }
 

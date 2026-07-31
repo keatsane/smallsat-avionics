@@ -136,7 +136,6 @@ int main(void) {
     uart_locks_init();    // first kernel call in the program, and after the console can report it
     console_lock_init();  // same rule - board bring-up must not call into the kernel
     spi_locks_init();     // one lock per bus; spi3 is shared by the camera and both radios
-    ov2640_lock_init();
 
     // after bring-up, before the scheduler. starting it earlier would have the dog counting
     // through the sensor inits, which deliberately spend time waiting on hardware; starting it

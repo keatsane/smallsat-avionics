@@ -15,6 +15,8 @@ KINDS = (
     "HEARTBEAT",
     "TASKS",
     "BOOT",
+    "LORA",
+    "NRF24",
     "IMU",
     "POWER",
     "TEMP",

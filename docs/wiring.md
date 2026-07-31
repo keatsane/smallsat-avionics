@@ -245,6 +245,52 @@ Cut the motor's long phase leads down to a tidy length, but keep the encoder's 4
 
 **Trim all solder tails flush.** A screw is a floating conductor; the moment a second tail touches it, it bridges two nets.
 
+## The ground station box
+
+One Feather M0 RFM95 plus two modules. The LoRa radio is already on the Feather, so nothing is
+wired for it - only the nRF24 and the display need wires, and the nRF24 shares the SPI bus the
+LoRa is already using. Colours follow the same role scheme as the satellite.
+
+**Already spoken for by the onboard LoRa - do not reuse:** pin 8 (its CS), pin 4 (RST), pin 3
+(DIO0), and SCK/MOSI/MISO. Also leave **pin 9** alone: it is A7, the battery-voltage divider.
+
+| Module | Signal | Feather pin | Colour |
+| ------ | ------ | ----------- | ------ |
+| nRF24 | VCC | 3V3 (**never 5 V**) | red |
+| nRF24 | GND | GND | black |
+| nRF24 | SCK | SCK | yellow |
+| nRF24 | MOSI | MOSI | blue |
+| nRF24 | MISO | MISO | green |
+| nRF24 | CSN | 10 | white |
+| nRF24 | CE | 11 | blue |
+| nRF24 | IRQ | not connected | - |
+| OLED | VCC | 3V3 | red |
+| OLED | GND | GND | black |
+| OLED | SDA | SDA | blue |
+| OLED | SCL | SCL | yellow |
+
+**The nRF24 needs a 10 uF cap across its own VCC and GND pins**, as close to the module as it
+goes - the same rule as the satellite side, and `bom.md` names it the number one dead-link cause.
+It draws ~45 mA receiving and pulls hard on transients; the Feather's regulator can supply it,
+but not through a length of thin wire without local storage.
+
+**IRQ is deliberately unconnected.** The driver polls, so the line buys nothing yet. Wire it to
+pin 6 if a future version wants to sleep waiting for a packet.
+
+**Add no I2C pull-ups.** SSD1306 modules carry their own, and the Feather has none - which is the
+right combination. A second I2C device later inherits those, it does not need more.
+
+**Both antennas on before power.** The nRF24 has its SMA stub; the LoRa needs a 78 mm wire on the
+Feather's ANT pad (a quarter wave at 915 MHz). Transmitting without one can damage a PA, and the
+box has two radios that can transmit.
+
+**Power budget, all four loads receiving:** SAMD21 ~10 mA, RFM95 ~12, nRF24 PA+LNA ~45, SSD1306
+~20 - about **87 mA against the Feather's 600 mA regulator and a 500 mA USB budget**. Not close
+to a limit, which is why USB alone runs the whole box.
+
+26 AWG, same as the satellite harness. The runs are short enough that gauge is about handling
+rather than drop.
+
 ## Intra-layer vs inter-layer at a glance
 
 **Inter-layer (must unplug to separate plates):**

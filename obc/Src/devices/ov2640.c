@@ -356,11 +356,6 @@ static void discard_locked(void) {
 // above are the originals, renamed - keeping the wrappers separate means the early returns inside
 // them did not have to grow an unlock on every path
 
-// the camera has no lock of its own any more - it uses the spi3 bus lock, created by
-// spi_locks_init. kept as a no-op so main's bring-up list still names everything that has to be
-// ready, and so this note has somewhere to live
-void ov2640_lock_init(void) {}
-
 bool ov2640_capture_start(void) {
     const bool l = cam_lock();
     const bool r = capture_start_locked();

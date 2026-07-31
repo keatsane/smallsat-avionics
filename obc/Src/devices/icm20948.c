@@ -146,7 +146,19 @@ void icm20948_gyro_bias(int16_t out[3]) {
     }
 }
 
+static icm20948_sample_t icm20948_read_locked(void);
+
+// spi2 carries only the imu today, so this lock is uncontended - taken anyway so both buses obey
+// one rule. an exception that holds because "nothing else is on this bus yet" is an exception
+// that stops holding silently, and spi3 already learned that lesson the hard way
 icm20948_sample_t icm20948_read(void) {
+    const bool locked = spi_bus_lock(spi_imu);
+    const icm20948_sample_t s = icm20948_read_locked();
+    spi_bus_unlock(spi_imu, locked);
+    return s;
+}
+
+static icm20948_sample_t icm20948_read_locked(void) {
     icm20948_sample_t sample;
 
     struct __attribute__((packed)) {

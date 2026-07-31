@@ -21,8 +21,8 @@ enum class MsgId : uint8_t {
     // system telemetry - link + node health
     Heartbeat = 0x03,
     UartStatus = 0x04,
-    // LoraStatus = 0x05,   // reserved - lora radio health (rfm95): rssi, snr, crc fails
-    // Nrf24Status = 0x06,  // reserved - nrf24 radio health (nrf24l01+): retransmits, lost packets
+    LoraStatus = 0x05,   // rfm95 beacon health
+    Nrf24Status = 0x06,  // nrf24l01+ payload-link health
 
     // sensor telemetry
     ImuData = 0x07,    // icm-20948 accel/gyro/mag
@@ -204,6 +204,23 @@ struct __attribute__((packed)) task_health_t {
     task_entry_t tasks[kTaskHealthMaxTasks];
 };
 
+// radio status flags - the same bit means the same thing for both radios
+inline constexpr uint8_t kRadioFlagConfigured = 0x01;  // init succeeded at boot
+inline constexpr uint8_t kRadioFlagAnswering = 0x02;   // and it still reads back its own registers
+
+// MsgId::LoraStatus / MsgId::Nrf24Status - one per radio, same shape on purpose.
+//
+// every other subsystem on this vehicle reports whether it is alive; until this landed the two
+// radios were the exception, so a dead one was invisible - no fault, no telemetry, nothing. these
+// carry observability only. deliberately no fault yet: what a spacecraft should *do* about a dead
+// beacon is a real decision, and a fault nothing responds to is just a catalog entry
+struct __attribute__((packed)) radio_status_t {
+    uint32_t t_ms;
+    uint32_t sent;     // frames or packets handed to the radio since boot
+    uint16_t dropped;  // offered and refused - a full fifo, or newer state replacing older
+    uint8_t flags;     // kRadioFlag* bits
+};
+
 // MsgId::BootInfo - why the computer last reset, sent once per boot (REQ-WDG-002).
 //
 // the console banner has always printed this, but a banner scrolls away and a ground station that
@@ -233,6 +250,7 @@ static_assert(sizeof(task_entry_t) == 6, "task_entry_t wire layout changed");
 static_assert(sizeof(task_health_t) == 48, "task_health_t wire layout changed");
 static_assert(sizeof(task_health_t) <= kFrameMaxPayload, "task_health_t no longer fits a frame");
 static_assert(sizeof(boot_info_t) == 9, "boot_info_t wire layout changed");
+static_assert(sizeof(radio_status_t) == 11, "radio_status_t wire layout changed");
 
 }  // namespace fsw
 

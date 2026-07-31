@@ -23,6 +23,7 @@ from ground.frames import (
     FrameDecoder,
     crc16,
     decode_boot_info,
+    decode_radio_status,
     decode_camera_data,
     decode_command_ack,
     decode_task_health,
@@ -391,6 +392,7 @@ def test_payload_sizes_match_msg_hpp():
         "camera_data_t": decode_camera_data,
         "task_health_t": decode_task_health,
         "boot_info_t": decode_boot_info,
+        "radio_status_t": decode_radio_status,
     }
     for struct_name, decoder in decoders.items():
         n = sizes[struct_name]

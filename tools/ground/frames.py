@@ -16,8 +16,8 @@ MSG_COMMAND = 0x01
 MSG_COMMAND_ACK = 0x02
 MSG_HEARTBEAT = 0x03
 MSG_UART_STATUS = 0x04
-# MSG_LORA_STATUS = 0x05
-# MSG_NRF24_STATUS = 0x06
+MSG_LORA_STATUS = 0x05
+MSG_NRF24_STATUS = 0x06
 MSG_IMU_DATA = 0x07
 MSG_POWER_DATA = 0x08
 MSG_TEMP_DATA = 0x09
@@ -253,6 +253,21 @@ def decode_camera_data(payload: bytes) -> dict:
     }
 
 
+RADIO_FLAG_CONFIGURED = 0x01
+RADIO_FLAG_ANSWERING = 0x02
+
+
+def decode_radio_status(payload: bytes) -> dict:
+    """Unpack a radio_status_t payload (msg.hpp) into a dict - same shape for both radios."""
+    t_ms, sent, dropped, flags = struct.unpack("<IIHB", payload)
+    return {
+        "t_ms": t_ms,
+        "sent": sent,
+        "dropped": dropped,
+        "flags": flags,
+    }
+
+
 def decode_boot_info(payload: bytes) -> dict:
     """Unpack a boot_info_t payload (msg.hpp) into a dict."""
     t_ms, clk_hz, reset_cause = struct.unpack("<IIB", payload)
@@ -418,6 +433,11 @@ def format_frame(msg_id: int, payload: bytes) -> str:
         )
     if msg_id == MSG_TASK_HEALTH and len(payload) == TASK_HEALTH_LEN:
         return format_task_health(payload)
+    if msg_id in (MSG_LORA_STATUS, MSG_NRF24_STATUS) and len(payload) == 11:
+        d = decode_radio_status(payload)
+        kind = "LORA" if msg_id == MSG_LORA_STATUS else "NRF24"
+        state = "up" if (d["flags"] & RADIO_FLAG_ANSWERING) else "NOT ANSWERING"
+        return f"{kind:<12} t={d['t_ms']} ms  {state}  sent={d['sent']}  dropped={d['dropped']}"
     if msg_id == MSG_BOOT_INFO and len(payload) == 9:
         d = decode_boot_info(payload)
         return (

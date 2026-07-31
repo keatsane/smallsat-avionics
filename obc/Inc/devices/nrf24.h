@@ -60,6 +60,11 @@ bool nrf24_tx_empty(void);
  */
 uint32_t nrf24_dropped(void);
 
+/**
+ * @brief  packets accepted by the fifo since boot
+ */
+uint32_t nrf24_sent(void);
+
 #ifdef __cplusplus
 }
 #endif

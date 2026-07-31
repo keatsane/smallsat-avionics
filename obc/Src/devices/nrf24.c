@@ -54,6 +54,7 @@ static const uint8_t tx_address[ADDR_WIDTH] = {0x53U, 0x53U, 0x41U, 0x56U, 0x31U
 
 static bool configured = false;
 static uint32_t dropped = 0U;
+static uint32_t sent = 0U;  // packets accepted by the fifo since boot
 
 // ---- register access ----
 
@@ -103,18 +104,28 @@ static bool write_packet(const uint8_t* data, size_t n) {
         return false;
     }
 
+    // always a full 32 bytes, padded. the receiver runs static payload width, which means it has
+    // to know the size in advance - and the alternative, dynamic payload length, requires
+    // auto-ack, which is off here so the vehicle never stalls waiting on a ground station that
+    // may not be listening.
+    //
+    // the padding is free of consequence because the frame decoder resyncs on AA 55 and checks a
+    // crc: trailing zeros between frames are skipped exactly like line noise on a uart. it costs
+    // 96 bytes of air per 70-byte frame, which at 1 Mbps is nothing worth optimising
     spi_select(spi_nrf24);
     spi_transfer_byte(spi_nrf24, CMD_W_TX_PAYLOAD);
-    for (size_t i = 0U; i < n; i++) {
-        spi_transfer_byte(spi_nrf24, data[i]);
+    for (size_t i = 0U; i < NRF24_MAX_PAYLOAD; i++) {
+        spi_transfer_byte(spi_nrf24, (i < n) ? data[i] : 0x00U);
     }
     spi_deselect(spi_nrf24);
+    sent++;
     return true;
 }
 
 bool nrf24_init(void) {
     configured = false;
     dropped = 0U;
+    sent = 0U;
 
     spi_nrf24_init();
 
@@ -220,3 +231,5 @@ bool nrf24_send(const uint8_t* data, size_t len) {
 }
 
 uint32_t nrf24_dropped(void) { return dropped; }
+
+uint32_t nrf24_sent(void) { return sent; }

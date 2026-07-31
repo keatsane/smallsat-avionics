@@ -188,6 +188,8 @@ size_t telemetry_out_room(void) {
 
 uint32_t telemetry_out_dropped(void) { return s_dropped; }
 
+uint32_t telemetry_out_beacon_dropped(void) { return s_beacon_dropped; }
+
 void telemetry_task_create(void) {
     s_lock = xSemaphoreCreateMutexStatic(&s_lock_buf);
     s_console = xStreamBufferCreateStatic(sizeof(s_console_store), kTriggerBytes, s_console_store,

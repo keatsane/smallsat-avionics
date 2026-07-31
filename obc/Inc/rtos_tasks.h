@@ -43,11 +43,16 @@
 // true frontier. re-measure and re-size when a task's work changes
 #define TASK_STACK_CONTROL 512U
 #define TASK_STACK_SENSORS 256U
-// re-measured 2026-07-31 at 98 words, up from the 80 above: it now reports on seven task slots
-// instead of five and hands its frame to the telemetry buffers rather than straight to a uart.
-// 192 left it at 1.96x - the only task under this file's ~2.5x floor, and the one whose job is
-// deciding whether to reset the board. 256 puts it back at 2.6x
-#define TASK_STACK_HEALTH 256U
+// re-measured twice in two days, which is the point rather than an embarrassment. 2026-07-31
+// morning: 98 words, up from 80 once it reported on seven task slots and routed through the
+// telemetry buffers - 192 left it at 1.96x so it went to 256. same evening: 119 words, because
+// emitting the two radio-status frames costs another payload and frame buffer on this stack.
+// 256 was 2.15x, under this file's floor again.
+//
+// the pattern is the lesson: **a task that gains work needs re-measuring, and nothing prompts
+// you to do it** - the number sits in every TASKS line until somebody reads it. 320 is 2.7x,
+// matching control and uplink
+#define TASK_STACK_HEALTH 320U
 // measured 2026-07-30: idle it peaks near 40 words, but decoding one command took it to 113 -
 // frame_decode returns std::optional<frame_t> by value and that carries the 64-byte payload
 // buffer, which at -O0 lands on the stack whole. sized at ~2.8x the measured peak, matching

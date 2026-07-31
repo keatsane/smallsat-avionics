@@ -58,6 +58,11 @@ bool rfm95_send(const uint8_t* data, size_t len);
 bool rfm95_tx_done(void);
 
 /**
+ * @brief  frames handed to the radio since boot
+ */
+uint32_t rfm95_sent(void);
+
+/**
  * @brief  raw register read - bring-up and hil diagnostics
  * @param  reg  register address
  * @return the byte read

@@ -33,14 +33,6 @@ typedef struct {
 } ov2640_sample_t;
 
 /**
- * @brief  create the driver's mutex
- * The control task polls the camera's health while the downlink task drains its fifo, so the
- * public api below is serialised. Same rule as uart_locks_init: call once after the board is up
- * and before the scheduler starts, never from bring-up.
- */
-void ov2640_lock_init(void);
-
-/**
  * @brief  bring up the camera - arduchip link, sensor id, then jpeg configuration
  * @return true if the whole chain came up
  */
@@ -91,6 +83,12 @@ size_t ov2640_read_chunk(uint8_t* buf, size_t n);
 
 /**
  * @brief  drop the frame in the fifo and return to idle
+ *
+ * Deliberately has no caller in the autonomous path, and should not gain one: a captured frame
+ * has to survive between contact passes for a downlink to be resumable (REQ-PAY-004), so nothing
+ * on the vehicle may quietly bin it. Starting a new capture already flushes the fifo itself.
+ * This exists for a ground-commanded discard - the ground deciding an image is not worth the
+ * pass - which wants a command in the catalog before it means anything.
  */
 void ov2640_discard(void);
 

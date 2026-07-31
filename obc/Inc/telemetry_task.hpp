@@ -63,6 +63,16 @@ bool telemetry_out_beacon(const uint8_t* data, size_t len);
 size_t telemetry_out_room(void);
 
 /**
+ * @brief  beacon frames replaced before they reached the air
+ * @return the count
+ *
+ * Not a buffer overflow - the beacon is one slot deep by design, so a newer heartbeat displacing
+ * an older one is normal at any rate above what the radio can carry. It is reported because the
+ * count rising fast means the beacon is asking more of the link than it can give.
+ */
+uint32_t telemetry_out_beacon_dropped(void);
+
+/**
  * @brief  messages dropped for want of buffer space since boot, both links together
  * @return the count
  */

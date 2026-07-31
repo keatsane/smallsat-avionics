@@ -58,6 +58,7 @@ static bool configured = false;
 // sending" - and gating the first send on it deadlocks the beacon permanently. found on the
 // bench, where the ground station heard nothing at all
 static bool tx_busy = false;
+static uint32_t tx_sent = 0U;  // frames handed to the radio since boot
 
 // ---- register access - bit 7 of the address selects write ----
 
@@ -139,6 +140,7 @@ bool rfm95_init(void) {
     set_mode(MODE_STDBY);
 
     tx_busy = false;
+    tx_sent = 0U;
     configured = (reg_read(REG_OP_MODE) == (MODE_LONG_RANGE | MODE_STDBY));
     spi_bus_unlock(spi_lora, locked);
     return configured;
@@ -194,10 +196,13 @@ bool rfm95_send(const uint8_t* data, size_t len) {
     reg_write(REG_PAYLOAD_LENGTH, (uint8_t)len);
     set_mode(MODE_TX);
     tx_busy = true;
+    tx_sent++;
 
     spi_bus_unlock(spi_lora, locked);
     return true;
 }
+
+uint32_t rfm95_sent(void) { return tx_sent; }
 
 uint8_t rfm95_reg(uint8_t reg) {
     const bool locked = spi_bus_lock(spi_lora);
