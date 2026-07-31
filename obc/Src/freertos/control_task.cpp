@@ -277,6 +277,13 @@ constexpr float kMagMountOffsetRad = 0.0F;
 // and a heading computed from a sliver of arc is noise dressed as an angle
 constexpr int16_t kMagSpanFloor = 100;
 
+// the spike gate: a real field change between two 10 Hz samples is tens of counts even mid-spin;
+// hundreds in one step is a glitch. generous so a fast spin is never mistaken for one
+constexpr float kMagSpikeCounts = 150.0F;
+
+// smoothing weight per 10 Hz sample - a time constant around 0.3 s
+constexpr float kMagEmaAlpha = 0.3F;
+
 // wrap any angle into [-pi, pi] - local copy, the fsw has its own behind the boundary
 float wrap_angle(float rad) {
     while (rad > 3.14159265F) {
@@ -291,9 +298,35 @@ float wrap_angle(float rad) {
 bool mag_heading_rad(const fsw::imu_data_t& imu, float gyro_rads, float* out) {
     static int16_t min_y = INT16_MAX, max_y = INT16_MIN;
     static int16_t min_z = INT16_MAX, max_z = INT16_MIN;
+    static float ema_y = 0.0F, ema_z = 0.0F;
+    static bool ema_init = false;
 
-    const int16_t y = imu.mag[1];
-    const int16_t z = imu.mag[2];
+    // two defences the raw stream turned out to need on the bench, where headings repeated to
+    // maybe 30 degrees and a returned platform did not read the same angle twice.
+    //
+    // spike gate first: the mag rides the imu's internal i2c master, and a glitched sample lands
+    // as a wild point. min/max calibration never forgets - one spike stretches a span and shifts
+    // the centre for the rest of the boot - so a sample too far from the running average is
+    // dropped before it can touch anything.
+    //
+    // then smoothing: the field indoors is noisy at the counts level, and atan2 of a noisy short
+    // vector wanders. a light average (about 0.3 s) steadies the angle; the lag it adds during
+    // rotation does not matter because the gyro owns motion and the compass only anchors
+    const float fy = static_cast<float>(imu.mag[1]);
+    const float fz = static_cast<float>(imu.mag[2]);
+    if (!ema_init) {
+        ema_y = fy;
+        ema_z = fz;
+        ema_init = true;
+    }
+    if (fabsf(fy - ema_y) > kMagSpikeCounts || fabsf(fz - ema_z) > kMagSpikeCounts) {
+        return false;  // wild point - not for the calibration, not for the heading
+    }
+    ema_y += kMagEmaAlpha * (fy - ema_y);
+    ema_z += kMagEmaAlpha * (fz - ema_z);
+
+    const int16_t y = static_cast<int16_t>(ema_y);
+    const int16_t z = static_cast<int16_t>(ema_z);
     min_y = (y < min_y) ? y : min_y;
     max_y = (y > max_y) ? y : max_y;
     min_z = (z < min_z) ? z : min_z;

@@ -10,10 +10,10 @@ from ground.frames import COMMANDS, FAULTS, MODES, RESOLUTIONS, heading_arg
 # which catalog a command's argument is drawn from; absent means the command takes no argument
 ARG_CATALOG = {"SET_MODE": MODES, "CLEAR_FAULT": FAULTS, "CAPTURE_IMAGE": RESOLUTIONS}
 
-# commands whose argument may be left off, and what it means when it is. CAPTURE_IMAGE defaults to
-# the smallest size for the same reason the camera powers up there: it is the one that downlinks
-# inside a short pass, and a bare CAPTURE_IMAGE should not be the expensive choice
-ARG_DEFAULT = {"CAPTURE_IMAGE": "320x240"}
+# commands whose argument may be left off, and what it means when it is. CAPTURE_IMAGE defaults
+# to 800x600 - the operator's stated working size. the camera itself still powers up at 320x240,
+# which only matters for a capture commanded by something other than this console
+ARG_DEFAULT = {"CAPTURE_IMAGE": "800x600"}
 
 
 class CommandError(ValueError):

@@ -535,8 +535,9 @@ def format_frame(msg_id: int, payload: bytes) -> str:
     if msg_id == MSG_ATTITUDE_STATUS and len(payload) == 13:
         d = decode_attitude_status(payload)
         # the error is what a pointing run is actually judged on, so it is stated rather than left
-        # to be subtracted by eye
-        err = d["heading_deg"] - d["target_deg"]
+        # to be subtracted by eye - and wrapped, because 122.8 minus -136.0 is +258.7 only on a
+        # number line. on a circle it is -101.3, and the bench showed the unwrapped version
+        err = ((d["heading_deg"] - d["target_deg"] + 180.0) % 360.0) - 180.0
         marks = []
         if d["flags"] & ATTITUDE_FLAG_IN_BAND:
             marks.append("in band")

@@ -289,7 +289,7 @@ The retransmission rule exists because the ground resends: the LoRa link is half
 
 **REQ-TLM-004** - The telemetry transport shall be swappable behind the frame format - UART first, radio later - with no change to the wire format.  
 **Type**: Constraint  
-**Status**: bench-verified over the air (2026-07-30 - one encoded frame goes to four transports unchanged: console UART, downlink UART, LoRa beacon, nRF24. An 800x600 capture commanded over LoRa downlinked over the nRF24 as 398 chunks and reassembled to a 22240-byte file with intact JPEG markers, 96% packet delivery across three passes. LoRa carries heartbeats, acks and attitude only - the full stream would want 2.8 s of air time per second. **Owed: the same with no cable to the vehicle**)
+**Status**: demonstrated untethered (2026-07-30 - the vehicle on bench power with no data cable attached: commanded into POINTING over LoRa, a capture and a downlink over the nRF24, 137 chunks reassembled to `captures/image_0017.jpg` with intact JPEG markers. The first pass delivered 72% and two selective-repeat rounds named and refilled the rest, which is the point of the protocol: delivery variance stopped mattering. One encoded frame crosses four transports unchanged; LoRa carries heartbeats, acks and attitude only - the full stream would want 2.8 s of air time per second)
 **Verification**: inspection and HIL  
 **Artifact**: common/protocol/frame.cpp (the format, unchanged per transport), fsw/platform/stm32/platform_stm32.cpp (one call, three transports), obc/Src/devices/rfm95.c, obc/Src/freertos/telemetry_task.cpp, obc/Src/drivers/uart.c
 
@@ -454,7 +454,7 @@ An inhibited fault is deliberately excluded from the three alarm rungs and colle
 
 **REQ-PAY-003** - A captured frame shall be held in the camera's own buffer and read out in caller-sized chunks, so that no image-sized buffer is allocated in flight-software RAM.  
 **Type**: Constraint  
-**Status**: bench-verified (a 7299-byte frame drained to exactly its reported length, FF D8 to FF D9, through a 64-byte stack buffer). **Re-test owed:** the FIFO burst now closes on every chunk rather than staying open, because a burst holds chip select and SPI3 is shared with the radios. The read pointer is expected to survive the deselect, but that is reasoning, not evidence  
+**Status**: bench-verified (a 7299-byte frame drained to exactly its reported length, FF D8 to FF D9, through a 64-byte stack buffer). The per-chunk burst close is verified by use rather than by a dedicated re-test: the 2026-07-30 over-the-air images reassembled with intact markers through per-chunk closes, rewinds, and selective-repeat sweeps of the same fifo, which is the read-pointer-survives-deselect evidence that was owed  
 **Verification**: inspection and HIL  
 **Artifact**: obc/Src/devices/ov2640.c
 

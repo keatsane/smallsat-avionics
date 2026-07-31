@@ -56,6 +56,7 @@ def directives() -> str:
         "    /show IMU,TEMP          stop hiding these\n"
         "    /hide IMU               hide these\n"
         "    /filters                what is showing right now\n"
+        "    shoot [size] [bearing]  the whole imaging sequence as one command\n"
         f"    kinds: {', '.join(KINDS)}"
     )
 
@@ -109,6 +110,7 @@ def main() -> int:
         "TEXT": "\x1b[2m",  # dim
         "SENT": "\x1b[1;32m",  # bold green - the local side of the conversation
         "REQUEST": "\x1b[1;32m",  # ditto - the ground naming the chunks it wants again
+        "MISSION": "\x1b[1;34m",  # bold blue - the shoot macro narrating its steps
         "REJECT": "\x1b[1;31m",  # bold red - refused here, never reached the wire
         "PAYLOAD": "\x1b[35m",  # magenta - bulk data, distinct from the health stream
         "DOWNLINK": "\x1b[1;35m",  # bold magenta - the progress of that bulk data
@@ -161,10 +163,28 @@ def main() -> int:
         for line in lines:
             show(line)
 
+    def shoot(argv: list) -> None:
+        """The whole imaging sequence as one word: point, aim, capture, downlink, park."""
+        res, bearing = None, None
+        for a in argv:
+            if "x" in a.lower():
+                res = a.lower()
+            else:
+                try:
+                    bearing = float(a)
+                except ValueError:
+                    show(f"{'REJECT':<12} shoot takes a size and/or a bearing, not {a!r}")
+                    return
+        deliver(*session.mission_start(res, bearing, time.monotonic()))
+
     def submit(line: str) -> None:
         """One typed or piped line -> a console directive, a command on the wire, or a rejection."""
         line = line.strip()
         if not line or local_directive(line):
+            return
+        parts_ = line.split()
+        if parts_[0].lower() == "shoot":
+            shoot(parts_[1:])
             return
         try:
             cmd_id, arg = parse(line)

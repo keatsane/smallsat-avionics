@@ -143,3 +143,72 @@ def test_firmware_text_between_frames_is_salvaged():
     # and a half line is surfaced when the port goes quiet rather than sat on
     s.feed(b"half a line", now=0.1)
     assert any("half a line" in ln for ln in s.idle())
+
+
+# a tiny but genuine jpeg shape for the mission test - markers at both ends, three chunks long
+JPEG = b"\xff\xd8" + bytes(range(120)) + b"\xff\xd9"
+
+
+def _split(data: bytes) -> list:
+    return [data[i : i + 56] for i in range(0, len(data), 56)]
+
+
+def _heartbeat(mode_idx: int, seq: int = 1) -> bytes:
+    return frames.encode(frames.MSG_HEARTBEAT, struct.pack("<IBIIH", 1000, mode_idx, 0, 0, seq))
+
+
+def _drain_acks(s: GroundSession, now: float) -> None:
+    """Ack every outstanding command so retries stay out of the transcript under test."""
+    for seq in list(s.outstanding):
+        s.feed(_ack(seq), now=now)
+
+
+def test_shoot_runs_the_whole_sequence_on_evidence(tmp_path):
+    # the macro advances on what the telemetry shows - mode changes and the saved file - never on
+    # the optimism of having sent something
+    s = GroundSession(Assembler(tmp_path))
+
+    lines, tx = s.mission_start(None, None, now=0.0)
+    assert any("MISSION" in ln and "800x600" in ln for ln in lines)  # the default size
+    assert len(tx) == 1  # SET_MODE POINTING went out immediately
+    _drain_acks(s, 0.1)
+
+    # nothing more until the vehicle proves it is POINTING. the machine takes one tick to see
+    # the mode and one to act - the reader loop ticks at ~10 Hz, so that costs 100 ms on a bench
+    assert s.tick(1.0) == ([], [])
+    s.feed(_heartbeat(3), now=1.5)
+    s.tick(1.6)
+    lines, tx = s.tick(1.7)
+    assert any("CAPTURE_IMAGE 800x600" in ln for ln in lines)
+    _drain_acks(s, 1.8)
+
+    # the settle pause, then DOWNLINK
+    assert s.tick(2.0) == ([], [])
+    lines, tx = s.tick(4.5)
+    assert any("SET_MODE DOWNLINK" in ln for ln in lines)
+    _drain_acks(s, 4.6)
+    s.feed(_heartbeat(4), now=5.0)
+    s.tick(5.1)
+
+    # the image lands, and the macro parks the vehicle and reports the file
+    parts = _split(JPEG)
+    for i, part in enumerate(parts):
+        s.feed(_chunk(1, i, len(parts), part), now=6.0)
+    lines, tx = s.tick(6.5)
+    assert any("SET_MODE STANDBY" in ln for ln in lines)
+    _drain_acks(s, 6.6)
+    lines, _ = s.feed(_heartbeat(1), now=7.0)
+    lines2, _ = s.tick(7.1)
+    assert any("MISSION" in ln and "complete" in ln for ln in lines + lines2)
+    assert s.mission is None
+
+
+def test_shoot_fails_loudly_when_the_mode_never_confirms(tmp_path):
+    s = GroundSession(Assembler(tmp_path))
+    s.mission_start(None, None, now=0.0)
+    _drain_acks(s, 0.1)
+
+    # the vehicle never reaches POINTING - past the deadline the mission says so and stands down
+    lines, tx = s.tick(30.0)
+    assert any("MISSION" in ln and "failed" in ln for ln in lines)
+    assert s.mission is None

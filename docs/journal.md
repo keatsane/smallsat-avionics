@@ -103,6 +103,19 @@ Dated evidence, newest first.
 
 ### Phase 8 - wireless link and ground station
 
+- **2026-07-30** - The console grew a mission: `shoot [size] [bearing]` walks point, aim,
+  capture, downlink, park as one command, advancing each step on telemetry evidence rather than
+  on having sent something. The compass gained a spike gate and smoothing after bench headings
+  repeated only to tens of degrees - min/max calibration never forgets, so one glitched sample
+  had been corrupting the spans for the rest of the boot. README and roadmap caught up with the
+  radio arc they predated.
+- **2026-07-30** - **The untethered pass - phase 8's deliverable.** No data cable on the vehicle:
+  commanded into POINTING over LoRa, captured, and downlinked over nRF24 to
+  `captures/image_0017.jpg`, markers intact. First pass delivered 72%; two selective-repeat
+  rounds (10 missing, then 1) finished it, which is the protocol doing exactly its job. The same
+  log shows auto-detumble catching two hand spins and handing the vehicle back, and pointing
+  holding its captured heading to a fraction of a degree at rest. Power was the bench supply -
+  the battery waits on its fuse.
 - **2026-07-30** - Selective repeat closed the loop on the bench: two 800x600 images arrived
   complete over the air, gaps named and refilled. The gyro moved to +-2000 dps after fast spins
   clipped at 1000 and the heading "lost track"; a compass disagreement past ~57 degrees now snaps

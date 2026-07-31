@@ -19,19 +19,27 @@ bytes to the port themselves - the session never touches I/O.
 import threading
 
 from ground.frames import (
+    ATTITUDE_FLAG_IN_BAND,
     CHUNK_REQUEST_MAX,
+    COMMANDS,
+    MSG_ATTITUDE_STATUS,
+    MSG_HEARTBEAT,
+    RESOLUTIONS,
     MSG_COMMAND_ACK,
     MSG_DOWNLINK_STATUS,
     MSG_GROUND_STATUS,
     MSG_PAYLOAD_DATA,
     FrameDecoder,
+    decode_attitude_status,
     decode_command_ack,
+    decode_heartbeat,
     decode_downlink_status,
     decode_ground_status,
     decode_payload_data,
     encode_chunk_request,
     encode_command,
     format_frame,
+    heading_arg,
 )
 from ground.payload import Assembler, looks_like_jpeg
 
@@ -86,6 +94,17 @@ class GroundSession:
         self.dl_idle_at = -1e9  # when the vehicle last said "in DOWNLINK, nothing in flight"
         self.text = bytearray()  # printable bytes between frames - firmware debug prints
 
+        # vehicle state gleaned from the passing stream, for the mission sequencer
+        self.mode = ""  # last heartbeat's mode name
+        self.in_band = False  # last attitude frame's pointing flag
+        self.images_saved = 0
+        self.last_saved: str = ""
+
+        # the mission sequencer - the shoot macro's state. one mission at a time, advanced by
+        # tick() against what the telemetry stream actually shows happening, because "the mode
+        # changed" is evidence and "the command was sent" is only hope
+        self.mission: dict | None = None
+
     # ---- transmit side ----
 
     def command(self, cmd_id: int, arg: int, label: str, now: float, retry: bool = True):
@@ -110,6 +129,7 @@ class GroundSession:
         tx: list[bytes] = []
         with self.lock:
             self._request_chunks(now, lines, tx)
+            self._mission_service(now, lines, tx)
             for s_no, p in list(self.outstanding.items()):
                 if now < p["due"]:
                     continue
@@ -174,7 +194,11 @@ class GroundSession:
             self._take_chunk(payload, lines)
             return
 
-        if msg_id == MSG_COMMAND_ACK:
+        if msg_id == MSG_HEARTBEAT:
+            self.mode = decode_heartbeat(payload)["mode"]
+        elif msg_id == MSG_ATTITUDE_STATUS:
+            self.in_band = bool(decode_attitude_status(payload)["flags"] & ATTITUDE_FLAG_IN_BAND)
+        elif msg_id == MSG_COMMAND_ACK:
             self.outstanding.pop(decode_command_ack(payload)["seq"], None)
         elif msg_id == MSG_GROUND_STATUS:
             g = decode_ground_status(payload)
@@ -197,6 +221,8 @@ class GroundSession:
             return
 
         path = self.assembler.save(img)
+        self.images_saved += 1
+        self.last_saved = str(path)
         # the same SOI/EOI check the firmware makes, repeated at the other end of the link - the
         # one thing that proves the bytes survived framing, chunking, and reassembly intact
         verdict = "JPEG OK" if looks_like_jpeg(img.data()) else "BAD MARKERS"
@@ -225,6 +251,130 @@ class GroundSession:
             f"packets {got}/{sent} ({pct}%)  frames {frames}"
         )
         self.pass_start = None
+
+    def mission_start(self, resolution, bearing_deg, now: float):
+        """Begin the whole imaging sequence as one command: point, (aim), shoot, downlink, park.
+
+        A ground-side macro rather than flight autonomy on purpose: the sequencing lives where it
+        is visible and abortable, and every step is advanced by what the telemetry shows actually
+        happened rather than by optimism about what was sent.
+        """
+        lines: list[str] = []
+        tx: list[bytes] = []
+        with self.lock:
+            if self.mission is not None:
+                return [f"{'MISSION':<12} already flying - one at a time"], []
+            res = resolution or "800x600"
+            if res not in RESOLUTIONS:
+                choices = ", ".join(RESOLUTIONS)
+                return [f"{'MISSION':<12} unknown size {res!r} - one of {choices}"], []
+            self.mission = {
+                "step": "point",
+                "due": now,  # first step fires immediately
+                "res": res,
+                "bearing": bearing_deg,
+                "saved_before": self.images_saved,
+            }
+            tail = f" at {bearing_deg:g} deg" if bearing_deg is not None else ""
+            lines.append(f"{'MISSION':<12} shoot {res}{tail}")
+            self._mission_service(now, lines, tx)
+        return lines, tx
+
+    def _mission_send(self, cmd_name: str, arg: int, label: str, now: float, tx: list, lines: list):
+        """One mission step's command, through the normal retry machinery."""
+        self.seq = (self.seq + 1) & 0xFFFF
+        frame = encode_command(COMMANDS.index(cmd_name), arg, self.seq)
+        if self.retry:
+            self.outstanding[self.seq] = {
+                "frame": frame,
+                "label": label,
+                "tries": 1,
+                "due": now + RETRY_AFTER_S,
+            }
+        tx.append(frame)
+        lines.append(f"{'SENT':<12} {label}  seq={self.seq}")
+
+    def _mission_fail(self, why: str, lines: list) -> None:
+        lines.append(f"{'MISSION':<12} failed - {why}")
+        self.mission = None
+
+    def _aim_or_shoot(self, m: dict, now: float, lines: list, tx: list) -> None:
+        if m["bearing"] is not None:
+            self._mission_send(
+                "SET_HEADING",
+                heading_arg(m["bearing"]),
+                f"SET_HEADING {m['bearing']:g}",
+                now,
+                tx,
+                lines,
+            )
+            m["step"], m["due"] = "aim", now + 25.0
+        else:
+            m["step"], m["due"] = "shoot", now
+
+    def _mission_service(self, now: float, lines: list, tx: list) -> None:
+        """Advance the mission by evidence: mode changes, the in-band flag, the saved file."""
+        m = self.mission
+        if m is None:
+            return
+        step = m["step"]
+
+        if step == "point":
+            if self.mode == "POINTING":
+                self._aim_or_shoot(m, now, lines, tx)
+            else:
+                self._mission_send("SET_MODE", 3, "SET_MODE POINTING", now, tx, lines)
+                m["step"], m["due"] = "point_wait", now + 10.0
+        elif step == "point_wait":
+            if self.mode == "POINTING":
+                self._aim_or_shoot(m, now, lines, tx)
+            elif now >= m["due"]:
+                self._mission_fail("POINTING never confirmed", lines)
+        elif step == "aim":
+            # wait for the controller to report in band. without a wheel this only succeeds if
+            # the platform already points there, so the timeout proceeds rather than fails - a
+            # photograph of the wrong bearing is still a photograph, and the log says which
+            if self.in_band or now >= m["due"]:
+                if not self.in_band:
+                    lines.append(f"{'MISSION':<12} aim timed out - shooting where it points")
+                m["step"] = "shoot"
+        elif step == "shoot":
+            self._mission_send(
+                "CAPTURE_IMAGE",
+                RESOLUTIONS.index(m["res"]),
+                f"CAPTURE_IMAGE {m['res']}",
+                now,
+                tx,
+                lines,
+            )
+            # the capture is fire-and-forget on the vehicle; give the fifo a moment to fill
+            m["step"], m["due"] = "settle", now + 2.5
+        elif step == "settle":
+            if now >= m["due"]:
+                self._mission_send("SET_MODE", 4, "SET_MODE DOWNLINK", now, tx, lines)
+                m["step"], m["due"] = "downlink_wait", now + 10.0
+        elif step == "downlink_wait":
+            if self.mode == "DOWNLINK":
+                m["step"], m["due"] = "receive", now + 120.0
+            elif now >= m["due"]:
+                self._mission_fail("DOWNLINK never confirmed", lines)
+        elif step == "receive":
+            if self.images_saved > m["saved_before"]:
+                self._mission_send("SET_MODE", 1, "SET_MODE STANDBY", now, tx, lines)
+                m["step"], m["due"] = "park", now + 10.0
+            elif now >= m["due"]:
+                self._mission_fail("image never completed", lines)
+        elif step == "park":
+            if self.mode == "STANDBY":
+                lines.append(f"{'MISSION':<12} complete -> {self.last_saved}")
+                self.mission = None
+            elif now >= m["due"]:
+                # the picture is on disk; a vehicle that would not park is an anticlimax, not
+                # a failure
+                lines.append(
+                    f"{'MISSION':<12} complete (vehicle left in DOWNLINK) -> {self.last_saved}"
+                )
+                self.mission = None
 
     def _request_chunks(self, now: float, lines: list, tx: list) -> None:
         """The ground half of selective repeat: name the missing chunks while the vehicle sits

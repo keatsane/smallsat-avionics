@@ -14,22 +14,21 @@ Where the build actually is. History belongs in `journal.md`.
 stack pending a replacement board, so `WHEEL_DROPOUT` and `COMMAND_LINK_LOSS` run under the
 declared bench inhibits. Still owed: the PTC fuse before the LiPo ever runs.
 
-**Software:** phases 0-6 done. Phase 7 has detumble SIL-verified; pointing is written but its
-error is not observable on this rig (see REQ-ADCS-002). Phase 8 has the wireless link running
-both ways - beacon and acks on LoRa, commands up from the ground console, and payload chunks on
-nRF24. An 800x600 image has been captured, downlinked and reassembled over the air (REQ-TLM-004).
-**Owed: the untethered run** - the same sequence with no cable to the vehicle, which is the phase 8
-deliverable.
+**Software:** phases 0-6 done. Phase 7 has detumble SIL-verified and running autonomously on the
+bench (auto-entry, auto-exit, resume); pointing holds an absolute compass heading, coarse indoors.
+**Phase 8's deliverable is done:** the vehicle, with no data cable, was commanded over LoRa into
+POINTING, captured, and downlinked an image over nRF24 that reassembled intact on the ground -
+selective repeat refilled what the first pass dropped. Power still comes from the bench supply;
+flying on the battery waits on the PTC fuse and the battery harness.
 
 **Next, unblocked:**
 
-1. The untethered demo - command the vehicle and downlink an image with no cable to it. Closes
-   REQ-TLM-004 and is the phase 8 deliverable.
-2. Payload resolution as a `CAPTURE_IMAGE` argument, defaulting to 800x600. Blocked internally on
-   moving `scan_jpeg_length` off the control task first - it scales with frame size and would
-   overrun the 100 ms cycle at UXGA.
-3. Measure the bearing's breakaway torque. It is the last unmeasured plant parameter and it
-   decides whether pointing is achievable here at all.
+1. Measure the bearing's breakaway torque. It is the last unmeasured plant parameter and it
+   decides how fine the pointing can be on this rig.
+2. Bench re-tests owed in `requirements.md`: the three power crossings on the 14.8 V bus and a
+   temperature crossing (REQ-SNS-004/005).
+3. A compass accuracy pass beyond the current smoothing, if indoor repeatability stays coarse -
+   an ellipse fit is the next honest step.
 
 **Blocked on the replacement ESC:** the wheel UART link, and HIL for every ADCS requirement. The
 flight software for it is written and green on the host; what is missing is the wire. PA10 must
@@ -47,10 +46,8 @@ ground. Delete the `TEMP esc rx:` block in `control_task.cpp` once `ESC: up` app
 | 4 | First HIL slice | done |
 | 5 | Sensors (real telemetry & faults) | done on bench - all four sensors answering, and an image captured and downlinked end to end |
 | 6 | Real-time task model + recovery (FreeRTOS + watchdog) | **done, HIL-verified 2026-07-29** - HIL-003 passed 7/7: all four tasks in all 60 reports, watchdog fed in every one, worst stack margin 104 words against a 64 floor, and 59 heartbeat periods at a 1.000 s mean. The bite was demonstrated separately (`reset=iwdg-watchdog`) |
-| 7 | ADCS: closed-loop attitude control | planned - the actuator hardware is done: closed-loop FOC on a real encoder, reaction-wheel effect demonstrated (2026-07-21). Needs the ESC UART link in firmware, then the control law |
-| 8 | Capstone: untethered rig + publish | planned - the satellite-side radio hardware is wired; still needs radio drivers, the ground station box, the PTC fuse, and the battery integration |
-
-**Note on phase ordering:** the hardware got built ahead of the firmware, so Phase 7 and 8 *hardware* is largely complete while their firmware is untouched. The phases still gate on software, not wiring.
+| 7 | ADCS: closed-loop attitude control | control laws SIL-verified against the plant; autonomous detumble entry/exit/resume and the compass-anchored heading run on the bench. Blocked on the replacement ESC for the physical loop and its HIL |
+| 8 | Capstone: untethered rig + demo | **deliverable done 2026-07-30** - commanded, imaged, and downlinked over radio with no data cable. Battery integration (with the PTC fuse) and the survey demo remain |
 
 ---
 
@@ -66,7 +63,6 @@ Items that outlived the phase they were opened in, or that are waiting on a part
 - **PTC resettable fuse (Littelfuse RUEF300 or equivalent) - ordered, not yet arrived.** The main + lead currently runs through a temporary jumper. **This must be fitted before the LiPo is ever connected**; until then the bench PSU's current limit is the only fault protection. The one outstanding hardware item on the satellite.
 - **Mechanical work on the gimbal plate:** lazy-susan stiction, flywheel inertia (fill pockets outermost-first, consider a larger radius), and tether routing up the spin axis. See the flywheel notes in `hardware.md`.
 - **"Link never acquired" vs "link lost" in telemetry (phase 8, open design question).** `link_lost()` measures against `last_command_ms_ = 0`, so COMMAND_LINK_LOSS (Critical, debounce 1) latches ~5 s after every boot with no ground station and drops the rig to SAFE. That *response* is right - a spacecraft that cannot hear the ground should safe - and it is why bench demos need NOOP keep-alives. What is missing is **observability**: nothing distinguishes "never acquired" from "lost after contact". The status array already separates them (amber vs red, derived from an empty command log), but a heartbeat or log reader cannot. Worth carrying in telemetry once the ground station exists to read it; deliberately not a new fault or mode now, since the derivation already exists and there would be exactly one consumer.
-- **Whether `journal.md` and `roadmap.md` stay in the repo when it goes public.** The one question the 2026-07-29 editing pass left open. The argument against was that publishing unbuilt plans is the honest-status trap and that a first-person log contradicts the third-person doc voice - both true, and both fixable by editing rather than deletion. The counter-argument is stronger: the journal's hard-won lessons (I2C bus capacitance versus rise time, WS2812s needing 5 V, the gyro bias measured through its own correction, suspect the newest cable before the silicon, a fault reporter that can hang makes every early failure look identical) are the debugging judgement a reader cannot get from finished code.
 
 ---
 
@@ -101,16 +97,16 @@ and live nowhere else:
    Two prerequisites and one bench constraint: the **payload task + SPI3 mutex** must land first (reading 80x60x2 = 9600 bytes at the measured ~500 KB/s costs ~20 ms, a fifth of the control cycle, and it must not spend that inside the control task); the raw register tables need vendoring the way the JPEG ones were; and **cross-correlation needs texture** - a blank white wall has no features and returns no peak, so the bench needs a poster or a cluttered background before anyone debugs "why is the rate always zero".
 **Done when:** a clip and plots show the same controller detumbling and pointing in sim and on the rig, and the two rate sources tracking each other.
 
-### Phase 8 - Capstone: untethered rig + demo package & publish
+### Phase 8 - Capstone: what remains
 
-**Goal:** the rig runs free - battery-powered, no USB tether - holding the detumble/point demo standalone while a **dual-link** comms stack runs: an always-on LoRa beacon (mode/faults/telemetry) plus a high-rate nRF24 payload downlink that empties the imaging buffer to the ground station during a contact pass. Then the polished package and a public repo.
+The dual-link comms stack, the ground station, and the no-data-cable demo are done (see the
+journal, 2026-07-30). What is left of the capstone:
 
-**Steps:**
-1. **The remaining OBC tasks.** Uplink and telemetry tasks - the uplink blocks on UART RX instead of polling every cycle, and one task owns all console output (`configUSE_NEWLIB_REENTRANT` is 0, so `vsnprintf` from two tasks is not safe). This is where the first `FromISR` call appears, and why the UART interrupt priorities went in first. Then the **payload downlink task**, and with it the **SPI3 mutex** - the camera is still read from the control task precisely because the downlink shares that bus, so the mutex and the task land together. `scan_jpeg_length()` in `ov2640_poll()` scans the whole ~8-10 KB FIFO byte-by-byte over polled SPI from inside the control task, costing that one cycle ~16 ms of its 100 ms budget (inferred from a 16 ms timestamp shift, not yet timed directly - do that before quoting the number anywhere public). No deadline is missed, so this is a margin argument rather than a violation, but it is margin the phase 7 control law will want.
-2. **Radio drivers** - the largest chunk. Bring up the two transports behind the existing framed/CRC protocol (swap transport, frames unchanged - REQ-TLM-004): the RFM95/LoRa beacon first, then the nRF24L01+PA+LNA high-rate link.
-3. **The ground station box.** The owned Teensy host, both receivers, and the SSD1306 OLED moved from the satellite, bridged to the laptop over USB. Its firmware lands as a new top-level `gsw/` in C++ (the sibling of `fsw/`) and shares the wire contract already at `common/protocol/`; `tools/` Python stays the ground brain (decode, logs, reports) and the Teensy is the bridge and console. **No command buttons and no battery (decided 2026-07-29):** the laptop console the box is already tethered to is a strictly better command interface, and the cable that carries those commands carries the power. The satellite is the thing that goes untethered; the ground station staying wired is what makes that demonstration mean something.
-4. **Battery integration.** Measure the assembled current draw (motor peaks + logic + both radios transmitting) and size the pack; fit the PTC fuse; run on battery, perturb the platform, watch it recover and downlink an image over the wireless link.
-5. **The package.** Collect the verification matrix, SIL/HIL reports, plots, the sim-versus-rig overlay, and a demo clip; polish the README; make public.
+1. **Battery integration.** Measure the assembled current draw (motor peaks + logic + both
+   radios transmitting) and size the pack; fit the PTC fuse; run on battery, perturb the
+   platform, watch it recover and downlink an image with no wires at all.
+2. **The package.** The verification matrix, SIL/HIL reports, the sim-versus-rig overlay once
+   the wheel is back, and a demo clip.
 
 **The capstone imaging demo is a slew-and-image panorama, in a new SURVEY mode (decided 2026-07-29).** Command a controlled slew, capture at intervals through the rotation, downlink the set, and stitch it on the ground into one wide image. Slew-and-image is how a lot of smallsat imaging actually works, and it *uses* the attitude control rather than duplicating it, so almost all the new code is a ground-side stitcher. The result is one image that took attitude control, payload timing, and a multi-image downlink to produce.
 

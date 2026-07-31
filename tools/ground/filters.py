@@ -32,6 +32,7 @@ KINDS = (
     "DOWNLINK",
     "LINK",
     "REQUEST",
+    "MISSION",
     "GROUND",
     "UART",
     "COMMAND",
