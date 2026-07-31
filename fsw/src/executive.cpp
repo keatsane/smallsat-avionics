@@ -92,6 +92,13 @@ void Executive::cycle(const Inputs& inputs, uint32_t t_ms) {
         }
     }
 
+    // boot info - offered on the first cycle only, so this fires once per reset (REQ-WDG-002).
+    // sent ahead of the heartbeat deliberately: a ground station reading the log top-down should
+    // learn why the computer restarted before it sees the first state it restarted into
+    if (inputs.boot) {
+        send(MsgId::BootInfo, *inputs.boot);
+    }
+
     // heartbeat
     if (tp_.heartbeat_due(t_ms)) {
         send(MsgId::Heartbeat, tp_.heartbeat(t_ms, mm_.mode(), fm_.active(), fm_.inhibited()));

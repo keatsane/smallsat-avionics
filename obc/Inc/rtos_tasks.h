@@ -35,16 +35,19 @@
 #define TASK_PRIO_TELEMETRY 3
 #define TASK_PRIO_DOWNLINK  2
 
-// sized against measured peaks, not guesses. bench run 2026-07-29 covering every mode, a capture
-// and a 131-chunk downlink reported the same high-water marks as an idle run - the deepest path in
-// the control task is a console_printf, not the payload downlink. peaks were control 181, sensors
-// 101, health 80, idle 23 words; each below keeps roughly 2.5x that. the margin is deliberately
+// sized against measured peaks, not guesses. bench run 2026-07-31 covering every mode, a capture
+// and a 165-chunk downlink: control 186, sensors 101, health 98, telemetry 60, downlink 100,
+// idle 23 words. each below keeps roughly 2.5x that. the margin is deliberately
 // generous rather than tight, because the kernel's high-water figure reads optimistic: it counts a
 // fill pattern, and a written byte that happens to hold that pattern lets the count run past the
 // true frontier. re-measure and re-size when a task's work changes
 #define TASK_STACK_CONTROL 512U
 #define TASK_STACK_SENSORS 256U
-#define TASK_STACK_HEALTH  192U  // one small struct and a frame buffer, no formatted output
+// re-measured 2026-07-31 at 98 words, up from the 80 above: it now reports on seven task slots
+// instead of five and hands its frame to the telemetry buffers rather than straight to a uart.
+// 192 left it at 1.96x - the only task under this file's ~2.5x floor, and the one whose job is
+// deciding whether to reset the board. 256 puts it back at 2.6x
+#define TASK_STACK_HEALTH 256U
 // measured 2026-07-30: idle it peaks near 40 words, but decoding one command took it to 113 -
 // frame_decode returns std::optional<frame_t> by value and that carries the 64-byte payload
 // buffer, which at -O0 lands on the stack whole. sized at ~2.8x the measured peak, matching

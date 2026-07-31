@@ -30,6 +30,9 @@ struct Inputs {
     std::optional<temp_data_t> temp;                      // incoming temperature sample(optional)
     std::optional<wheel_status_t> wheel;                  // wheel status, only on cycles one lands
     std::optional<camera_data_t> camera;                  // incoming camera health (optional)
+    // set on the first cycle after a reset and never again - the platform knows why the computer
+    // restarted, and this is how that crosses the boundary as an input rather than a side channel
+    std::optional<boot_info_t> boot;
 };
 
 }  // namespace fsw

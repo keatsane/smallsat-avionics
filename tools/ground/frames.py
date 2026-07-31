@@ -26,6 +26,7 @@ MSG_CAMERA_STATUS = 0x11
 MSG_WHEEL_COMMAND = 0x20
 MSG_WHEEL_STATUS = 0x21
 MSG_TASK_HEALTH = 0x30
+MSG_BOOT_INFO = 0x31
 
 
 def crc16(data: bytes) -> int:
@@ -127,6 +128,24 @@ MODES = ["BOOT", "STANDBY", "DETUMBLE", "POINTING", "DOWNLINK", "SAFE"]
 def mode_name(mode: int) -> str:
     """Name for a heartbeat's mode byte, or 'UNKNOWN' if out of range."""
     return MODES[mode] if 0 <= mode < len(MODES) else "UNKNOWN"
+
+
+# reset causes - mirror FSW_RESET_CAUSE_LIST in common/protocol/state.hpp (drift-checked)
+RESET_CAUSES = [
+    "UNKNOWN",
+    "POWER_ON",
+    "RESET_PIN",
+    "BROWNOUT",
+    "SOFTWARE",
+    "WATCHDOG",
+    "WINDOW_WATCHDOG",
+    "LOWPOWER",
+]
+
+
+def reset_cause_name(cause: int) -> str:
+    """Name for a boot_info_t reset cause, or 'UNKNOWN' if out of range."""
+    return RESET_CAUSES[cause] if 0 <= cause < len(RESET_CAUSES) else "UNKNOWN"
 
 
 # faults - mirror FSW_FAULT_LIST in common/protocol/state.hpp (drift-checked by test_frames).
@@ -231,6 +250,16 @@ def decode_camera_data(payload: bytes) -> dict:
         "t_ms": t_ms,
         "frame_bytes": frame_bytes,
         "flags": flags,
+    }
+
+
+def decode_boot_info(payload: bytes) -> dict:
+    """Unpack a boot_info_t payload (msg.hpp) into a dict."""
+    t_ms, clk_hz, reset_cause = struct.unpack("<IIB", payload)
+    return {
+        "t_ms": t_ms,
+        "clk_hz": clk_hz,
+        "reset_cause": reset_cause,
     }
 
 
@@ -389,6 +418,12 @@ def format_frame(msg_id: int, payload: bytes) -> str:
         )
     if msg_id == MSG_TASK_HEALTH and len(payload) == TASK_HEALTH_LEN:
         return format_task_health(payload)
+    if msg_id == MSG_BOOT_INFO and len(payload) == 9:
+        d = decode_boot_info(payload)
+        return (
+            f"{'BOOT':<12} t={d['t_ms']} ms  reset={reset_cause_name(d['reset_cause'])}  "
+            f"clk={d['clk_hz']} Hz"
+        )
     if msg_id == MSG_WHEEL_COMMAND and len(payload) == 4:
         torque_mv, seq = struct.unpack("<hH", payload)
         return f"{'WHEEL_CMD':<12} torque_mv={torque_mv}  seq={seq}"

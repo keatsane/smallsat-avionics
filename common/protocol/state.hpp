@@ -33,6 +33,25 @@
     X(WHEEL_DROPOUT)      /* reaction wheel stopped answering on its link */ \
     X(CAMERA_DROPOUT)     /* payload camera not answering */
 
+// reset causes - X(name). order here is the id carried in boot_info_t.reset_cause (REQ-WDG-002).
+// this is the wire's catalog, not the mcu's: the stm32 driver has its own reset_cause_t reading
+// RCC_CSR, and the control task static_asserts the two agree rather than trusting them to.
+//
+// note WATCHDOG rather than IWDG, and WINDOW_WATCHDOG rather than WWDG: those two are CMSIS
+// peripheral macros (`#define IWDG ((IWDG_TypeDef *) IWDG_BASE)`), and this header is compiled in
+// the same translation unit as stm32f446xx.h. an entry here that collides with a peripheral macro
+// expands into a pointer cast and buries the file in errors nowhere near the real cause. any name
+// added to any catalog in this file has to survive that
+#define FSW_RESET_CAUSE_LIST(X)                                                 \
+    X(UNKNOWN)         /* no flag set, or a cause this build does not decode */ \
+    X(POWER_ON)        /* cold power-up */                                      \
+    X(RESET_PIN)       /* reset pin pulled low */                               \
+    X(BROWNOUT)        /* supply dipped below the detect threshold */           \
+    X(SOFTWARE)        /* a deliberate reset request from the firmware */       \
+    X(WATCHDOG)        /* independent watchdog timed out - REQ-WDG-001 */       \
+    X(WINDOW_WATCHDOG) /* window watchdog */                                    \
+    X(LOWPOWER)        /* illegal low-power state */
+
 // operating modes - X(name). a mode's order here is its id, carried in heartbeat_t.mode
 #define FSW_MODE_LIST(X)                                      \
     X(BOOT)     /* power-on and self-checks */                \
@@ -62,6 +81,12 @@ enum class Mode : uint8_t {
 #undef FSW_MODE_X
 };
 
+enum class ResetCause : uint8_t {
+#define FSW_RESET_CAUSE_X(name) name,
+    FSW_RESET_CAUSE_LIST(FSW_RESET_CAUSE_X)
+#undef FSW_RESET_CAUSE_X
+};
+
 // catalog sizes - one entry per list, counted at compile time
 inline constexpr uint8_t kCommandCount =
 #define FSW_COMMAND_X(name) +1
@@ -77,6 +102,11 @@ inline constexpr uint8_t kModeCount =
 #define FSW_MODE_X(name) +1
     FSW_MODE_LIST(FSW_MODE_X);
 #undef FSW_MODE_X
+
+inline constexpr uint8_t kResetCauseCount =
+#define FSW_RESET_CAUSE_X(name) +1
+    FSW_RESET_CAUSE_LIST(FSW_RESET_CAUSE_X);
+#undef FSW_RESET_CAUSE_X
 
 // the catalogs must fit their bitmask carriers (heartbeat_t.faults, CommandSpec.legal_modes)
 static_assert(kFaultCount <= 32, "fault bitmask is a uint32_t - 32 faults max");
@@ -119,6 +149,16 @@ inline const char* mode_name(uint8_t id) {
 #define FSW_MODE_X(name) #name,
         FSW_MODE_LIST(FSW_MODE_X)
 #undef FSW_MODE_X
+    };
+    return id < sizeof(names) / sizeof(names[0]) ? names[id] : "UNKNOWN";
+}
+
+/** @brief reset-cause name for @p id, or "UNKNOWN" if out of range */
+inline const char* reset_cause_name(uint8_t id) {
+    static const char* const names[] = {
+#define FSW_RESET_CAUSE_X(name) #name,
+        FSW_RESET_CAUSE_LIST(FSW_RESET_CAUSE_X)
+#undef FSW_RESET_CAUSE_X
     };
     return id < sizeof(names) / sizeof(names[0]) ? names[id] : "UNKNOWN";
 }

@@ -279,8 +279,9 @@ BOOT means "powered on and still self-checking" - a state the vehicle enters by 
 
 **REQ-TLM-005** - The spacecraft shall indicate current mode, worst latched fault severity with a count of latched faults, and command-link state on a local status display, carrying the same information as the heartbeat packet so the two can be read against each other.  
 **Type**: Functional  
-**Status**: planned  
-**Verification**: demonstration (drive each mode, latch faults of each severity, and drop the uplink; observe the display against the decoded heartbeat)
+**Status**: bench-verified (2026-07-31 - with `COMMAND_LINK_LOSS` and `WHEEL_DROPOUT` both latched and both inhibited, the fault bead held blue, the non-alarm rung, and winked twice per cycle against a heartbeat reporting exactly those two faults. Mode and link state were demonstrated in the same run. Inhibited faults are counted, because they are latched and that is what the requirement asks)  
+**Verification**: demonstration (drive each mode, latch faults of each severity, and drop the uplink; observe the display against the decoded heartbeat)  
+**Artifact**: obc/Src/freertos/control_task.cpp, obc/Src/devices/ws2812.c
 
 ## Real-time execution and recovery
 
@@ -317,9 +318,9 @@ BOOT means "powered on and still self-checking" - a state the vehicle enters by 
 
 **REQ-WDG-002** - After any reset the flight software shall report the reset cause - including a watchdog reset - in a boot telemetry packet.  
 **Type**: Functional  
-**Status**: in progress (the reset-cause read and console boot-banner report are bench-demonstrated - a pin reset read back live as `BOOT: reset=pin`; the power-on / brownout / software / watchdog causes share the same decode path. The watchdog cause is now demonstrated too: a starved control task reset the board and the next banner read `BOOT: reset=iwdg-watchdog`. What remains owed is carrying the cause in the framed boot telemetry packet rather than only the console banner, so a ground station that missed the text still learns why the vehicle restarted)  
+**Status**: bench-verified (2026-07-31 - a cold start emitted exactly one `BOOT t=1125 ms reset=POWER_ON clk=180000000 Hz` frame, decoded by the ground console from the framed packet rather than read off the text banner. `boot_info_t` carries the cause and the core clock on `MsgId::BootInfo`, offered to the executive as a cycle input on the first cycle only, so it crosses the PAL as an input rather than a side channel. The earlier console-banner demonstrations stand alongside it: a pin reset read `BOOT: reset=pin`, and a starved control task reset the board with the next banner reading `BOOT: reset=iwdg-watchdog`)  
 **Verification**: HIL  
-**Artifact**: obc/Src/drivers/reset.c, obc/Inc/drivers/reset.h, obc/Src/main.cpp
+**Artifact**: obc/Src/drivers/reset.c, obc/Inc/drivers/reset.h, obc/Src/freertos/control_task.cpp, common/protocol/msg.hpp, tools/ground/frames.py
 
 ## Sensors and data validity
 
@@ -337,8 +338,8 @@ BOOT means "powered on and still self-checking" - a state the vehicle enters by 
 
 **REQ-SNS-003** - Where redundant sources exist, disagreement beyond a defined threshold shall raise a dedicated disagreement fault added with that redundant sensor path.  
 **Type**: Functional  
-**Status**: planned  
-**Verification**: unit test and SIL
+**Status**: deferred - conditional, and its condition is not met. The requirement is written to fire "where redundant sources exist" and this build has none: one IMU, one power monitor, one temperature sensor, one camera. Deliberately kept rather than deleted, because it is the rule any second sensor arrives under; deliberately not "planned", because planned implies work is queued and nothing here is buildable until a redundant path exists.  
+**Verification**: unit test and SIL, when a redundant path exists
 
 **REQ-SNS-004** - A valid monitored power reading outside its configured operating limits shall raise the corresponding power fault (undervoltage, overvoltage, overcurrent).
 **Type**: Functional
@@ -356,13 +357,15 @@ BOOT means "powered on and still self-checking" - a state the vehicle enters by 
 
 **REQ-HMI-001** - The spacecraft shall indicate its current mode, the worst active fault severity, and its command-link health on an external visual indicator, updated every control cycle and readable without a ground connection.  
 **Type**: Functional  
-**Status**: bench-verified (three chained WS2812 beads on the comms plate, driven from PA8 by TIM1_CH1 + DMA; bead 0 carries mode by color, bead 1 the fault ladder, and bead 2 the uplink as three distinct states - amber before the first command is ever received, green in contact, red once COMMAND_LINK_LOSS acts, so a never-acquired link is never reported as a healthy one. The single-wire bit timing was scope-confirmed at 0.4 us / 0.8 us highs on a 1.25 us period)  
+**Status**: bench-verified (three chained WS2812 beads on the comms plate, driven from PA8 by TIM1_CH1 + DMA; bead 0 carries mode by color, bead 1 the fault ladder, and bead 2 the uplink as three distinct states - blinking amber before the first command is ever received, green in contact, red once the link is silent past its timeout, so a never-acquired link is never reported as a healthy one. The single-wire bit timing was scope-confirmed at 0.4 us / 0.8 us highs on a 1.25 us period. Bead 2 was re-demonstrated 2026-07-31 after the correction below: blinking amber from boot, solid green on the first command, and solid red once the link had been silent for its 5 s timeout - the last of those being a transition the previous logic could never make on a build that inhibits the fault)  
 **Verification**: demonstration (observe the array follow a commanded mode change and a latched fault)  
 **Artifact**: obc/Src/drivers/pwm_dma.c, obc/Src/devices/ws2812.c, obc/Src/main.cpp, docs/journal.md (the dated observation)
 
 ### Mode bead colors
 
 Bead 0 carries the mode, one color each, no blinking - a spinning platform is read at a glance and a blink code is not.
+
+**Motion is deliberately rationed across the strip.** Bead 1 spends it on a number (the latched-fault count) and bead 2 spends it on one persistent state (never-acquired). Nothing else blinks, and that is a decision rather than an omission: a strip where every bead moves cannot be counted, and the count is the only thing here carrying data rather than a category. DOWNLINK was considered for a mode blink and rejected - since the payload downlink became self-pacing a whole image leaves in about a second, so the blink would be over before anyone looked up.
 
 | Mode | Color |
 | ---- | ----- |
@@ -373,7 +376,9 @@ Bead 0 carries the mode, one color each, no blinking - a spinning platform is re
 | DOWNLINK | magenta |
 | SAFE | red |
 
-Bead 2 carries the uplink in three states: **amber** before any command has ever arrived, **green** once the ground is in contact, **red** once COMMAND_LINK_LOSS is acting. Amber is a real distinction rather than a hedge - an un-latched loss fault before first contact only means the dead-man timer has not expired yet, which is unknown, not healthy.
+Bead 2 carries the uplink in three states: **blinking amber** before any command has ever arrived, **green** once the ground is in contact, **red** once the link has been silent past its 5 s timeout. Amber is a real distinction rather than a hedge - an un-latched loss fault before first contact only means the dead-man timer has not expired yet, which is unknown, not healthy - and it blinks because it is a state the rig sits in for a whole session, where a slow blink reads as searching and a steady amber reads as something settled.
+
+**The bead asks the link, not the fault's response** (corrected 2026-07-31). It used to read `response_active(COMMAND_LINK_LOSS)`, which is false while the fault is inhibited - and the bench build inhibits it. The effect was that the bead went green on the first command ever received and stayed green for the rest of the session however long the ground had been gone. Suppressing a response is a decision about safing and says nothing about the link, so the display asks `link_lost()` directly. There is deliberately no fourth state for "silent but still inside the timeout": nothing keeps the link alive between typed commands, so that would be the normal condition during ordinary bench use and would blink continuously.
 
 The whole array runs at level 4 of 255. The beads sit behind printed plastic and bleed through the walls at anything brighter, and 4 is the floor: the mixed colors set one channel to a fraction of it, and below that there are not enough steps left to hold the hue.
 
@@ -446,9 +451,9 @@ The per-cycle bound is a real-time budget rather than a preference: the UART's t
 
 **REQ-PAL-001** - The flight software shall reach active platform services - time and outbound link I/O - only through the platform abstraction layer, and shall contain no register or peripheral access. Inbound commands and sensor samples shall enter as cycle inputs assembled at the platform boundary.
 **Type**: Constraint  
-**Status**: in progress  
+**Status**: inspection-verified (2026-07-31 - and the inspection is automated rather than promised. `tools/tests/test_pal_boundary.py` runs in `just test`: every file under `fsw/src` and `fsw/include` may include only the standard library, `etl/`, `fsw/` and `protocol/`, and may not name a peripheral outside a comment. Writing its negative cases found a hole in the check itself - the first pattern could not match `NVIC_EnableIRQ`, since `_` is a word character, so the underscored forms that are how these names are actually written all passed)  
 **Verification**: inspection  
-**Artifact**: fsw/include/fsw/platform.hpp + host backend
+**Artifact**: fsw/include/fsw/platform.hpp, fsw/platform/host/platform_host.cpp, tools/tests/test_pal_boundary.py
 
 **REQ-PAL-002** - The identical flight-software source shall build and run on the host (SIL) and cross-compile onto the STM32 (HIL and flight); only the platform backend shall differ.  
 **Type**: Constraint  

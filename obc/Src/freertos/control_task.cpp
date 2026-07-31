@@ -15,7 +15,9 @@
 #include "console.hpp"
 #include "devices/ov2640.h"
 #include "devices/ws2812.h"
+#include "drivers/clock.h"
 #include "drivers/gpio.h"
+#include "drivers/reset.h"
 #include "drivers/systick.h"
 #include "drivers/uart.h"
 #include "fsw/executive.hpp"
@@ -74,6 +76,41 @@ fsw::camera_data_t to_camera_data(const ov2640_sample_t& s) {
 // fraction of it, and below 4 there are not enough steps left down there to hold the hue
 constexpr uint8_t kLedLevel = 4U;
 
+// how many faults are latched, blinked out on bead 1 (REQ-TLM-005). three beads cannot show a
+// number any other way, so the bead holds its severity colour and then winks dark once per latched
+// fault - the dark gaps are what gets counted, which keeps the colour visible most of the time.
+//
+// the count includes inhibited faults: they are latched, and "latched" is what the requirement
+// asks for. the heartbeat carries the exact set and is the authority; this carries the magnitude,
+// and past a handful of faults a human cannot count winks anyway
+constexpr uint8_t kBeadHoldCycles = 15U;  // 1.5 s solid - the readable resting state
+constexpr uint8_t kBeadWinkCycles = 2U;   // 200 ms dark, then 200 ms lit, per fault
+
+bool fault_bead_lit(uint8_t latched) {
+    static uint16_t phase = 0U;
+    static uint8_t built_for = 0U;
+
+    // restart whenever the count changes, so a sequence is never a mix of two counts
+    if (latched != built_for) {
+        built_for = latched;
+        phase = 0U;
+    }
+    if (latched == 0U) {
+        return false;
+    }
+
+    const uint16_t wink = static_cast<uint16_t>(kBeadWinkCycles) * 2U;
+    const uint16_t period = static_cast<uint16_t>(kBeadHoldCycles + (latched * wink));
+    const uint16_t p = phase;
+    phase = static_cast<uint16_t>((phase + 1U) % period);
+
+    if (p < kBeadHoldCycles) {
+        return true;
+    }
+    // inside the wink train - dark first, so two adjacent holds cannot read as one long one
+    return static_cast<uint16_t>((p - kBeadHoldCycles) % wink) >= kBeadWinkCycles;
+}
+
 // bead 1 - the fault ladder, worst rung wins: red critical, orange degraded, yellow warning, then
 // blue for faults that are latched but inhibited, then off when genuinely clean.
 //
@@ -85,6 +122,7 @@ constexpr uint8_t kLedLevel = 4U;
 void set_fault_bead(const fsw::FaultManager& fm) {
     bool acting = false;     // at least one latched fault whose response is live
     bool inhibited = false;  // at least one latched fault whose response is suppressed
+    uint8_t latched = 0U;    // every latched fault, inhibited or not
     fsw::Severity worst = fsw::Severity::Warning;
 
     for (uint8_t i = 0U; i < fsw::kFaultCount; i++) {
@@ -92,6 +130,7 @@ void set_fault_bead(const fsw::FaultManager& fm) {
         if (!fm.is_active(f)) {
             continue;
         }
+        latched++;
         if (fm.is_inhibited(f)) {
             inhibited = true;
             continue;
@@ -101,6 +140,11 @@ void set_fault_bead(const fsw::FaultManager& fm) {
             worst = s;
             acting = true;
         }
+    }
+
+    if (!fault_bead_lit(latched)) {
+        ws2812_set(1U, 0U, 0U, 0U);  // the dark half of a wink, or genuinely clean
+        return;
     }
 
     if (acting) {
@@ -113,12 +157,21 @@ void set_fault_bead(const fsw::FaultManager& fm) {
         }
     } else if (inhibited) {
         ws2812_set(1U, 0U, 0U, kLedLevel);  // blue - latched, deliberately not acted on
-    } else {
-        ws2812_set(1U, 0U, 0U, 0U);
     }
 }
 
-void update_status_leds(const fsw::Executive& e) {
+// bead 2's "searching" blink - slow and even, so it reads as a state rather than as an alert.
+// deliberately the only other bead that moves: the fault bead spends motion on a count, and a
+// strip where everything blinks cannot be counted
+constexpr uint8_t kLinkBlinkCycles = 5U;  // 500 ms lit, 500 ms dark at the 10 hz cycle
+
+bool link_bead_lit() {
+    static uint8_t phase = 0U;
+    phase = static_cast<uint8_t>((phase + 1U) % (kLinkBlinkCycles * 2U));
+    return phase < kLinkBlinkCycles;
+}
+
+void update_status_leds(const fsw::Executive& e, uint32_t t_ms) {
     switch (e.modes().mode()) {  // bead 0 - mode
         case fsw::Mode::BOOT:
             ws2812_set(0U, kLedLevel, kLedLevel, kLedLevel);  // white
@@ -142,13 +195,27 @@ void update_status_leds(const fsw::Executive& e) {
 
     set_fault_bead(e.faults());
 
-    // bead 2 - uplink. amber until the first command arrives - no loss fault yet only
-    // means the timer has not expired. with the loss fault inhibited this falls through to amber,
-    // which is the truthful reading on a bench with no ground station: never acquired, not lost
-    if (e.faults().response_active(fsw::Fault::COMMAND_LINK_LOSS)) {
-        ws2812_set(2U, kLedLevel, 0U, 0U);  // red - lost
-    } else if (e.commands().log().empty()) {
-        ws2812_set(2U, kLedLevel, kLedLevel / 2U, 0U);  // amber - never heard from the ground
+    // bead 2 - the uplink: amber blinking while the ground has never been heard from, green in
+    // contact, red once contact is lost.
+    //
+    // the link is asked directly with link_lost() rather than through the fault's response,
+    // because response_active() is false while the fault is inhibited - and this build inhibits
+    // it. reading the response meant the bead went green on the first command ever received and
+    // stayed green for the rest of the session, however long the ground had been gone. the
+    // response being suppressed is a decision about safing; it says nothing about the link.
+    //
+    // "never acquired" is checked first and wins: on a bench with no ground station link_lost()
+    // is also true from boot, and never-acquired is the more useful of the two readings
+    if (e.commands().log().empty()) {
+        // blinking, because this is a state the rig sits in for a whole session - a slow blink
+        // reads as searching where a steady amber reads as something settled
+        if (link_bead_lit()) {
+            ws2812_set(2U, kLedLevel, kLedLevel / 2U, 0U);  // amber
+        } else {
+            ws2812_set(2U, 0U, 0U, 0U);
+        }
+    } else if (e.commands().link_lost(t_ms)) {
+        ws2812_set(2U, kLedLevel, 0U, 0U);  // red - was in contact, now past the timeout
     } else {
         ws2812_set(2U, 0U, kLedLevel, 0U);  // green - in contact
     }
@@ -178,6 +245,18 @@ void read_sensors(fsw::Inputs& inputs) {
     }
 }
 
+// the driver reads RCC_CSR into its own enum and the wire has its own catalog; these assert the
+// two are the same numbering rather than leaving a silent mapping to drift. a reordered list in
+// either file fails the build here instead of mislabelling a reset on the ground
+static_assert(static_cast<uint8_t>(fsw::ResetCause::UNKNOWN) == RESET_CAUSE_UNKNOWN, "");
+static_assert(static_cast<uint8_t>(fsw::ResetCause::POWER_ON) == RESET_CAUSE_POWER_ON, "");
+static_assert(static_cast<uint8_t>(fsw::ResetCause::RESET_PIN) == RESET_CAUSE_PIN, "");
+static_assert(static_cast<uint8_t>(fsw::ResetCause::BROWNOUT) == RESET_CAUSE_BROWNOUT, "");
+static_assert(static_cast<uint8_t>(fsw::ResetCause::SOFTWARE) == RESET_CAUSE_SOFTWARE, "");
+static_assert(static_cast<uint8_t>(fsw::ResetCause::WATCHDOG) == RESET_CAUSE_IWDG, "");
+static_assert(static_cast<uint8_t>(fsw::ResetCause::WINDOW_WATCHDOG) == RESET_CAUSE_WWDG, "");
+static_assert(static_cast<uint8_t>(fsw::ResetCause::LOWPOWER) == RESET_CAUSE_LOWPOWER, "");
+
 void control_task(void*) {
     TickType_t next = xTaskGetTickCount();
     uint32_t cycle = 0U;
@@ -185,6 +264,15 @@ void control_task(void*) {
     for (;;) {
         fsw::Inputs inputs{};
         read_sensors(inputs);
+
+        // once, on the first cycle - the executive turns it into a frame (REQ-WDG-002)
+        if (cycle == 0U) {
+            fsw::boot_info_t b{};
+            b.t_ms = millis();
+            b.clk_hz = clock_hclk_hz();
+            b.reset_cause = static_cast<uint8_t>(reset_cause());
+            inputs.boot = b;
+        }
 
         // drain the esc link before the cycle - a status this pass is what clears WHEEL_DROPOUT
         if (read_wheel_status()) {
@@ -227,7 +315,7 @@ void control_task(void*) {
             }
         }
 
-        update_status_leds(exec);
+        update_status_leds(exec, millis());
         ws2812_show();  // re-send every cycle - a missed latch self-heals next pass
 
         cycle++;

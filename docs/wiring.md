@@ -2,7 +2,7 @@
 
 The bench sheet: what wire goes where. `hardware.md` holds the reasoning, the parts, and the placement rules; `journal.md` holds how any of it went.
 
-Everything below is built and verified as of 2026-07-26 except **the radios and the 3.3 V buck that feeds them**, which are Phase 8 and marked as deferred where they appear.
+**Everything below is built and wired as of 2026-07-26**, including both radios on the shared SPI3 bus and the 3.3 V buck that feeds them. What is left on the hardware is the **PTC fuse and the battery harness**, both of which wait for Phase 8; the bench PSU's current limit stands in for the fuse until then. The radios have no firmware yet, which is a software gap, not a wiring one.
 
 ## Things that silently destroy parts - read before touching a board
 
@@ -59,10 +59,10 @@ SOURCE (bench PSU for bring-up; 4S pack later)
                               |                   |                   |
                           5V buck IN         3.3V buck IN         ESC VIN+
                               |                   |                   |
-                          5V buck OUT        (leave unwired      [470uF 50V cap
-                              |               this session)       across VIN+/GND,
-                     Nucleo E5V (CN7-6)                           at the terminals,
-                              |                                   can anchored]
+                          5V buck OUT        3.3V buck OUT       [470uF 50V cap
+                              |                   |               across VIN+/GND,
+                     Nucleo E5V (CN7-6)     radio 3V3 rail        at the terminals,
+                              |             (LoRa + nRF24)        can anchored]
                     Nucleo onboard 3V3 reg
                               |
                      3V3 (CN7-16) --> slice 3V3 rail --> sensors
@@ -85,15 +85,13 @@ Two rails: a **+V rail** (main ~14.8 V) and the **star ground** - every ground i
 | tap | star -> each buck IN- and ESC feed - | on-board / XT60 | - | black |
 | out | 5 V buck OUT+ -> Nucleo E5V | slice, CN7 end | JST-XH 2 | **red, banded 5V** |
 | out | 5 V buck OUT- -> Nucleo GND | slice, CN7 end | same XH2 | black |
-| out | 3.3 V buck OUT | **bare - Phase 8** | none yet | - |
+| out | 3.3 V buck OUT | radio protoboard 3.3 V rail | JST-XH 2 | red, black |
 
 **Set each buck's output with a meter BEFORE any load is connected** - a buck trimmed to 12 V into the Nucleo E5V destroys it. Power the board from the PSU (14.8 V, limit ~200 mA), trim the 5 V buck to 5.0 V and confirm the 3.3 V buck reads 3.3 V, all with their outputs open. Verify main+ to star-ground reads **open** (no short) before ever applying battery power.
 
 **Fuse: deferred to the Phase-8 battery harness, bare main + lead until then.** Blade fuses are the wrong scale here (bulky inline holders, loose spade fit). The selected part is a **Littelfuse RUEF300** PTC - 30 V, 3 A hold, radial through-hole, soldered in series with main+, auto-resetting. 3 A clears the ~1-2 A load and spin-up without nuisance-tripping, trips ~6 A, 100 A interrupt. Bourns MF-R300 and Littelfuse 30R300 are equivalents. **Not yet ordered** - see Carried work in `roadmap.md`. The bench PSU's current limit is the only protection until it is fitted, and **it must be fitted before the LiPo ever runs**.
 
 **Switch and battery are accounted for, not built yet:** the switch is a series element in the main + lead (`battery+ -> fuse -> switch -> board`), inserted later by cutting that lead onto the switch tabs - leave slack. The main-bus INA228 relocation (sensor board to inline on this board's input, for total pack draw) is also Phase 8.
-
-**Leave the 3.3 V buck completely unwired this session** - nothing uses it until the radios arrive at Phase 8, and an unterminated live rail is just a short waiting to happen.
 
 **Nucleo power, staged.** Keep the Nucleo on **USB (jumper on U5V)** while bringing up sensors - fewer variables, and you need USB for the console anyway. Only move the jumper to **E5V** and feed CN7-6 from the 5 V buck once you are deliberately testing the full power chain. The jumper selects one or the other; it will not power from USB while set to E5V.
 
@@ -290,9 +288,9 @@ The build is complete (2026-07-26). Four rules from it that apply to any rework:
 - **Verify every rail with a meter before connecting a load**, PSU current limit low (~300 mA). This is the step that catches a reversed rail before it kills a board.
 - **First power-on always runs off the bench PSU, never the LiPo.** A current-limited supply turns a wiring mistake into a shrug; a 100C pack turns it into smoke.
 
-## Deferred - how the comms plate comes in later
+## The comms plate
 
-Nothing about today's wiring blocks it. When the top plate is built:
+Built 2026-07-26. Wiring is done; the drivers are not.
 
 - **LED array:** 3 WS2812 beads chained on their small protoboard (D1 -> D0 down the row), one **JST-XH 3** (+5V, GND, DIN on **PA8 / CN10-23**) crossing up from the CN10 side. Series resistor 330-470 ohm on the first D0. **Powered at 5 V (CN7-18), with 3.3 V data** - the beads are spec'd 3.5-5.3 V, so a 3.3 V supply is below minimum and they simply do not light (found the hard way 2026-07-26). 3.3 V data into a 5 V-powered bead is the intended arrangement and needs no level shifter; if it ever turns flaky, a series diode on the 5 V feed drops it to ~4.4 V and pulls the input threshold down with it. **Bead 0 is the one nearest the data connector** - MODE, then FAULT, then LINK down the chain.
 - **Radios:** built as a self-contained module on their protoboard - a shared **SPI3** bus (SCK/MISO/MOSI each one node, wired to both radios) plus a 3.3V and GND rail. Power (3.3V+GND) comes from the **radio buck**, signals from the **CN7 side** - two different destinations, so the down-going pigtails split by destination: power XH2 (to buck), SPI3 bus XH4 (SCK/MISO/MOSI/GND to CN7), LoRa control XH3 (CS/DIO0/RST), nRF control XH3 (CSN/CE/IRQ).
@@ -344,7 +342,7 @@ Read the scheme by **role**, not by signal name, and every one-off line places i
 - The **AS5600 does not touch the STM32** - it is the ESC's encoder.
 - The **console UART needs no wires** - it is the ST-Link VCP over USB.
 - The **bulk cap lives only at the ESC** - not on the sensor board, not on another plate.
-- The **3.3 V buck powers nothing** until the radios exist.
+- The **3.3 V buck powers only the radios** - never the Nucleo, never the sensors.
 - **No I2C pull-up resistors to add** - the breakouts carry their own.
 - **No level shifters, transistors, or flyback diodes anywhere** - everything is 3.3 V logic and the ESC handles the motor internally.
 - The **camera needs no separate I2C run** - it taps the shared bus on the sensor protoboard.
@@ -374,7 +372,7 @@ The digital sensors are a rounding error on the Nucleo's 3V3 (the onboard regula
 | 3V3 | TMP117 | ~150 uA |
 | +5V (CN7-18) | WS2812 status LEDs (3 beads, chained) | ~60 mA per bead at full white; run dim (~10-20%), so a few mA each |
 
-The radios are the real load and they are Phase 8 - the nRF24 PA+LNA pulls ~115 mA in bursts, LoRa ~120 mA on TX. They get the dedicated battery-fed 3.3 V buck, never the Nucleo's 3V3.
+The radios are the real load - the nRF24 PA+LNA pulls ~115 mA in bursts, LoRa ~120 mA on TX. They run off the dedicated battery-fed 3.3 V buck, never the Nucleo's 3V3.
 
 **The motor is not on these rails.** The ESC and motor run off the battery (14.8-16.8 V) - never the Nucleo's 3V3 or 5V. Only two things cross between the OBC and the ESC: the UART link and a shared ground reference.
 

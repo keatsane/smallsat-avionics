@@ -14,6 +14,7 @@ PER_CYCLE_KINDS = ("IMU", "POWER", "TEMP", "CAMERA")
 KINDS = (
     "HEARTBEAT",
     "TASKS",
+    "BOOT",
     "IMU",
     "POWER",
     "TEMP",

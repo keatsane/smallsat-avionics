@@ -18,9 +18,11 @@ from ground.frames import (
     MSG_POWER_DATA,
     MSG_TEMP_DATA,
     MSG_UART_STATUS,
+    RESET_CAUSES,
     REJECT_REASONS,
     FrameDecoder,
     crc16,
+    decode_boot_info,
     decode_camera_data,
     decode_command_ack,
     decode_task_health,
@@ -323,6 +325,11 @@ def test_faults_mirror_state_hpp():
     assert FAULTS == _xmacro_names(header, "FSW_FAULT_LIST")
 
 
+def test_reset_causes_mirror_state_hpp():
+    header = REPO_ROOT / "common" / "protocol" / "state.hpp"
+    assert RESET_CAUSES == _xmacro_names(header, "FSW_RESET_CAUSE_LIST")
+
+
 def test_reject_reasons_mirror_command_handler_hpp():
     header = REPO_ROOT / "fsw" / "include" / "fsw" / "comms" / "command_handler.hpp"
     block = re.search(r"enum class CmdReject[^{]*\{(.*?)\}", header.read_text(), re.S)
@@ -383,6 +390,7 @@ def test_payload_sizes_match_msg_hpp():
         "temp_data_t": decode_temp_data,
         "camera_data_t": decode_camera_data,
         "task_health_t": decode_task_health,
+        "boot_info_t": decode_boot_info,
     }
     for struct_name, decoder in decoders.items():
         n = sizes[struct_name]

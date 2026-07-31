@@ -39,6 +39,7 @@ enum class MsgId : uint8_t {
 
     // rtos / platform health (0x30 block) - about the computer rather than the spacecraft
     TaskHealth = 0x30,  // per-task liveness and stack margin
+    BootInfo = 0x31,    // why the computer last reset, sent once per boot
 };
 
 // ------- control plane -------
@@ -203,6 +204,17 @@ struct __attribute__((packed)) task_health_t {
     task_entry_t tasks[kTaskHealthMaxTasks];
 };
 
+// MsgId::BootInfo - why the computer last reset, sent once per boot (REQ-WDG-002).
+//
+// the console banner has always printed this, but a banner scrolls away and a ground station that
+// joined late never saw it. carrying it as a frame means a reset is attributable from the log
+// alone - which matters most for the one cause nobody was watching when it happened, the watchdog
+struct __attribute__((packed)) boot_info_t {
+    uint32_t t_ms;        // when the frame went out, not when the reset happened
+    uint32_t clk_hz;      // core clock the image actually came up at
+    uint8_t reset_cause;  // fsw::ResetCause in state.hpp
+};
+
 // wire layout guards - these sizes are the contract the ground decodes against, so a dropped
 // packed attribute or a changed field fails the build instead of silently breaking the link
 static_assert(sizeof(command_t) == 4, "command_t wire layout changed");
@@ -220,6 +232,7 @@ static_assert(sizeof(payload_data_t) <= kFrameMaxPayload, "payload_data_t no lon
 static_assert(sizeof(task_entry_t) == 6, "task_entry_t wire layout changed");
 static_assert(sizeof(task_health_t) == 48, "task_health_t wire layout changed");
 static_assert(sizeof(task_health_t) <= kFrameMaxPayload, "task_health_t no longer fits a frame");
+static_assert(sizeof(boot_info_t) == 9, "boot_info_t wire layout changed");
 
 }  // namespace fsw
 
