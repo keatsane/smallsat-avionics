@@ -10,16 +10,17 @@ The companion documents: `journal.md` (the done-log), `hardware.md` (the physica
 
 Where the build actually is. History belongs in `journal.md`.
 
-**Hardware:** all three plates built and wired (2026-07-26). The ESC is physically out of the
-stack pending a replacement board, so `WHEEL_DROPOUT` and `COMMAND_LINK_LOSS` run under the
-declared bench inhibits. Still owed: the PTC fuse before the LiPo ever runs.
+**Hardware:** all three plates built and wired (2026-07-26); the PTC fuse is in and the vehicle
+boots and runs missions on the 4S battery (2026-07-31). The ESC is physically out of the stack
+pending a replacement board, so `WHEEL_DROPOUT` and `COMMAND_LINK_LOSS` run under the declared
+bench inhibits. The CAD is final: ground station modeled and the full export synced (2026-08-02).
 
 **Software:** phases 0-6 done. Phase 7 has detumble SIL-verified and running autonomously on the
 bench (auto-entry, auto-exit, resume); pointing holds an absolute compass heading, coarse indoors.
 **Phase 8's deliverable is done:** the vehicle, with no data cable, was commanded over LoRa into
 POINTING, captured, and downlinked an image over nRF24 that reassembled intact on the ground -
-selective repeat refilled what the first pass dropped. Power still comes from the bench supply;
-flying on the battery waits on the PTC fuse and the battery harness.
+selective repeat refilled what the first pass dropped. The whole sequence has since run as the
+one-word `shoot` mission on battery power alone.
 
 **Next, unblocked:**
 

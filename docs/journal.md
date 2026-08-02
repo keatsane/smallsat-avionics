@@ -109,6 +109,11 @@ Dated evidence, newest first.
 
 ### Phase 8 - wireless link and ground station
 
+- **2026-08-02** - The ground station got its CAD: `ground_plate`, `ground_cover`, and a
+  `ground_assembly` tying them to the protoboard and the vendor OLED model. `stack_assembly`
+  became `satellite_assembly`, since there are two assemblies on the desk now. Fusion stamps a
+  fresh timestamp into every export, so a byte compare calls all 46 parts changed every time;
+  `tools/cad_sync.py` compares only the geometry, and this drop touched exactly five files.
 - **2026-07-31** - The one-word mission ran on battery: `shoot` walked point, capture, downlink,
   and park by itself, 451 chunks at 95% first-pass delivery, two request rounds, and
   `image_0018.jpg` on disk in twelve seconds. The first over-the-air `poll POWER` closed

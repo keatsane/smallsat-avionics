@@ -111,7 +111,7 @@ A separate box on the desk, not part of the spacecraft. One **Feather M0 RFM95**
 
 The two ends of the link deliberately do not match. A link needs each end resonant at 915 MHz and properly fed, not identical hardware: the satellite keeps its right-angle SMA stub because it has to lie flat on a spinning plate, and a straight quarter-wave is often the better radiator anyway, since screw-on stubs are helicals compromised for size. If range ever disappoints, the fix is a counterpoise - a second 8.2 cm wire on a GND pad pointing the other way makes it a rough dipole, which helps more than swapping antennas would.
 
-**CAD:** one 4x6 protoboard with the Feather and the nRF24 soldered to it, the antenna wire standing up from the Feather's ANT pad, and a connector out to the OLED, which mounts separately on the box.
+**CAD:** modeled as `ground_assembly` in `cad/` - a `ground_plate` carrying the 4x6 protoboard (Feather + nRF24), a `ground_cover` over it, and the vendor OLED model placed for fit.
 
 ## 3D-printed parts and CAD (Fusion 360 -> `cad/`)
 
@@ -124,10 +124,11 @@ Mechanical models live in `cad/` in the main repo. Parts are hand-modeled in Fus
 ```
 cad/
   assemblies/     combined models, one per plate of the stack
-    comms/          comms_assembly + rf/
-    compute/        compute_assembly + power/ + sensor/
-    gimbal/         gimbal_assembly + rw/
-    stack_assembly  the whole three-plate stack
+    comms/              comms_assembly + rf/
+    compute/            compute_assembly + power/ + sensor/
+    gimbal/             gimbal_assembly + rw/
+    satellite_assembly  the whole three-plate stack
+    ground_assembly     the ground station box
   printed/        parts designed here and FDM-printed
   lib/            authored building blocks reused across assemblies (the protoboards)
   hardware/       off-the-shelf fasteners (McMaster imports), one file per size
@@ -136,11 +137,12 @@ cad/
     actuation/      gimbal motor, ESC
     comms/          LoRa, nRF24, SMA edge connector
     compute/        the Nucleo
+    ground/         the 0.96" OLED
     power/          battery, buck
     sensors/        AS5600 encoder + its diametric magnet
 ```
 
-The assemblies mirror the **three-plate stack** (gimbal / compute / comms), with `stack_assembly` combining them.
+The assemblies mirror the **three-plate stack** (gimbal / compute / comms), with `satellite_assembly` combining them; `ground_assembly` is the box on the desk.
 
 **The one rule that decides where a file goes: did I author it?**
 
@@ -158,7 +160,10 @@ The assemblies mirror the **three-plate stack** (gimbal / compute / comms), with
 | `flywheel` | the reaction wheel |
 | `driver_cover` | cover over the ESC |
 | `buck_cover` | cover over the buck converters |
+| `led_cover` | diffuser over the status LED array |
 | `top_cover` | the stack's top cover |
+| `ground_plate` | the ground station's base plate |
+| `ground_cover` | the ground station's cover |
 
 ### lib - authored building blocks
 
