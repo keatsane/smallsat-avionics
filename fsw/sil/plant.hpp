@@ -82,16 +82,53 @@ struct PlantParams {
     //
     // it is a rough measurement and it still mattered: the model was ~30% too draggy before it
 
+    // UPDATE 2026-08-04: fitted to two decays rather than one, which is what separates coulomb
+    // from viscous. Both measure the platform coasting with no torque commanded, so neither
+    // involves the motor and neither can be contaminated by it:
+    //
+    //   mean 3.14 rad/s, 3.14 rad/s^2  =>  14.2 mN m of drag   (hand coast-down, 2026-07-31)
+    //   mean 0.78 rad/s, 2.82 rad/s^2  =>  12.8 mN m of drag   (detumble A/B, the SAFE half,
+    //                                                           logged at 10 Hz on the wired link)
+    //
+    // Two points on drag(w) = coulomb + viscous*w give coulomb ~12.3 mN m, viscous ~0.6 mN m per
+    // rad/s - which is within a few percent of what this model already had from a single
+    // measurement and a prior. The original fit was good.
+    //
+    // It took two wrong revisions the same day to establish that, and both are worth remembering.
+    // The first read the breakaway sweep's 5 mN m as bearing stiction and pulled coulomb down to
+    // 4.0 - but the wheel does not rotate below ~5 mN m commanded either, so that number is at
+    // least partly the motor's cogging (see friction_static). The second read the A/B's decay as
+    // 120 deg/s^2 by averaging a stretch where the platform was still being pushed, and landed on
+    // 8.0. The arrest alone - the last unbroken run of falling rate - is 161 deg/s^2, and that is
+    // the number above.
+    //
+    // What caught it was tools/overlay.py: the model and the rig were run through the same coast
+    // and disagreed by 1.5x, which is not something a model fitted to that very run can do. A
+    // plant model checked only against itself will absorb a bad measurement without complaint.
+
     // viscous drag - proportional to speed, and the well-behaved part
-    double friction_viscous = 5.0e-4;  // N m per rad/s
+    double friction_viscous = 5.9e-4;  // N m per rad/s
 
     // once sliding, friction drops. that drop is what makes stiction lurch rather than ease
-    double friction_kinetic = 1.30e-2;  // N m
+    double friction_kinetic = 12.3e-3;  // N m
 
-    // breakaway: the platform does not move until applied torque exceeds this. still NOT
-    // measured - a coast-down only sees the sliding case, never the sticking one. 1.25x kinetic
-    // is the usual ratio for a bearing under load, and it is a guess sitting on top of a fit
-    double friction_static = 1.63e-2;  // N m
+    // breakaway: the platform does not move until applied torque exceeds this. still inferred,
+    // and the reason is worth keeping, because it looked measured for about an hour.
+    //
+    // the PULSE_WHEEL sweep found the platform first moving at 5 mN m *commanded*, and that was
+    // briefly written in here as the static term. Then the wheel was watched on its own: at 3 and
+    // 4 mN m the rotor turns ~3 degrees, holds while the torque is applied, and springs straight
+    // back when it stops. That is cogging, not rotation - and a wheel that does not rotate puts
+    // no reaction on the platform at all, because the motor torque and the cogging that opposes
+    // it are both internal. So the sweep found whichever threshold binds first, the bearing's
+    // stiction or the motor's detent, and cannot say which.
+    //
+    // 1.25x kinetic is the usual ratio for a bearing under load, and it is still a prior rather
+    // than a measurement. What the sweep does bound is the *commanded* torque that moves this
+    // platform - 5 mN m - and against a static friction of ~15 mN m that implies the commanded
+    // scale runs roughly 3x optimistic. kOhmsPerKt in platform_stm32.cpp carries the same
+    // conclusion from a different direction; neither is precise enough to correct it on yet.
+    double friction_static = 15.4e-3;  // N m
 
     // below this the platform counts as stopped. a threshold rather than an exact zero, because
     // floating point never lands on zero and a sign test on a number that never settles chatters

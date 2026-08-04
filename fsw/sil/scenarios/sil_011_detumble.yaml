@@ -5,16 +5,26 @@
 # the platform starts spinning at 2 rad/s. the vehicle is walked to DETUMBLE and the control law
 # has to null the rate (REQ-ADCS-001) without running the wheel into saturation (REQ-ADCS-003).
 #
-# 2 rad/s is more than the wheel can hold. with the measured inertias the whole momentum budget
-# is 0.87 rad/s of platform rate, and this starts at more than twice that - it works because
-# bearing friction takes it down to ~1.4 rad/s in the 200 ms before DETUMBLE is commanded, and
-# the wheel absorbs the rest. that is a real dependency and it is written down rather than tuned
-# away: an immediate entry into DETUMBLE at 2 rad/s would saturate.
+# 2 rad/s is more than the wheel can hold on its own. with the measured inertias the whole
+# momentum budget is 0.87 rad/s of platform rate, so this starts at more than twice that - it
+# works because bearing friction takes the first bite in the 200 ms before DETUMBLE is commanded
+# and keeps helping through the manoeuvre, and the wheel absorbs the rest. that is a real
+# dependency and it is written down rather than tuned away.
 #
-# the margin is thin and worth knowing: the wheel peaks at 34.3 of 36 rad/s, 95% of capacity, so
-# **a hand-spin of about 2 rad/s is roughly the largest upset this vehicle can recover from**.
-# it was 76% before the friction terms were fitted to a measured coast-down - less drag means
-# less free help, and the wheel has to find the difference itself.
+# this number went 2.0 -> 1.6 -> 2.0 in a single day, and the round trip is worth keeping. A
+# breakaway sweep put the bearing at 5 mN m against the 16 this model had guessed; the friction
+# was re-fitted down, the platform stopped getting free help, and at 2.0 the wheel saturated at
+# 36.02 of 36. Then the wheel was watched on its own and turned out not to rotate below ~5 mN m
+# at all - it cogs and springs back - so the sweep had found the motor's detent as much as the
+# bearing, and the re-fit leaning on it was wrong. A second re-fit was wrong too, for a different
+# reason: it averaged a stretch of decay where the platform was still being pushed.
+#
+# What settled it was the overlay (SIL-015, tools/overlay.py): model and rig run through the same
+# coast, and the disagreement is now 14%. The friction ended up within a few percent of where it
+# started, so this scenario's 2.0 is the original number - restored rather than defended.
+#
+# so **a hand-spin of about 2 rad/s (115 deg/s) is roughly the largest upset this vehicle can
+# recover from**, and the number is finally standing on measurements of the right thing.
 #
 # the bounds are magnitudes rather than equalities, deliberately: the plant's inertias and
 # friction are estimates until the rig can be measured, so an exact settling value would pin a

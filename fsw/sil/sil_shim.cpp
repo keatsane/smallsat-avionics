@@ -276,6 +276,19 @@ int main() {
             // the plant's true angle stands in for the magnetometer - noiseless, which makes SIL
             // an upper bound on pointing performance rather than a prediction of it
             inputs.mag_heading_rad = static_cast<float>(fsw::platform::g_plant.platform_angle());
+
+            // and the wheel answers back too. the plant has modelled the wheel's speed since it
+            // was written and never told the flight software, so the half of the vehicle that
+            // runs out - saturation, and the momentum dumping that answers it - was invisible to
+            // every scenario. an actuator the simulation steers but does not report is an
+            // actuator whose failure modes cannot be graded
+            fsw::wheel_status_t w{};
+            w.velocity_mrad_s = static_cast<int32_t>(fsw::platform::g_plant.wheel_rate() * 1000.0);
+            w.angle_mrad = 0;
+            w.torque_mv = static_cast<int16_t>(fsw::platform::g_torque_nm * 1000.0F);
+            w.flags = fsw::kWheelFlagFocReady | fsw::kWheelFlagSensorOk | fsw::kWheelFlagMagnetOk |
+                      fsw::kWheelFlagDriverOk;
+            inputs.wheel = w;
             std::printf("PLANT rate=%.4f wheel=%.2f angle=%.4f\n",
                         fsw::platform::g_plant.platform_rate(), fsw::platform::g_plant.wheel_rate(),
                         fsw::platform::g_plant.platform_angle());

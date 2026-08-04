@@ -1,20 +1,32 @@
-# what a reaction wheel runs out of, and why REQ-ADCS-003 needs a fault rather than just a clamp.
+# what a reaction wheel runs out of, and what the vehicle does about it (REQ-ADCS-003).
 #
 # the platform is held in POINTING and then shoved steadily - a hand on the rig rather than a
 # tap. the controller responds correctly and the wheel absorbs the momentum, which is exactly
 # what it is for, right up until it has absorbed all it can hold. from there the vehicle has no
 # authority at all: the error grows and nothing the control law does can shrink it.
 #
-# a real spacecraft sheds that momentum with magnetorquers against the geomagnetic field. this
-# bench has nothing to push against, so saturation is permanent until the ground intervenes, and
-# that is the case the eventual actuator fault exists to announce.
+# for a long time that was the whole scenario, and it ended with the vehicle still in POINTING,
+# no faults set, straining at full torque with nothing happening - the rig showed exactly that on
+# 2026-08-04, fifteen seconds of maximum command with the body rate pinned at zero. A failure
+# nothing announces is a failure nobody can act on, which is why the requirement asks for a fault
+# and not only a clamp.
 #
-# note what is NOT claimed here. this is not a demonstration that POINTING holds an attitude -
-# see REQ-ADCS-002, which is honest about the fact that the rig's rate-only sensing at 10 Hz
-# cannot observe a disturbance that friction absorbs inside a single control cycle. what this
-# grades is the failure mode, which is real, reproducible, and worth having on record.
+# now the wheel's speed reaches the flight software (the shim reports it, the same way the ESC
+# does on the rig), so three things happen in order and this grades all of them:
+#
+#   1. WHEEL_SATURATED latches once the wheel has sat at 90% of its limit for a full second.
+#   2. Being Degraded, it retreats the steering modes to STANDBY - a full wheel disqualifies
+#      POINTING for the same reason a missing one does: there is no actuator left.
+#   3. STANDBY unwinds it. A real spacecraft dumps momentum against magnetorquers or thrusters;
+#      this one dumps against its own bearing. Any torque under the platform's breakaway spins
+#      the wheel down without moving the body at all, so the stiction that makes pointing hard on
+#      this rig is exactly what makes the wheel rechargeable.
+#
+# that is why the retreat is to STANDBY rather than SAFE: STANDBY is where the cure lives, so the
+# fallback is a recovery rather than a parking space. The fault stays latched for the ground to
+# clear (REQ-FAULT-010), because a vehicle that silently re-arms hides how often it ran out.
 id: SIL-012
-title: a sustained disturbance saturates the wheel and pointing authority is lost
+title: a saturated wheel is announced, retreats the vehicle, and is unwound in standby
 verifies: [REQ-ADCS-003]
 timeline:
   - { t: 0, plant: 0.0 }
@@ -50,18 +62,37 @@ timeline:
   - { t: 2800 }
   - { t: 2900 }
   - { t: 3000 }
+  - { t: 3100 }
+  - { t: 3200 }
+  - { t: 3300 }
+  - { t: 3400 }
+  - { t: 3500 }
+  - { t: 3600 }
+  - { t: 3700 }
+  - { t: 3800 }
+  - { t: 3900 }
+  - { t: 4000 }
+  - { t: 4100 }
+  - { t: 4200 }
+  - { t: 4300 }
+  - { t: 4400 }
+  - { t: 4500 }
 expect:
   mode_log:
     - { to: STANDBY, trigger: Command, req: REQ-CMD-001 }
     - { to: DETUMBLE, trigger: Command, req: REQ-CMD-001 }
     - { to: POINTING, trigger: Command, req: REQ-CMD-001 }
+    # the retreat, carrying this requirement's id rather than a generic one - the log row is what
+    # tells an operator reading it later which rule fired
+    - { to: STANDBY, trigger: FaultEntry, req: REQ-ADCS-003 }
   acks:
     - { seq: 3, accepted: true }
   final:
-    # still POINTING - running out of wheel is not currently a safing event, and making it one is
-    # a decision that wants the rig rather than an estimate
-    mode: POINTING
-    faults_set: []
-    # the platform is at rest again only because friction stopped it, not because the vehicle
-    # regained control
+    mode: STANDBY
+    # latched and reported, waiting on the ground - running out of wheel is a thing that happened
+    # and stays on the record until someone acknowledges it
+    faults_set: [WHEEL_SATURATED]
+    # the platform is at rest, and the wheel has been unwound rather than left full: the vehicle
+    # is ready to be commanded back into POINTING the moment the fault is cleared
     plant_rate_below: 0.05
+    wheel_rate_below: 5.0

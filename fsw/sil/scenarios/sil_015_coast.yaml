@@ -1,0 +1,52 @@
+# the plant model's friction, graded against the rig's - the sim-versus-rig comparison Phase 7
+# asks for, reduced to the one thing that can be compared without a controller in the way.
+#
+# every other plant scenario has the control law running, which means a disagreement between the
+# model and the bench could be the physics or the controller and there is no telling which. This
+# one removes the controller: the platform is spun and put in SAFE, where no torque is commanded
+# and autonomous detumble entry is disabled, so what is left decaying is friction alone. That is
+# exactly the procedure run on the rig on 2026-08-04, and the recorded result is checked in at
+# docs/data/rig_coast_safe_2026-08-04.csv.
+#
+# the starting rate is the rig's: 1.48 rad/s is the 84.8 deg/s the bench run began its coast at,
+# so the two curves start from the same place and any difference is the model's.
+#
+# tools/overlay.py plots them together and prints both decelerations. At the time of writing the
+# model sheds 163.7 deg/s^2 and the rig shed 161.4 - a 1.4% disagreement, which is a good deal
+# closer than the measurements behind it deserve and should not be read as precision. What it does
+# establish is that the friction fit is not merely self-consistent: it predicts a decay that was
+# measured separately, which is the only claim a plant model can earn.
+id: SIL-015
+title: the plant model's friction matches the rig's measured coast-down
+verifies: [REQ-ADCS-001]
+timeline:
+  - { t: 0, plant: 1.48 }
+  # SAFE rather than STANDBY: STANDBY would pull the vehicle into DETUMBLE on its own past the
+  # 0.35 rad/s entry threshold, and a controller is the one thing this scenario must not have
+  - { t: 100, cmd: { name: SET_MODE, arg: 5, seq: 1 } }
+  - { t: 200 }
+  - { t: 300 }
+  - { t: 400 }
+  - { t: 500 }
+  - { t: 600 }
+  - { t: 700 }
+  - { t: 800 }
+  - { t: 900 }
+  - { t: 1000 }
+  - { t: 1100 }
+  - { t: 1200 }
+  - { t: 1300 }
+  - { t: 1400 }
+  - { t: 1500 }
+expect:
+  mode_log:
+    - { to: SAFE, trigger: Command, req: REQ-CMD-001 }
+  acks:
+    - { seq: 1, accepted: true }
+  final:
+    mode: SAFE
+    faults_set: []
+    # friction alone brings it to rest, and the wheel never moved - if either of those is false
+    # the scenario is measuring something other than the bearing
+    plant_rate_below: 0.05
+    wheel_rate_below: 0.01
