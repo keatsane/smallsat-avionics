@@ -25,3 +25,7 @@ pre-commit>=4.0
 # reading the scope over usb for HIL captures. bench-only and imported lazily, so the rest of the
 # tooling works without a VISA backend installed
 pyvisa>=1.14
+
+# plotting the sim against the rig. imported lazily by tools/overlay.py, so nothing else in the
+# tooling needs it installed to run
+matplotlib>=3.8

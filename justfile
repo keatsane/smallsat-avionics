@@ -70,6 +70,12 @@ esc-flash:
 esc-wheel *args:
     python tools/wheel.py {{args}}
 
+# unplug the obc's 3-wire link first - the esc's uart reaches both it and the usb port
+[group('esc')]
+[doc('pulse the wheel at rising torque to find where the bearing breaks loose')]
+esc-breakaway *args:
+    python tools/breakaway.py {{args}}
+
 # ---------------------------------------------------------------- flight software
 # portable c++ - builds on the host for unit tests and SIL, and into the obc image
 
@@ -128,6 +134,20 @@ _unit-tools detail="":
 [doc('check the requirement trace both ways - artifacts exist, cited REQ ids are real')]
 trace *flags:
     python tools/traceability.py {{flags}}
+
+# the sim-versus-rig comparison - re-runs the scenario, plots it over a recorded bench run
+[group('testing')]
+[doc('overlay a recorded bench run on the plant model; --rig/--scenario to pick which')]
+overlay *args:
+    python tools/overlay.py {{args}}
+
+# ---------------------------------------------------------------- payload
+
+# the survey macro downlinks the frames; this is what turns them into one image
+[group('gsw')]
+[doc('join survey frames into one wide image, in the order given')]
+stitch *frames:
+    python tools/stitch.py {{frames}}
 
 # run SIL scenarios (scenario: all, a number, a name, or a path); add "verbose" for every check
 [group('testing')]

@@ -6,7 +6,7 @@ link. Telemetry scrolls above a prompt pinned to the bottom of the terminal; tab
 and argument names, and up-arrow recalls what you sent.
 
     just obc-monitor                 # port found by the obc's st-link serial
-    just obc-monitor -- --keepalive  # plus a NOOP every 2 s
+    just obc-monitor --no-keepalive  # stop holding the command link up (see below)
 
     cmd> SET_MODE DETUMBLE
     cmd> ?                           list what can be typed
@@ -32,12 +32,18 @@ from ground.colors import LINK_COLORS, colorize_heartbeat, paint
 from ground.commands import ARG_CATALOG, CommandError, parse, usage
 from ground.console import make_session
 from ground.filters import KINDS, QUIET_KINDS, Filters
-from ground.frames import COMMANDS, arg_label
+from ground.frames import COMMANDS, MSG_COMMAND, arg_label
 from ground.link import find_port, open_port
 from ground.payload import Assembler
 from ground.session import GroundSession
 
-KEEPALIVE_S = 2.0  # under the flight software's 5 s command-loss timeout
+# under the flight software's 5 s command-loss timeout, and deliberately NOT a whole multiple of
+# the vehicle's 1 s beacon. the link is half duplex and the vehicle is deaf while its own beacon is
+# in the air, so a keepalive on a harmonic of that beacon lands in the same deaf window every time
+# and is lost every time - the phase-lock trap that cost the selective-repeat requests 8 frames out
+# of 8 before they moved onto the ground's own clock. at 1.3 s each keepalive samples a different
+# part of the beacon cycle, and two can be lost in a row without the vehicle reaching 5 s of silence
+KEEPALIVE_S = 1.3
 
 # how long a scripted run keeps listening after its piped commands are sent. long enough for an
 # ack and the next heartbeat, short enough that it never becomes the process nobody knows is
@@ -58,6 +64,9 @@ def directives() -> str:
         "    /filters                what is showing right now\n"
         "    shoot [size] [bearing]  the whole imaging sequence as one command\n"
         "    poll IMU|POWER|TEMP|... one frame of that kind over the radio, on request\n"
+        "    recover                 clear the link fault and put the vehicle back in STANDBY\n"
+        "    survey [n] [span] [size]  shoot n frames across a span of bearings, then stitch\n"
+        "    breakaway [start] [step]  pulse the wheel harder until the platform moves (STANDBY)\n"
         f"    kinds: {', '.join(KINDS)}"
     )
 
@@ -73,7 +82,9 @@ def main() -> int:
     ap.add_argument("--hide", help="hide these kinds, comma-separated (e.g. IMU,TEXT)")
     ap.add_argument("--no-color", action="store_true", help="plain output, no ANSI color")
     ap.add_argument(
-        "--keepalive", action="store_true", help="send NOOP every 2 s to hold off COMMAND_LINK_LOSS"
+        "--no-keepalive",
+        action="store_true",
+        help="stop holding the command link up; the vehicle safes ~5 s into a quiet run",
     )
     ap.add_argument("--read-only", action="store_true", help="never transmit, ignore input")
     ap.add_argument(
@@ -81,6 +92,11 @@ def main() -> int:
     )
     ap.add_argument(
         "--images", default="captures", help="directory for downlinked images (default: captures)"
+    )
+    ap.add_argument(
+        "--record",
+        help="append every attitude frame to this csv, stamped with the vehicle's own clock - "
+        "what turns a bench run into something tools/overlay.py can plot",
     )
     ap.add_argument(
         "--all",
@@ -133,6 +149,27 @@ def main() -> int:
     def emit(line: str) -> None:
         print(line, flush=True)
 
+    # a bench run is only evidence if it survives the terminal. the console's own scrollback is
+    # not a dataset: it wraps, it interleaves four kinds, and it carries no timestamps a tool can
+    # read. this writes the attitude stream to a csv against the *vehicle's* clock rather than the
+    # host's, so a decay measured here can be laid over the same manoeuvre in the plant model
+    record_fp = None
+    if args.record:
+        record_fp = Path(args.record).open("a", encoding="utf-8")
+        if record_fp.tell() == 0:
+            record_fp.write(
+                "t_ms,heading_deg,target_deg,rate_dps,torque_mnm,pulse_peak_dps,flags\n"
+            )
+
+    def record(d: dict) -> None:
+        if record_fp is None:
+            return
+        record_fp.write(
+            f"{d['t_ms']},{d['heading_deg']:.3f},{d['target_deg']:.3f},{d['rate_dps']:.3f},"
+            f"{d['torque_mnm']},{d['pulse_peak_dps']:.3f},{d['flags']}\n"
+        )
+        record_fp.flush()  # a run that crashes should still leave the data it collected
+
     def show(line: str) -> None:
         # a line's kind is its leading token (HEARTBEAT, POWER, TEXT, ...)
         kind = line.split(maxsplit=1)[0] if line.strip() else ""
@@ -159,15 +196,33 @@ def main() -> int:
     ser = open_port(port, args.baud, timeout=0.1)
 
     session = GroundSession(
-        Assembler(Path(args.images)), retry=not args.no_retry, transmit=not args.read_only
+        Assembler(Path(args.images)),
+        retry=not args.no_retry,
+        transmit=not args.read_only,
+        on_attitude=record,
     )
     port_lock = threading.Lock()  # the reader thread and the prompt both write the port
 
+    # when the ground last sent a *command*. the vehicle's link-loss timer measures silence FROM
+    # the ground, so telemetry pouring in proves only the downlink - a console that just listens
+    # is indistinguishable from no ground station, and gets safed accordingly.
+    #
+    # commands specifically, not traffic. selective-repeat chunk requests are uplink bytes but
+    # they are routed to the downlink task and never reach the command handler, so they do not
+    # reset the vehicle's timer. Counting them as "the link is busy" is what safed the rig nine
+    # seconds into a repair phase: the ground was transmitting once a second and the vehicle had
+    # heard nothing that counted since before the pass started
+    last_tx = 0.0
+
     def deliver(lines: list, tx: list) -> None:
         """One session result -> the port and the screen."""
+        nonlocal last_tx
         with port_lock:
             for frame in tx:
                 ser.write(frame)
+        # byte 2 is the message id: sync(2), id(1), len(1), payload, crc(2)
+        if any(len(f) > 2 and f[2] == MSG_COMMAND for f in tx):
+            last_tx = time.monotonic()
         for line in lines:
             show(line)
 
@@ -193,6 +248,28 @@ def main() -> int:
         parts_ = line.split()
         if parts_[0].lower() == "shoot":
             shoot(parts_[1:])
+            return
+        if parts_[0].lower() == "recover":
+            deliver(*session.recover_start(time.monotonic()))
+            return
+        if parts_[0].lower() == "survey":
+            try:
+                count = int(parts_[1]) if len(parts_) > 1 else 4
+                span = float(parts_[2]) if len(parts_) > 2 else 60.0
+                size = parts_[3] if len(parts_) > 3 else None
+            except ValueError:
+                show(f"{'REJECT':<12} survey takes a frame count, a span in degrees, and a size")
+                return
+            deliver(*session.survey_start(count, span, size, time.monotonic()))
+            return
+        if parts_[0].lower() == "breakaway":
+            try:
+                start = float(parts_[1]) if len(parts_) > 1 else 4.0
+                step = float(parts_[2]) if len(parts_) > 2 else 1.0
+            except ValueError:
+                show(f"{'REJECT':<12} breakaway takes a start and a step in mN m")
+                return
+            deliver(*session.sweep_start(start, step, time.monotonic()))
             return
         try:
             cmd_id, arg = parse(line)
@@ -243,14 +320,20 @@ def main() -> int:
 
     stop = threading.Event()
 
-    def reader() -> None:
-        next_keepalive = 0.0
+    keepalive = not args.no_keepalive and not args.read_only
 
+    def reader() -> None:
         while not stop.is_set():
             now = time.monotonic()
-            if args.keepalive and not args.read_only and now >= next_keepalive:
-                deliver(*session.command(NOOP_ID, 0, "NOOP (keepalive)", now, retry=False))
-                next_keepalive = now + KEEPALIVE_S
+
+            # a NOOP only once the uplink has actually gone quiet, not on a fixed metronome: a
+            # mission or a downlink pass is already holding the link, and stacking keepalives on
+            # top of selective-repeat chunk requests spends uplink airtime the repair needs.
+            # sent without a display line - routine plumbing is not an event, and a SENT line
+            # every two seconds would bury the ones that mean something
+            if keepalive and now - last_tx >= KEEPALIVE_S:
+                _, tx = session.command(NOOP_ID, 0, "NOOP (keepalive)", now, retry=False)
+                deliver([], tx)
 
             deliver(*session.tick(now))
 
@@ -268,6 +351,8 @@ def main() -> int:
     if default_quiet:
         print(f"hidden by default ({', '.join(QUIET_KINDS)}) - --all or /show brings them back")
     print("TASKS reads <task>: <state> <stack words still free> <age of last check-in>")
+    if keepalive:
+        print(f"holding the command link with a NOOP after {KEEPALIVE_S:.1f} s of quiet")
 
     interactive = not args.read_only and sys.stdin.isatty()
     if interactive:

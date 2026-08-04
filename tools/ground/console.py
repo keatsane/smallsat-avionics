@@ -10,7 +10,7 @@ from ground.frames import COMMANDS, POLL_TARGETS, RESOLUTIONS
 
 # the console-side verbs that are not spacecraft commands but complete like them - the mission
 # macro and the telemetry poll alias. their argument sets live beside them
-LOCAL_VERBS = ("SHOOT", "POLL")
+LOCAL_VERBS = ("SHOOT", "POLL", "RECOVER", "BREAKAWAY", "SURVEY")
 
 PROMPT = "cmd> "
 

@@ -109,6 +109,7 @@ GROUND_FLAG_LORA_UP = 0x01
 GROUND_FLAG_NRF24_UP = 0x02
 ATTITUDE_FLAG_IN_BAND = 0x01
 ATTITUDE_FLAG_SATURATED = 0x02
+ATTITUDE_FLAG_GYRO_ONLY = 0x04
 
 # one byte spanning a full turn - SET_HEADING's argument, mirroring kHeadingStepRad in state.hpp
 HEADING_STEPS = 256
@@ -125,13 +126,16 @@ GROUND_FLAG_PANEL2 = 0x08
 
 def decode_attitude_status(payload: bytes) -> dict:
     """Unpack an attitude_status_t payload (msg.hpp) into a dict, in degrees."""
-    t_ms, heading, target, rate, torque, flags = struct.unpack("<IhhhhB", payload)
+    t_ms, heading, target, rate, torque, peak, flags = struct.unpack("<IhhhhhB", payload)
     return {
         "t_ms": t_ms,
         "heading_deg": math.degrees(heading / 1000.0),
         "target_deg": math.degrees(target / 1000.0),
         "rate_dps": math.degrees(rate / 1000.0),
         "torque_mnm": torque,
+        # the largest rate the vehicle saw since its last PULSE_WHEEL, measured at the control
+        # rate rather than sampled off this stream - see attitude_status_t
+        "pulse_peak_dps": math.degrees(peak / 1000.0),
         "flags": flags,
     }
 
@@ -185,7 +189,23 @@ def decode_command_ack(payload: bytes) -> dict:
 
 # commands - mirror FSW_COMMAND_LIST in common/protocol/state.hpp (drift-checked by test_frames).
 # a command's index here is its id on the wire
-COMMANDS = ["NOOP", "SET_MODE", "CLEAR_FAULT", "CAPTURE_IMAGE", "SET_HEADING", "REQUEST_TELEMETRY"]
+COMMANDS = [
+    "NOOP",
+    "SET_MODE",
+    "CLEAR_FAULT",
+    "CAPTURE_IMAGE",
+    "SET_HEADING",
+    "REQUEST_TELEMETRY",
+    "PULSE_WHEEL",
+]
+
+
+def torque_arg(millinewton_metres: float) -> int:
+    """Torque -> PULSE_WHEEL's signed byte. Clamped, because a wrapped test point is a wrong one."""
+    mnm = int(round(millinewton_metres))
+    mnm = max(-128, min(127, mnm))
+    return mnm & 0xFF
+
 
 # what REQUEST_TELEMETRY can ask for, by the name the console already prints for that kind. the
 # values are wire message ids - the one catalog here that is a mapping rather than an index,
@@ -266,6 +286,7 @@ FAULTS = [
     "OVERTEMPERATURE",
     "WHEEL_DROPOUT",
     "CAMERA_DROPOUT",
+    "WHEEL_SATURATED",
 ]
 
 
@@ -550,7 +571,7 @@ def format_frame(msg_id: int, payload: bytes) -> str:
             f"{'PAYLOAD':<12} image={d['image_id']}  chunk={d['chunk']}/{d['chunks']}  "
             f"len={d['len']}"
         )
-    if msg_id == MSG_ATTITUDE_STATUS and len(payload) == 13:
+    if msg_id == MSG_ATTITUDE_STATUS and len(payload) == 15:
         d = decode_attitude_status(payload)
         # the error is what a pointing run is actually judged on, so it is stated rather than left
         # to be subtracted by eye - and wrapped, because 122.8 minus -136.0 is +258.7 only on a
@@ -563,6 +584,10 @@ def format_frame(msg_id: int, payload: bytes) -> str:
             # the controller asked for more torque than the wheel has and was clamped at the
             # ceiling - routine during a large slew, chronic when the target is unreachable
             marks.append("torque clamped at limit")
+        if d["flags"] & ATTITUDE_FLAG_GYRO_ONLY:
+            # no magnetometer this cycle, so the heading is dead reckoning and drifting. expected
+            # while the wheel turns, since its magnets swamp the sensor - see control_task.cpp
+            marks.append("gyro only, heading drifting")
         tail = ("  " + ", ".join(marks)) if marks else ""
         return (
             f"{'ATTITUDE':<12} hdg={d['heading_deg']:+.1f} deg  target={d['target_deg']:+.1f}  "

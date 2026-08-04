@@ -5,7 +5,15 @@ typo is refused on the ground instead of arriving as a valid-looking wrong id. S
 one-shot sender and the interactive monitor so both accept exactly the same syntax.
 """
 
-from ground.frames import COMMANDS, FAULTS, MODES, POLL_TARGETS, RESOLUTIONS, heading_arg
+from ground.frames import (
+    COMMANDS,
+    FAULTS,
+    MODES,
+    POLL_TARGETS,
+    RESOLUTIONS,
+    heading_arg,
+    torque_arg,
+)
 
 # which catalog a command's argument is drawn from; absent means the command takes no argument
 ARG_CATALOG = {"SET_MODE": MODES, "CLEAR_FAULT": FAULTS, "CAPTURE_IMAGE": RESOLUTIONS}
@@ -45,6 +53,17 @@ def resolve(command: str, arg: str | None) -> tuple[int, int]:
         except ValueError:
             raise CommandError(f"SET_HEADING wants degrees, not {arg!r}") from None
         return COMMANDS.index(command), heading_arg(degrees)
+
+    # PULSE_WHEEL's argument is milli-newton-metres, signed, and it is the other numeric catalog.
+    # the vehicle bounds the pulse's length itself, so what the ground names is only how hard
+    if command == "PULSE_WHEEL":
+        if arg is None:
+            raise CommandError("PULSE_WHEEL needs a torque in mN m, e.g. PULSE_WHEEL 12")
+        try:
+            mnm = float(arg)
+        except ValueError:
+            raise CommandError(f"PULSE_WHEEL wants mN m, not {arg!r}") from None
+        return COMMANDS.index(command), torque_arg(mnm)
 
     catalog = ARG_CATALOG.get(command)
     if catalog is None:
@@ -96,6 +115,9 @@ def usage() -> str:
         catalog = ARG_CATALOG.get(name)
         if name == "SET_HEADING":
             lines.append("  SET_HEADING <degrees>   (relative to where POINTING was entered)")
+            continue
+        if name == "PULSE_WHEEL":
+            lines.append("  PULSE_WHEEL <mN m>      (STANDBY only - one bounded actuator pulse)")
             continue
         if not catalog:
             lines.append(f"  {name}")
