@@ -184,8 +184,8 @@ TEST_SUITE("ATTITUDE CONTROL") {
 
         SUBCASE("inside the band it damps rate but stops chasing the angle") {
             ControlGains g;
-            g.k_angle = 100.0F;  // absurd, so a chase would be unmistakable
-            g.k_damp = 0.0F;     // and nothing else can contribute
+            g.k_slew = 100.0F;  // absurd, so a chase would be unmistakable
+            g.k_damp = 0.0F;    // and nothing else can contribute
             g.torque_max = 100.0F;
             AttitudeControl ac(g);
             ac.enter_pointing();

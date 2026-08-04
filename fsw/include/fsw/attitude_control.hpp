@@ -28,9 +28,16 @@ namespace fsw {
  * are expected to change once the rig can be commanded (REQ-ADCS-001).
  */
 struct ControlGains {
-    // detumble: torque per unit body rate. the whole law is tau = -k_rate * omega, which bleeds
-    // rate away without ever needing to know the platform's inertia
-    float k_rate = 0.02F;  // N m per rad/s
+    // detumble: torque per unit body rate. the law is tau_wheel = +k_rate * omega - the platform
+    // feels the reaction, so a wheel spun the way the platform turns is what slows it. bleeds rate
+    // away without ever needing to know the platform's inertia. see detumble() for why the sign
+    // reads backwards at a glance
+    //
+    // retuned 0.02 -> 0.008 on the rig (2026-08-03). at 0.02 any rate past ~0.8 rad/s commanded
+    // more torque than the bearing's breakaway (~0.016 N m), so the loop kept kicking the platform
+    // loose in alternating directions instead of letting it settle - a stick-slip limit cycle at
+    // roughly 90 deg/s that the model never showed, because the model's breakaway is a guess
+    float k_rate = 0.008F;  // N m per rad/s
 
     // what the actuator is allowed to be asked for. the plant clamps to what the motor can
     // deliver anyway; asking inside that limit is what keeps the request honest (REQ-ADCS-003)
@@ -41,14 +48,46 @@ struct ControlGains {
     // holding a rate nobody can measure
     float rate_deadband = 0.02F;  // rad/s
 
-    // pointing, proportional: torque per radian of heading error. sized so a small error still
-    // clears the bearing's breakaway torque - under it the platform simply does not move and the
-    // error never closes, which is the stiction trap this rig will actually hit
-    float k_angle = 0.4F;  // N m per rad
+    // pointing, outer loop: how much slew rate one radian of heading error asks for. this used to
+    // be a torque per radian (k_angle = 0.4), which made POINTING a relay rather than a
+    // controller - 7 degrees of error already demanded the wheel's whole ceiling, so every
+    // manoeuvre past a few degrees ran at full torque until it overshot. the rig answered with
+    // 130 deg/s slams and 19 degrees of overshoot (2026-08-04). asking for a *rate* instead keeps
+    // the request inside what the wheel can actually deliver
+    float k_slew = 0.6F;  // rad/s per rad of error
 
-    // pointing, derivative: torque per rad/s. this is the damping - without it the platform
-    // overshoots the target and oscillates around it rather than settling
-    float k_damp = 0.06F;  // N m per rad/s
+    // the fastest slew POINTING will ask for. the wheel's entire momentum budget is ~0.87 rad/s
+    // of platform rate, so anything approaching that spends the whole budget on the manoeuvre and
+    // leaves nothing to stop with. a third of it is a request the actuator can still answer
+    float slew_rate_max = 0.3F;  // rad/s, ~17 deg/s
+
+    // pointing, inner loop: torque per rad/s of rate error. this is detumble's law with a moving
+    // setpoint, so it MUST carry detumble's gain - the plant does not care which mode is asking.
+    // 0.10 was tried on the rig to give the slew enough torque to break the bearing loose, and it
+    // oscillated at +/-215 deg/s within one command (2026-08-04); the stable value is the one
+    // measured for detumble, and the two are now pinned together deliberately.
+    //
+    // the consequence is the honest finding of this rig: at a stable gain a full rate request
+    // commands ~2 mN m, and the bearing does not break loose until ~16. POINTING can therefore
+    // hold an attitude and damp disturbances, but it cannot slew to a new bearing. that gap is
+    // mechanical - the lazy susan's stiction against the wheel's torque - not a gain to be found
+    float k_damp = 0.008F;  // N m per rad/s, tied to k_rate
+
+    // stiction feedforward: a fixed push in the direction of the error, applied only while the
+    // platform is not moving. friction is the one disturbance a feedback gain cannot answer on
+    // this rig - a gain large enough to break the bearing loose is a gain large enough to
+    // oscillate, which the bench showed twice - so the authority comes from a constant instead. a
+    // constant adds no loop gain at all, so it cannot destabilise anything.
+    //
+    // 8 mN m: the platform first answered a pulse at ~6 mN m on the bench (2026-08-04, measured
+    // with the wheel itself), so this clears it with a little margin. that measurement had a USB
+    // cable on the platform acting as a return spring, so it is a bound rather than a clean
+    // number - worth repeating untethered
+    float stiction_ff = 0.008F;  // N m
+
+    // below this the platform counts as stopped and the feedforward is allowed. once it is
+    // sliding the bearing needs less, and a push that stayed on would keep accelerating it
+    float stuck_rate_rads = 0.05F;  // rad/s, ~3 deg/s
 
     // the error band REQ-ADCS-002 is held to, and the band the law stops correcting inside.
     // ~2.9 degrees, which is about what a printed rig on a lazy susan can be asked for

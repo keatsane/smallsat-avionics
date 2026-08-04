@@ -11,6 +11,7 @@
 
 #include <math.h>
 
+#include <array>
 #include <cstring>
 
 #include "FreeRTOS.h"
@@ -40,6 +41,14 @@ bool camera_ok = false;  // payload camera answered at init
 
 fsw::wheel_status_t wheel{};  // newest status from the esc node
 uint32_t wheel_last_ms = 0;   // when it last answered - drives WHEEL_DROPOUT
+
+// whether the flywheel is actually turning, judged from the angle rather than from the velocity
+// the esc reports. the velocity estimate is noise at a standstill - it read -3 rad/s with the
+// wheel visibly stopped - while the angle sat on the same count indefinitely. asking the noisy
+// signal held the magnetometer off permanently the first time this gate was written
+int32_t wheel_angle_prev = 0;
+bool wheel_angle_seen = false;
+bool wheel_turning = false;
 
 StaticTask_t s_tcb;
 StackType_t s_stack[TASK_STACK_CONTROL];
@@ -241,6 +250,11 @@ void update_status_leds(const fsw::Executive& e, uint32_t t_ms) {
 // platform up rather than slowing it, this is where to negate
 constexpr size_t kYawAxis = 0;
 
+// how far the wheel angle may move between two status frames and still count as stopped. the esc
+// beacons every 250 ms, so 50 mrad is about 0.2 rad/s - slow enough that the rotor magnets are a
+// bias the hard-iron calibration absorbs rather than a modulation the magnetometer aliases
+constexpr int32_t kWheelMovedMrads = 50;
+
 // negated: heading is displayed as a compass, and a compass runs clockwise for an observer
 // looking down at the platform - measured 2026-07-30, a clockwise spin read as decreasing
 // heading without the flip. this is the single place the human convention enters; the compass
@@ -426,8 +440,20 @@ void read_sensors(fsw::Inputs& inputs) {
 
         // the absolute half of the attitude picture, offered only when the mag sample is good
         // AND the live hard-iron calibration has seen a full turn - the estimator treats absence
-        // as "coast on the gyro", which is the right degradation for both cases
-        if ((set.imu.flags & fsw::kImuFlagMagValid) != 0U && inputs.body_rate_rads) {
+        // as "coast on the gyro", which is the right degradation for both cases.
+        //
+        // and only while the wheel is close to stopped. the flywheel carries the motor's rotor
+        // magnets centimetres from the magnetometer: parked, they are a fixed offset the hard-iron
+        // calibration absorbs, but turning they sweep the field past the sensor at eleven times
+        // the shaft rate - far above the 10 Hz sample, so what gets through is aliased garbage.
+        // measured on the bench 2026-08-03: the heading walked ~5 deg/s while the gyro reported
+        // the platform was still, and jumped a full 180 once the snap threshold caught it.
+        //
+        // the cost is real - no absolute reference while the wheel is working, so POINTING coasts
+        // on the gyro through a slew - and it is the honest trade until the sensor moves further
+        // from the magnets
+        if ((set.imu.flags & fsw::kImuFlagMagValid) != 0U && inputs.body_rate_rads &&
+            !wheel_turning) {
             float hdg = 0.0F;
             if (mag_heading_rad(set.imu, *inputs.body_rate_rads, &hdg)) {
                 inputs.mag_heading_rad = hdg;
@@ -482,6 +508,12 @@ void control_task(void*) {
             }
             wheel_last_ms = millis();
             inputs.wheel = wheel;
+
+            const int32_t moved = wheel.angle_mrad - wheel_angle_prev;
+            wheel_turning =
+                wheel_angle_seen && (moved > kWheelMovedMrads || moved < -kWheelMovedMrads);
+            wheel_angle_prev = wheel.angle_mrad;
+            wheel_angle_seen = true;
         }
 
         // one command per cycle, because Inputs carries one. the uplink task holds the rest until
@@ -495,24 +527,6 @@ void control_task(void*) {
 
         if ((cycle % 10U) == 0U) {
             ld2_toggle();  // ~1 hz alive blink
-        }
-
-        // TEMP esc rx diagnosis - are bytes arriving at all, and are they clean. printed once and
-        // then only when something moves: the question is "has anything changed", and repeating
-        // the same all-zero line every two seconds forever only buries the lines that matter
-        if ((cycle % 20U) == 0U && wheel_last_ms == 0U) {
-            static uint32_t last_sum = UINT32_MAX;
-            const uart_errors_t e = uart_get_errors(uart_esc);
-            const uint32_t waiting = static_cast<uint32_t>(uart_rx_available(uart_esc));
-            const uint32_t sum = waiting + e.overrun + e.framing + e.noise + e.dropped;
-            if (sum != last_sum) {
-                last_sum = sum;
-                console_printf(
-                    "ESC rx: waiting=%lu ore=%lu fe=%lu ne=%lu drop=%lu\r\n",
-                    static_cast<unsigned long>(waiting), static_cast<unsigned long>(e.overrun),
-                    static_cast<unsigned long>(e.framing), static_cast<unsigned long>(e.noise),
-                    static_cast<unsigned long>(e.dropped));
-            }
         }
 
         update_status_leds(exec, millis());
@@ -533,26 +547,33 @@ void control_task(void*) {
 void control_task_create(bool camera_present) {
     camera_ok = camera_present;
 
-    // BENCH INHIBITS - subsystems that are physically absent from the rig right now. an inhibited
-    // fault still debounces, latches, logs, and appears in the heartbeat; only its autonomous
-    // response is suppressed, so no run can be read as clean when it was not. empty this list
-    // as the hardware comes back (REQ-FAULT-012)
-    static const fsw::Fault kBenchInhibits[] = {
-        fsw::Fault::COMMAND_LINK_LOSS,  // no ground station until phase 8
-        fsw::Fault::WHEEL_DROPOUT,      // esc removed from the stack pending a replacement board
-    };
+    // BENCH INHIBITS - subsystems physically absent from the rig get their autonomous response
+    // suppressed here. an inhibited fault still debounces, latches, logs, and appears in the
+    // heartbeat; only its autonomous response is suppressed, so no run can be read as clean when
+    // it was not.
+    //
+    // the list is EMPTY as of 2026-08-03: the ESC came back on 2026-08-03 and the ground station
+    // holds the command link, so both of the rig's long-standing inhibits have been earned away
+    // and the vehicle now runs its real fault responses. that means COMMAND_LINK_LOSS safes the
+    // vehicle about five seconds into any run the ground is not talking to - which is correct
+    // behaviour, and why the console has a keep-alive (REQ-FAULT-012)
+    static constexpr std::array<fsw::Fault, 0> kBenchInhibits{};
 
     for (const fsw::Fault f : kBenchInhibits) {
         exec.inhibit_fault(f);
     }
 
     // loud, and first in every log - the banner is the reason inhibits cannot quietly become a lie
-    console_puts("BENCH BUILD - fault responses inhibited: ");
-    for (size_t i = 0U; i < (sizeof(kBenchInhibits) / sizeof(kBenchInhibits[0])); i++) {
-        console_printf("%s%s", (i > 0U) ? ", " : "",
-                       fsw::fault_name(static_cast<uint8_t>(kBenchInhibits[i])));
+    if (kBenchInhibits.empty()) {
+        console_puts("FLIGHT FAULT RESPONSES - no inhibits\r\n");
+    } else {
+        console_puts("BENCH BUILD - fault responses inhibited: ");
+        for (size_t i = 0U; i < kBenchInhibits.size(); i++) {
+            console_printf("%s%s", (i > 0U) ? ", " : "",
+                           fsw::fault_name(static_cast<uint8_t>(kBenchInhibits[i])));
+        }
+        console_puts("\r\n");
     }
-    console_puts("\r\n");
 
     const TaskHandle_t h = xTaskCreateStatic(control_task, "control", TASK_STACK_CONTROL, nullptr,
                                              TASK_PRIO_CONTROL, s_stack, &s_tcb);

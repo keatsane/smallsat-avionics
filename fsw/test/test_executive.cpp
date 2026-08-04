@@ -11,6 +11,7 @@ extern int capture_calls;
 extern uint8_t capture_resolution;
 extern uint8_t polled_msg_id;
 extern bool payload_downlink_active;
+extern float wheel_torque_nm;
 }  // namespace fsw::platform
 
 TEST_SUITE("EXECUTIVE REQUIREMENTS") {
@@ -177,16 +178,17 @@ TEST_SUITE("EXECUTIVE REQUIREMENTS") {
         SUBCASE("a spinning vehicle detumbles itself and resumes the interrupted mode") {
             Executive exec;
 
-            // walk to POINTING (legal straight from STANDBY now)
+            // DOWNLINK rather than POINTING: a pointing slew is body rate on purpose, so POINTING
+            // is deliberately outside the autonomous entry - see the subcase below
             Inputs standby;
             standby.command = command_t{static_cast<uint8_t>(Command::SET_MODE),
                                         static_cast<uint8_t>(Mode::STANDBY), 1};
             exec.cycle(standby, 100);
-            Inputs pointing;
-            pointing.command = command_t{static_cast<uint8_t>(Command::SET_MODE),
-                                         static_cast<uint8_t>(Mode::POINTING), 2};
-            exec.cycle(pointing, 200);
-            REQUIRE(exec.modes().mode() == Mode::POINTING);
+            Inputs downlink;
+            downlink.command = command_t{static_cast<uint8_t>(Command::SET_MODE),
+                                         static_cast<uint8_t>(Mode::DOWNLINK), 2};
+            exec.cycle(downlink, 200);
+            REQUIRE(exec.modes().mode() == Mode::DOWNLINK);
 
             // a sustained high rate - three cycles of debounce, then the vehicle acts on its own
             uint32_t t = 300;
@@ -206,7 +208,35 @@ TEST_SUITE("EXECUTIVE REQUIREMENTS") {
                 exec.cycle(still, t);
                 t += 100;
             }
-            CHECK(exec.modes().mode() == Mode::POINTING);  // resumed, not parked in STANDBY
+            CHECK(exec.modes().mode() == Mode::DOWNLINK);  // resumed, not parked in STANDBY
+        }
+
+        SUBCASE("POINTING is left alone - its rate is the manoeuvre, not a tumble") {
+            // measured on the rig 2026-08-04: a slew passes the entry threshold long before it
+            // reaches the bearing, so an autonomous entry cancels the manoeuvre that asked for
+            // the rate, resumes POINTING, and starts the same fight over. forty seconds of that
+            // was what the bench showed
+            Executive exec;
+
+            Inputs standby;
+            standby.command = command_t{static_cast<uint8_t>(Command::SET_MODE),
+                                        static_cast<uint8_t>(Mode::STANDBY), 1};
+            exec.cycle(standby, 100);
+            Inputs pointing;
+            pointing.command = command_t{static_cast<uint8_t>(Command::SET_MODE),
+                                         static_cast<uint8_t>(Mode::POINTING), 2};
+            exec.cycle(pointing, 200);
+            REQUIRE(exec.modes().mode() == Mode::POINTING);
+
+            uint32_t t = 300;
+            for (int i = 0; i < 10; i++) {
+                Inputs slew;
+                slew.body_rate_rads = 1.0F;  // well past detumble_enter_rads, and sustained
+                exec.cycle(slew, t);
+                t += 100;
+            }
+
+            CHECK(exec.modes().mode() == Mode::POINTING);
         }
 
         SUBCASE("a single bumped sample does not trigger the recovery") {
@@ -225,6 +255,95 @@ TEST_SUITE("EXECUTIVE REQUIREMENTS") {
 
             CHECK(exec.modes().mode() == Mode::STANDBY);  // the debounce held
         }
+    }
+
+    TEST_CASE("PULSE_WHEEL is an actuator test point, bounded by the flight software") {
+        // it exists so the plant can be characterised with nothing plugged into the vehicle - a
+        // cable across the rotating joint is a spring, and a tethered measurement measures it
+        SUBCASE("the pulse expires on its own rather than standing until cancelled") {
+            Executive exec;
+            Inputs standby;
+            standby.command = command_t{static_cast<uint8_t>(Command::SET_MODE),
+                                        static_cast<uint8_t>(Mode::STANDBY), 1};
+            exec.cycle(standby, 100);
+
+            Inputs pulse;
+            pulse.command = command_t{static_cast<uint8_t>(Command::PULSE_WHEEL), 20, 2};
+            exec.cycle(pulse, 200);
+            CHECK(platform::wheel_torque_nm == doctest::Approx(0.020F));
+
+            Inputs idle;
+            exec.cycle(idle, 400);  // still inside the window
+            CHECK(platform::wheel_torque_nm == doctest::Approx(0.020F));
+
+            exec.cycle(idle, 200 + kWheelPulseMs + 1);  // and past it
+            CHECK(platform::wheel_torque_nm == doctest::Approx(0.0F));
+        }
+
+        SUBCASE("a negative argument is a pulse the other way") {
+            Executive exec;
+            Inputs standby;
+            standby.command = command_t{static_cast<uint8_t>(Command::SET_MODE),
+                                        static_cast<uint8_t>(Mode::STANDBY), 1};
+            exec.cycle(standby, 100);
+
+            Inputs pulse;  // 0xF6 is -10 as a signed byte
+            pulse.command = command_t{static_cast<uint8_t>(Command::PULSE_WHEEL), 0xF6, 2};
+            exec.cycle(pulse, 200);
+
+            CHECK(platform::wheel_torque_nm == doctest::Approx(-0.010F));
+        }
+
+        SUBCASE("leaving STANDBY abandons the pulse rather than leaving torque standing") {
+            Executive exec;
+            Inputs standby;
+            standby.command = command_t{static_cast<uint8_t>(Command::SET_MODE),
+                                        static_cast<uint8_t>(Mode::STANDBY), 1};
+            exec.cycle(standby, 100);
+
+            Inputs pulse;
+            pulse.command = command_t{static_cast<uint8_t>(Command::PULSE_WHEEL), 20, 2};
+            exec.cycle(pulse, 200);
+            REQUIRE(platform::wheel_torque_nm == doctest::Approx(0.020F));
+
+            // a critical fault safes the vehicle mid-pulse
+            Inputs bad;
+            bad.fault_updates.push_back({Fault::UNDERVOLTAGE, true});
+            bad.fault_updates.push_back({Fault::UNDERVOLTAGE, true});
+            bad.fault_updates.push_back({Fault::UNDERVOLTAGE, true});
+            exec.cycle(bad, 250);
+
+            REQUIRE(exec.modes().mode() == Mode::SAFE);
+            CHECK(platform::wheel_torque_nm == doctest::Approx(0.0F));
+        }
+    }
+
+    TEST_CASE("momentum dumping ignores the wheel's standstill noise") {
+        // the ESC's velocity estimate reads +/-3 rad/s with the wheel stopped, so a dump deadband
+        // inside that fires on noise and spins the wheel up in whichever direction the noise
+        // pointed. that left every manoeuvre starting from an arbitrary wheel state
+        Executive exec;
+        Inputs standby;
+        standby.command = command_t{static_cast<uint8_t>(Command::SET_MODE),
+                                    static_cast<uint8_t>(Mode::STANDBY), 1};
+        exec.cycle(standby, 100);
+        REQUIRE(exec.modes().mode() == Mode::STANDBY);
+
+        wheel_status_t noisy{};
+        noisy.velocity_mrad_s = -3100;  // the bench's measured standstill reading
+        noisy.flags = kWheelFlagFocReady;
+
+        Inputs idle;
+        idle.wheel = noisy;
+        exec.cycle(idle, 200);
+        CHECK(platform::wheel_torque_nm == doctest::Approx(0.0F));
+
+        // a wheel that really is turning still gets unwound, and against its own direction
+        wheel_status_t spinning = noisy;
+        spinning.velocity_mrad_s = 20000;
+        idle.wheel = spinning;
+        exec.cycle(idle, 300);
+        CHECK(platform::wheel_torque_nm < 0.0F);
     }
 
     TEST_CASE("REQ-TLM-006") {

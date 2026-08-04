@@ -34,6 +34,11 @@ constexpr uint32_t kWheelTimeoutMs = 1000;
 // noise. after the grace expires an esc that never came up latches like any other dead link
 constexpr uint32_t kWheelAcquireMs = 8000;
 
+// the wheel counts as full at 90% of its measured top speed (~36 rad/s on this rig, 2026-07-21).
+// not 100%: the last few percent is where back-EMF has already flattened the torque curve, so a
+// wheel that close is out of useful authority whatever the tachometer says
+constexpr int32_t kWheelSaturatedMrads = 32000;
+
 // true if cur has not differed from prev for longer than the stale window; remembers the latest
 // reading and the time it last changed as a side effect
 bool source_stale(const int16_t cur[3], int16_t prev[3], uint32_t& changed_ms, uint32_t t_ms) {
@@ -141,6 +146,17 @@ void SensorMonitor::evaluate_wheel(const std::optional<wheel_status_t>& wheel, F
 
     const uint32_t window = wheel_acquired_ ? kWheelTimeoutMs : kWheelAcquireMs;
     fm.update(Fault::WHEEL_DROPOUT, (t_ms - wheel_seen_ms_) > window, t_ms);
+
+    // and whether it has anything left to give. a wheel at its speed limit cannot be accelerated
+    // further, so the reaction it puts on the platform is zero however much torque is asked for -
+    // the controller keeps commanding and the vehicle keeps not moving, which is exactly what the
+    // bench showed: full torque held for fifteen seconds with the rate pinned at zero. only
+    // reported while the link is up, because a stale reading is not evidence of anything
+    if (wheel.has_value()) {
+        const int32_t v = wheel->velocity_mrad_s;
+        const int32_t mag = (v < 0) ? -v : v;
+        fm.update(Fault::WHEEL_SATURATED, mag >= kWheelSaturatedMrads, t_ms);
+    }
 }
 
 void SensorMonitor::evaluate_camera(const std::optional<camera_data_t>& camera, FaultManager& fm,

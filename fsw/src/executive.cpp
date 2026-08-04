@@ -8,6 +8,42 @@
 #include <cmath>
 
 namespace fsw {
+
+namespace {
+
+// below this the wheel is unwound enough to stop bleeding it - a deadband, so a wheel resting
+// near zero does not sit commanding a trickle of torque forever.
+//
+// 5 rad/s and not 2, because the number this is compared against is not trustworthy near zero.
+// The ESC's velocity estimate reads +/-3.1 rad/s with the wheel visibly stopped and its angle
+// frozen (measured 2026-08-04) - it is a difference of quantised angles over a tiny interval, and
+// at rest that is all noise. At 2 rad/s the dump fired on that noise, in whichever direction the
+// noise happened to point, so a vehicle sitting in STANDBY spun its wheel *up* as often as down
+// and every manoeuvre started from an arbitrary wheel state. The magnetometer gate learned this
+// same lesson an hour earlier and switched to the angle; this one just needs to clear the floor.
+constexpr int32_t kDumpDoneMrads = 5000;  // 5 rad/s - above the standstill noise, well under the
+                                          // 36 rad/s limit, so a real full wheel still unwinds
+
+// what to push while unwinding. it has to be under the platform's breakaway or the dump turns
+// into a slew: the measured threshold for platform motion is ~5 mN m commanded, so 3 is inside
+// it with margin. slow on purpose - a full wheel unwinds in a few seconds, which is nothing
+// against the time a vehicle spends idle
+constexpr float kDumpTorqueNm = 0.003F;
+
+// oppose the wheel's spin, or nothing if it is already unwound. the sign is the wheel's own:
+// slowing a wheel means torquing against the way it is turning, which is the one place in this
+// flight software where the command opposes rather than follows
+float dump_torque(int32_t wheel_mrad_s) {
+    if (wheel_mrad_s > kDumpDoneMrads) {
+        return -kDumpTorqueNm;
+    }
+    if (wheel_mrad_s < -kDumpDoneMrads) {
+        return kDumpTorqueNm;
+    }
+    return 0.0F;
+}
+
+}  // namespace
 namespace {
 
 // radians to the wire's milliradians, clamped rather than wrapped: a heading that has run past
@@ -77,6 +113,11 @@ void Executive::cycle(const Inputs& inputs, uint32_t t_ms) {
         {Fault::ACCEL_GYRO_DROPOUT, kActive},
         {Fault::POWER_DROPOUT, static_cast<uint8_t>(kActive | mode_bit(Mode::DOWNLINK))},
         {Fault::WHEEL_DROPOUT, kActive},
+        // a full wheel is the same shape of problem as a missing one - the modes that steer have
+        // no actuator left - and it retreats the same way. the difference is that this one has a
+        // cure: STANDBY unwinds the wheel against the bearing, so the retreat is also where the
+        // recovery happens rather than merely where the vehicle waits
+        {Fault::WHEEL_SATURATED, kActive},
     };
     for (const Fallback& fb : kFallbacks) {
         if ((fb.from_modes & mode_bit(mm_.mode())) != 0U && fm_.response_active(fb.fault)) {
@@ -119,6 +160,15 @@ void Executive::cycle(const Inputs& inputs, uint32_t t_ms) {
                 // camera telemetry, so nothing here waits on the payload (REQ-PAY-001)
                 platform::capture_image(inputs.command->arg);
                 break;
+            case Command::PULSE_WHEEL:
+                // a signed byte of milli-newton-metres, held for a fixed window and then dropped.
+                // bounded in the flight software rather than by the ground remembering to send a
+                // zero: a standing torque nobody cancels is how a wheel walks into saturation
+                pulse_torque_nm_ =
+                    static_cast<float>(static_cast<int8_t>(inputs.command->arg)) / 1000.0F;
+                pulse_until_ms_ = t_ms + kWheelPulseMs;
+                pulse_peak_rads_ = 0.0F;  // this test point's answer starts blank
+                break;
         }
     }
 
@@ -151,10 +201,33 @@ void Executive::cycle(const Inputs& inputs, uint32_t t_ms) {
     // STANDBY. only estimation happens unconditionally; torque stays mode-gated below
     if (inputs.body_rate_rads) {
         ac_.update(*inputs.body_rate_rads, dt_s, inputs.mag_heading_rad);
+
+        // the peak rate since the last pulse, watched at the control rate. the platform's answer
+        // to a test point is a transient - it breaks loose, turns, and friction stops it, all
+        // inside a second - so a stream sampled slower than that reports whatever phase it
+        // happened to catch. this is the one number that says whether the bearing let go
+        const float mag =
+            (*inputs.body_rate_rads < 0.0F) ? -*inputs.body_rate_rads : *inputs.body_rate_rads;
+        if (mag > pulse_peak_rads_) {
+            pulse_peak_rads_ = mag;
+        }
     }
 
     float torque_nm = 0.0F;
-    if (inputs.body_rate_rads && mode_now == Mode::DETUMBLE) {
+
+    // an actuator test point outranks the mode's own law, because it is only legal in STANDBY,
+    // where there is no law running. it expires on its own clock and is abandoned if the vehicle
+    // leaves STANDBY for any reason - a fault retreat mid-pulse must not leave torque standing
+    const bool pulsing = (mode_now == Mode::STANDBY) && (pulse_until_ms_ != 0U) &&
+                         static_cast<int32_t>(pulse_until_ms_ - t_ms) > 0;
+    if (!pulsing) {
+        pulse_until_ms_ = 0U;
+        pulse_torque_nm_ = 0.0F;
+    }
+
+    if (pulsing) {
+        torque_nm = pulse_torque_nm_;
+    } else if (inputs.body_rate_rads && mode_now == Mode::DETUMBLE) {
         torque_nm = ac_.detumble(*inputs.body_rate_rads);
 
         // declare detumble done once the rate has sat inside the deadband for a full second
@@ -177,6 +250,20 @@ void Executive::cycle(const Inputs& inputs, uint32_t t_ms) {
         }
     } else if (inputs.body_rate_rads && mode_now == Mode::POINTING) {
         torque_nm = ac_.point(*inputs.body_rate_rads);
+    } else if (mode_now == Mode::STANDBY && inputs.wheel) {
+        // momentum dumping, and the bearing that makes pointing hard is what makes it possible.
+        //
+        // a reaction wheel only exchanges momentum, so a vehicle that has slewed one way has a
+        // wheel carrying the balance and no authority left in that direction. Real spacecraft
+        // dump against magnetorquers or thrusters; this one has friction. Any torque under the
+        // platform's breakaway spins the wheel back down without moving the platform at all - the
+        // stiction holds the body still while the wheel unwinds against it.
+        //
+        // STANDBY only, and that is the whole design: DETUMBLE and POINTING are steering and must
+        // not have their actuator quietly drained underneath them, so the vehicle unwinds while
+        // idle. WHEEL_SATURATED's fallback retreats to exactly here, which makes the retreat a
+        // recovery rather than a parking space.
+        torque_nm = dump_torque(inputs.wheel->velocity_mrad_s);
     }
     if (mode_now != Mode::DETUMBLE) {
         detumble_done_cycles_ = 0;  // a fresh DETUMBLE earns its exit from zero
@@ -186,8 +273,16 @@ void Executive::cycle(const Inputs& inputs, uint32_t t_ms) {
     // pulls itself into the recovery, remembers where it was, and update()'s exit path above
     // returns it there (REQ-MODE-012). SAFE is deliberately not in the list - a safed vehicle
     // sheds activity, and spinning quietly is what SAFE already accepts
+    //
+    // POINTING is not in the list either, and that one was learned on the rig (2026-08-04). a slew
+    // to a new bearing *is* body rate, deliberately, and it passes this threshold long before it
+    // reaches the target - so the vehicle kept interrupting its own manoeuvre. POINTING commanded
+    // a turn, the turn tripped this entry, DETUMBLE cancelled the turn, the resume put it back in
+    // POINTING, and the two thrashed for forty seconds without ever arriving. detumble answers
+    // rate nobody asked for; in POINTING the rate is the controller's own doing, and the pointing
+    // law carries its own damping term to keep it in hand
     if (inputs.body_rate_rads && mode_now != Mode::DETUMBLE && mode_now != Mode::SAFE &&
-        mode_now != Mode::BOOT &&
+        mode_now != Mode::BOOT && mode_now != Mode::POINTING &&
         std::fabs(*inputs.body_rate_rads) > ac_.gains().detumble_enter_rads) {
         if (detumble_enter_cycles_ < kDetumbleEnterCycles) {
             detumble_enter_cycles_++;
@@ -221,16 +316,33 @@ void Executive::cycle(const Inputs& inputs, uint32_t t_ms) {
     if (tp_.heartbeat_due(t_ms)) {
         send(MsgId::Heartbeat,
              tp_.heartbeat(t_ms, mm_.mode(), fm_.active(), fm_.inhibited(), last_bus_mv_));
+    }
 
-        attitude_status_t a{};
-        a.t_ms = t_ms;
-        a.heading_mrad = to_mrad(ac_.heading());
-        a.target_mrad = to_mrad(ac_.target());
-        a.rate_mrads = to_mrad(inputs.body_rate_rads ? *inputs.body_rate_rads : 0.0F);
-        a.torque_mnm = static_cast<int16_t>(torque_nm * 1000.0F);
-        a.flags = static_cast<uint8_t>((ac_.pointing_in_band() ? kAttitudeFlagInBand : 0U) |
-                                       (ac_.saturated() ? kAttitudeFlagSaturated : 0U));
-        send(MsgId::AttitudeStatus, a);
+    // the pointing picture goes out every cycle, not at the heartbeat's rate. a 10 Hz control loop
+    // cannot be tuned or verified from 1 Hz samples: on this rig a detumble is over in about a
+    // third of a second, so the whole event fell between two telemetry lines and the only thing
+    // visible was where it ended up. the radio still carries one a second - the beacon decimates
+    // this stream - so the extra rate is spent on the wired link, where air time is not a budget
+    attitude_status_t a{};
+    a.t_ms = t_ms;
+    a.heading_mrad = to_mrad(ac_.heading());
+    a.target_mrad = to_mrad(ac_.target());
+    a.rate_mrads = to_mrad(inputs.body_rate_rads ? *inputs.body_rate_rads : 0.0F);
+    a.torque_mnm = static_cast<int16_t>(torque_nm * 1000.0F);
+    a.pulse_peak_mrads = to_mrad(pulse_peak_rads_);
+    a.flags = static_cast<uint8_t>((ac_.pointing_in_band() ? kAttitudeFlagInBand : 0U) |
+                                   (ac_.saturated() ? kAttitudeFlagSaturated : 0U) |
+                                   (inputs.mag_heading_rad ? 0U : kAttitudeFlagGyroOnly));
+    send(MsgId::AttitudeStatus, a);
+
+    // the wheel's own report, forwarded rather than consumed silently. the executive has been
+    // reading these to decide WHEEL_DROPOUT since the ESC arrived and never passing them on, so
+    // the actuator was the one subsystem the ground could be told had failed without ever being
+    // shown its state. it is also the only place the wheel's speed is visible, which is what
+    // turns a commanded torque into a measured one: the wheel's angular acceleration against its
+    // known inertia is the actuator's real output, and the way to find `kOhmsPerKt`
+    if (inputs.wheel) {
+        send(MsgId::WheelStatus, *inputs.wheel);
     }
 
     // imu data

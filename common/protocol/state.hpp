@@ -12,18 +12,29 @@
 #include <cstdint>
 
 // command ids - X(name). a command's order here is its id, carried in command_t.cmd_id
-#define FSW_COMMAND_LIST(X)                                                   \
-    X(NOOP)              /* link keep-alive / test */                         \
-    X(SET_MODE)          /* request a mode transition (arg = mode id) */      \
-    X(CLEAR_FAULT)       /* clear a latched fault (arg = fault id) */         \
-    X(CAPTURE_IMAGE)     /* take a photo (arg = resolution id) */             \
-    X(SET_HEADING)       /* aim POINTING at a bearing (arg = binary angle) */ \
-    X(REQUEST_TELEMETRY) /* beacon one frame of a telemetry kind (arg = msg id) */
+#define FSW_COMMAND_LIST(X)                                                        \
+    X(NOOP)              /* link keep-alive / test */                              \
+    X(SET_MODE)          /* request a mode transition (arg = mode id) */           \
+    X(CLEAR_FAULT)       /* clear a latched fault (arg = fault id) */              \
+    X(CAPTURE_IMAGE)     /* take a photo (arg = resolution id) */                  \
+    X(SET_HEADING)       /* aim POINTING at a bearing (arg = binary angle) */      \
+    X(REQUEST_TELEMETRY) /* beacon one frame of a telemetry kind (arg = msg id) */ \
+    X(PULSE_WHEEL)       /* one bounded actuator pulse (arg = torque, signed mN m) */
 
 // SET_HEADING's argument is a binary angle: one byte spanning a full turn, so a step is 360/256 =
 // 1.406 degrees. a byte cannot hold degrees and this is the standard way round it - the same
 // encoding flight software has used for bearings since long before anyone had a spare byte
 inline constexpr float kHeadingStepRad = 6.283185307F / 256.0F;
+
+// PULSE_WHEEL's argument is a signed byte of milli-newton-metres, and the pulse is commanded back
+// to zero after this long. it is an engineering command: it drives the actuator directly, past
+// the control laws, so that the plant can be characterised rather than inferred.
+//
+// it exists because the platform is only free when nothing is plugged into it. a laptop on the end
+// of a USB cable is a torsion spring across the rotating joint - the bench proved that by watching
+// a "friction" measurement spring back to where it started every time - so any measurement of the
+// bearing has to be commanded over the radio and run by the vehicle itself
+inline constexpr uint32_t kWheelPulseMs = 500;
 
 // image sizes CAPTURE_IMAGE can ask for - X(name, label). the order here is the wire value of the
 // command's argument, so appending is safe and reordering is not
@@ -45,7 +56,8 @@ inline constexpr float kHeadingStepRad = 6.283185307F / 256.0F;
     X(UNDERTEMPERATURE)   /* below the min operating temp */                 \
     X(OVERTEMPERATURE)    /* above the max operating temp */                 \
     X(WHEEL_DROPOUT)      /* reaction wheel stopped answering on its link */ \
-    X(CAMERA_DROPOUT)     /* payload camera not answering */
+    X(CAMERA_DROPOUT)     /* payload camera not answering */                 \
+    X(WHEEL_SATURATED)    /* wheel at its speed limit - no torque left to give */
 
 // reset causes - X(name). order here is the id carried in boot_info_t.reset_cause (REQ-WDG-002).
 // this is the wire's catalog, not the mcu's: the stm32 driver has its own reset_cause_t reading

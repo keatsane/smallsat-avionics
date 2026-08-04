@@ -238,6 +238,11 @@ struct __attribute__((packed)) ground_status_t {
 // attitude_status_t.flags bits
 inline constexpr uint8_t kAttitudeFlagInBand = 0x01;     // holding the commanded bearing
 inline constexpr uint8_t kAttitudeFlagSaturated = 0x02;  // the wheel is at its limit
+// no absolute reference this cycle, so the heading is dead-reckoned from the gyro alone. says
+// nothing about why - an invalid sample, a hard-iron calibration that has not seen a full turn,
+// and a magnetometer held off because the wheel is spinning all land here. what matters to anyone
+// reading a heading is whether it is anchored or drifting, and this is that bit
+inline constexpr uint8_t kAttitudeFlagGyroOnly = 0x04;
 
 // MsgId::AttitudeStatus - the pointing picture, in milliradians.
 //
@@ -251,7 +256,15 @@ struct __attribute__((packed)) attitude_status_t {
     int16_t target_mrad;   // what SET_HEADING asked for, in the same frame
     int16_t rate_mrads;    // measured yaw rate
     int16_t torque_mnm;    // what the controller commanded the wheel, milli-newton-metres
-    uint8_t flags;         // kAttitudeFlag* bits
+
+    // the largest body rate seen since the last PULSE_WHEEL, and the reason it is here rather
+    // than derived on the ground: a pulse lasts half a second and the radio carries one of these
+    // a second, so whether the platform moved is a question the sampled stream answers by luck.
+    // the flight software watches the gyro at the control rate and simply knows. cleared when a
+    // new pulse starts, so it always describes the most recent test point
+    int16_t pulse_peak_mrads;
+
+    uint8_t flags;  // kAttitudeFlag* bits
 };
 
 // how many chunk indices one request can carry - sized so the struct fills the frame's 64-byte
@@ -345,7 +358,7 @@ static_assert(sizeof(camera_data_t) == 9, "camera_data_t wire layout changed");
 static_assert(sizeof(payload_data_t) == 64, "payload_data_t wire layout changed");
 static_assert(sizeof(downlink_status_t) == 16, "downlink_status_t wire layout changed");
 static_assert(sizeof(ground_status_t) == 18, "ground_status_t wire layout changed");
-static_assert(sizeof(attitude_status_t) == 13, "attitude_status_t wire layout changed");
+static_assert(sizeof(attitude_status_t) == 15, "attitude_status_t wire layout changed");
 static_assert(sizeof(chunk_request_t) == 59, "chunk_request_t wire layout changed");
 static_assert(sizeof(payload_data_t) <= kFrameMaxPayload, "payload_data_t no longer fits a frame");
 static_assert(sizeof(task_entry_t) == 6, "task_entry_t wire layout changed");

@@ -64,8 +64,11 @@ TEST_SUITE("PLANT MODEL") {
 
     TEST_CASE("stiction") {
         SUBCASE("a torque under breakaway moves nothing at all") {
-            Plant plant;            // default params: breakaway 0.02 N m
-            plant.step(0.01, 2.0);  // reaction 0.01, under it
+            // breakaway is ~9.6 mN m, inferred from a two-decay friction fit (plant.hpp). this
+            // hardcoded 10 mN m and called it "under", which was true against an older guess of
+            // 16 and is exactly the kind of assumption a re-fit has to break rather than pass
+            Plant plant;
+            plant.step(0.005, 2.0);  // 5 mN m of reaction, comfortably under it
 
             CHECK(plant.platform_rate() == doctest::Approx(0.0));
             CHECK(plant.platform_angle() == doctest::Approx(0.0));

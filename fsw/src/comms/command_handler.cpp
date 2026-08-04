@@ -29,6 +29,10 @@ constexpr CommandSpec kCommandTable[kCommandCount] = {
     // legal everywhere including SAFE, deliberately: asking a safed vehicle what its power
     // reading is happens to be exactly when the answer matters most
     /* REQUEST_TELEMETRY */ {kAllModes, "REQ-TLM-006"},
+    // STANDBY only. it drives the wheel past the control laws, so the one mode where nothing else
+    // is steering is the only mode where that is safe - in DETUMBLE or POINTING it would fight the
+    // controller, and in SAFE a vehicle that has shed activity does not take actuator test points
+    /* PULSE_WHEEL   */ {mode_bit(Mode::STANDBY), "REQ-ADCS-003"},
 };
 
 static_assert(sizeof(kCommandTable) / sizeof(kCommandTable[0]) == kCommandCount,

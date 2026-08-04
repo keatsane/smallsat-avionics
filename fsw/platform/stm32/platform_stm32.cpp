@@ -31,22 +31,55 @@ void send_telemetry(const uint8_t* frame, uint32_t len) {
     // against the budget - and without it the ground commands blind, which is worse than not
     // commanding at all.
     //
+    // one attitude frame per this many cycles rides the beacon. the control loop is 10 Hz, so this
+    // is the once-a-second dial - what the air-time budget above was written for
+    constexpr uint8_t kAttitudeBeaconEvery = 10U;
+
     // byte 2 is the message id: the layout is sync(2), id(1), len(1), payload, crc(2)
     // AttitudeStatus joins them because the ground station draws a dial from it, and a dial with
     // no data is a circle. it is 19 bytes at the heartbeat's cadence, so it costs one more beacon
     // slot per second and takes the link from about 6% of air time to about 11%
-    if (len >= kFrameOverhead && (frame[2] == static_cast<uint8_t>(MsgId::Heartbeat) ||
-                                  frame[2] == static_cast<uint8_t>(MsgId::CommandAck) ||
-                                  frame[2] == static_cast<uint8_t>(MsgId::AttitudeStatus))) {
-        (void)telemetry_out_beacon(frame, len);
+    if (len >= kFrameOverhead) {
+        const uint8_t id = frame[2];
+        bool beacon = (id == static_cast<uint8_t>(MsgId::Heartbeat)) ||
+                      (id == static_cast<uint8_t>(MsgId::CommandAck));
+
+        // the executive emits AttitudeStatus every control cycle so the wired link can see the
+        // loop work. the air-time budget did not change with it, so the beacon takes every tenth
+        // one - the same once-a-second dial the ground station was already drawing
+        if (id == static_cast<uint8_t>(MsgId::AttitudeStatus)) {
+            static uint8_t attitude_n = 0U;
+            beacon = ((attitude_n % kAttitudeBeaconEvery) == 0U);
+            attitude_n = static_cast<uint8_t>((attitude_n + 1U) % kAttitudeBeaconEvery);
+        }
+
+        if (beacon) {
+            (void)telemetry_out_beacon(frame, len);
+        }
     }
 }
 
 // torque -> q-axis volts for this motor. SimpleFOC's voltage torque mode drives V_q, and the
 // current that follows is V_q/R, so torque = V_q * kt / R and the inverse is V_q = torque * R/kt.
 // GBM4108-120T: 12.4 ohm windings (bom.md), kt estimated at ~0.1 N m/A for this frame size.
-// ESTIMATE - the one number here that wants measuring against the rig, by commanding a known
-// voltage and fitting the platform's response once the ESC link is back
+// STILL AN ESTIMATE, and now known to be one. The detumble A/B (2026-08-04) put the torque the
+// wheel actually delivers somewhere between 1.4x and 2.4x what was commanded - the spread is that
+// wide because backing it out of the platform's deceleration also leans on the friction fit and
+// on which samples are read, so it indicates rather than measures. What it does establish is the
+// direction: kt is higher than the 0.1 N m/A assumed, so this constant is too large.
+//
+// The clean measurement is the wheel rather than the platform, and it is available now that wheel
+// telemetry reaches the ground: pulse below the bearing's 5 mN m breakaway so the platform stays
+// put and every bit of momentum goes into the wheel, then read the wheel's angular acceleration
+// off its own angle. torque = j_wheel * alpha with j_wheel measured from CAD, and R/kt falls out
+// as volts-sent over torque-delivered.
+//
+// DO NOT change this number alone. Every gain on this vehicle was tuned in commanded units with
+// 124 in place, and the breakaway torque was measured in those units too - they are mutually
+// consistent, and correcting the constant without rescaling k_rate, k_damp and stiction_ff by the
+// same factor would quietly weaken a control loop that currently works. It matters for the
+// sim-versus-rig overlay, where the model's axis is real N m and the rig's is not, and it should
+// land as one coordinated change.
 constexpr float kOhmsPerKt = 124.0F;  // R/kt, volts per N m
 
 void set_wheel_torque_nm(float torque_nm) {

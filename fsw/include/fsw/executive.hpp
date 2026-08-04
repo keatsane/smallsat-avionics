@@ -84,6 +84,16 @@ class Executive {
     Mode resume_mode_ = Mode::STANDBY;
     bool resume_valid_ = false;
 
+    // PULSE_WHEEL's outstanding test point: the torque to hold and the time it stops. bounded in
+    // here rather than by the ground remembering to cancel it, and abandoned if the vehicle leaves
+    // STANDBY mid-pulse
+    float pulse_torque_nm_ = 0.0F;
+    uint32_t pulse_until_ms_ = 0;
+
+    // largest body rate since that pulse began - the test point's actual result, measured where
+    // the gyro is rather than inferred from a telemetry stream ten times slower than the event
+    float pulse_peak_rads_ = 0.0F;
+
     // wrap a wire message in a frame and hands it to the link
     template <typename T>
     void send(MsgId id, const T& msg) {

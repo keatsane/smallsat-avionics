@@ -111,9 +111,32 @@ float AttitudeControl::point(float rate_rads) {
         return limit(g_.k_damp * rate_rads);
     }
 
-    // PD. same sign convention as detumble - the wheel is commanded and the platform feels the
-    // reaction, so both terms follow their error rather than opposing it
-    return limit((g_.k_angle * wrapped_error()) + (g_.k_damp * rate_rads));
+    // outer loop: the heading error asks for a slew rate, bounded by what the wheel can actually
+    // hold. this is the whole fix for the relay behaviour - a torque proportional to angle hits
+    // the actuator ceiling within a few degrees and stays there, so the controller has no
+    // proportional region at all and the platform is thrown at the target rather than steered.
+    float rate_cmd = -g_.k_slew * wrapped_error();
+    if (rate_cmd > g_.slew_rate_max) {
+        rate_cmd = g_.slew_rate_max;
+    } else if (rate_cmd < -g_.slew_rate_max) {
+        rate_cmd = -g_.slew_rate_max;
+    }
+
+    // inner loop: detumble's law with a moving setpoint. detumble is this with rate_cmd = 0, which
+    // is why there is one sign convention and one measured gain across both modes - the negative
+    // sign on rate_cmd is what makes "below the target" ask for a positive rate
+    float torque = g_.k_damp * (rate_rads - rate_cmd);
+
+    // and the shove that gets a stopped platform moving at all. at the stable gain the inner loop
+    // asks for about 2 mN m, and the bearing does not let go until several times that, so without
+    // this POINTING sits at the right answer commanding a torque that does nothing. the sign
+    // follows the error for the same reason the rest of the law does: a positive error wants the
+    // platform pushed negative, and the wheel is what feels the opposite
+    if (rate_rads < g_.stuck_rate_rads && rate_rads > -g_.stuck_rate_rads) {
+        torque += (wrapped_error() > 0.0F) ? g_.stiction_ff : -g_.stiction_ff;
+    }
+
+    return limit(torque);
 }
 
 }  // namespace fsw

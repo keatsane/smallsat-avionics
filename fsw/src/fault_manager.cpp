@@ -24,6 +24,11 @@ constexpr FaultSpec kFaultTable[] = {
     /* OVERTEMPERATURE     */ {Severity::Critical, 3, "REQ-FAULT-002"},
     /* WHEEL_DROPOUT       */ {Severity::Degraded, 3, "REQ-FAULT-005"},
     /* CAMERA_DROPOUT      */ {Severity::Warning, 3, "REQ-FAULT-001"},
+    // a full wheel is a lost capability with a documented fallback, not an emergency: the vehicle
+    // retreats to STANDBY and unwinds. 10 samples of debounce is a second, which is long against
+    // the momentary brush of the limit a large slew makes and short against a wheel that is
+    // genuinely stuck full
+    /* WHEEL_SATURATED     */ {Severity::Degraded, 10, "REQ-ADCS-003"},
 };
 static_assert(sizeof(kFaultTable) / sizeof(kFaultTable[0]) == kFaultCount,
               "fault table is out of sync with FSW_FAULT_LIST in state.hpp");
