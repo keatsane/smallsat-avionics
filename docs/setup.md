@@ -90,7 +90,7 @@ just obc-monitor
 
 Then `SET_MODE DETUMBLE`, `CAPTURE_IMAGE`, `CLEAR_FAULT WHEEL_DROPOUT`, or `?` to list what is accepted. Arguments are names rather than ids, resolved against the same catalogs the firmware is generated from, so a typo is refused on the ground instead of arriving as a valid-looking wrong id. Because the command goes out on the link the telemetry comes back on, the command, its ack, and the telemetry showing its effect all land in one stream in order. Tab completes command and argument names, and up-arrow recalls what was sent; telemetry scrolls above the prompt rather than over what is half typed.
 
-`--keepalive` sends a NOOP every two seconds, which is what holds off `COMMAND_LINK_LOSS` without inhibiting it. `--read-only` disables transmit entirely.
+The console holds the command link up on its own: after two seconds of an otherwise quiet uplink it sends a NOOP, which is what keeps `COMMAND_LINK_LOSS` from safing the vehicle without inhibiting the fault. It measures quiet rather than running a metronome, so a mission or a downlink pass - which is already talking - never has keepalives stacked on top of its chunk requests. `--no-keepalive` turns that off and lets the vehicle safe about five seconds into a silent run, which is how the fault itself gets demonstrated; `--read-only` disables transmit entirely.
 
 Scripting uses the same syntax without the prompt - pipe commands in: `echo SET_MODE STANDBY | python tools/uart_monitor.py`.
 

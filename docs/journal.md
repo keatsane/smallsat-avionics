@@ -43,6 +43,32 @@ phase is wrong it is wrong every time - eight consecutive selective-repeat reque
 vehicle's deaf window. The command retries already knew this and used 0.7 s against a 1 s beacon;
 the requests were written a week later and stepped straight into it.
 
+**A control gain belongs to the plant, not to the mode using it.** POINTING's inner loop is
+DETUMBLE's law with a moving setpoint, and it was given a gain twelve times the one the rig had
+already accepted, because the slew needed more torque to break the bearing loose. The platform
+does not care which mode is asking - it oscillated at 215 deg/s. The two gains are one gain and
+are now pinned together in the header with the reason.
+
+**Friction is not answered by feedback.** Below the bearing's breakaway the platform does not move
+at all, and the gain large enough to clear it is the gain that oscillates - the two windows do not
+overlap, so no amount of tuning finds a value in between. What works is a constant: a fixed
+feedforward in the direction of the error, applied only while the platform is stopped, which
+supplies authority without adding any loop gain. That took POINTING from thrashing to converging
+in one change, after two sessions of tuning the wrong knob.
+
+**A measurement taken through a slower stream than the event is not a measurement.** The
+breakaway sweep asked the ground to compare the heading before and after each pulse. The pulse
+lasts half a second, the platform breaks loose and friction stops it inside a second, and the
+radio delivers one attitude frame per second - so a 13 deg/s jolt was recorded as "no movement"
+while the heading crept visibly across the whole sweep. The vehicle watches its gyro ten times
+faster and simply knows; it reports the peak now instead of the ground guessing from samples.
+
+**The bench rig is part of the plant, and its cables are a spring.** A breakaway sweep looked like
+friction until the platform kept returning to where it started after every pulse - dissipation
+does not do that, elasticity does. The USB cable feeding the board was a torsion spring across the
+rotating joint. Any attitude measurement taken with something plugged into the vehicle is
+measuring the tether too, which is the reason the rig is built to run on battery.
+
 **A signal that is merely plausible is not a signal that is right.** The control path read gyro z
 as yaw for five weeks, and z read plausibly - noise at rest, small wiggles when touched - because
 cross-coupling gives every axis a shadow of the real motion. Only spinning the platform and
@@ -109,6 +135,130 @@ Dated evidence, newest first.
 
 ### Phase 8 - wireless link and ground station
 
+### Phase 8 - the capstone
+
+- **2026-08-04** - **The survey flew; the panorama did not.** One typed word - `survey 4 60` - and
+  the vehicle pointed itself, captured, downlinked 400-odd chunks with selective repeat, parked in
+  STANDBY to unwind its wheel, slewed, and did it again. Three frames landed, unattended, on
+  battery, over the radio, with nothing plugged into the vehicle. The sequencing works.
+  The picture does not. The frames came from roughly 0, 9 and 28 degrees against a commanded 0,
+  20 and 40, because a slew that size runs the wheel out of momentum before it arrives - so they
+  overlap almost completely and the stitched strip is three near-identical photographs rather than
+  a swept scene. It was tempting to keep it anyway; a file called `panorama.jpg` that is not one
+  is exactly the kind of claim this repo is built to not make, so the output and its frames were
+  removed and REQ-PAY-006 says "in progress". The macro and the stitcher stay - what they need is
+  bearing separation, and that is an actuator problem, not a sequencing one.
+- **2026-08-04** - Three ground-side bugs stood between the survey and that result, and all three
+  were the same shape: **believing something held when it did not.**
+  The aim step trusted an in-band flag that was still describing the *previous* bearing, so the
+  first attempts shot twice in the same place; the fix is a handshake, waiting for the vehicle to
+  echo the target it is holding. The keepalive treated selective-repeat chunk requests as "the
+  link is busy", but those never reach the command handler, so the ground chattered for nine
+  seconds while the vehicle heard silence and safed at exactly five. And momentum dumping was
+  written against the ESC's velocity, which reads +/-3 rad/s at a standstill - so a vehicle idling
+  in STANDBY spun its wheel *up* on noise, and every leg started from an arbitrary wheel state.
+  The last one is the sharpest: the magnetometer gate had learned that exact lesson an hour
+  earlier and switched to reading the wheel's angle. Knowing a signal is untrustworthy does not
+  help if the next thing you write reaches for it anyway.
+
+### Phase 7 - closing the loop on the rig
+
+- **2026-08-04** - **The wheel can be emptied now.** REQ-ADCS-003 had a clamp and no answer: the
+  rig had shown a saturated wheel holding full commanded torque for fifteen seconds with the rate
+  pinned at zero, and nothing in telemetry said why. `WHEEL_SATURATED` latches at 90% of the
+  wheel's measured top speed, retreats the steering modes to STANDBY, and STANDBY unwinds the
+  wheel against the platform's own bearing - any torque under breakaway spins the wheel down
+  without moving the body, so the stiction that makes pointing hard is what makes the wheel
+  rechargeable. The retreat goes to STANDBY *because* that is where the cure lives.
+  Closing it turned up a gap in the harness worth its own note: the plant has modelled the wheel's
+  speed since it was written and never reported it to the flight software, so every scenario ran
+  with the actuator's own state invisible. An actuator a simulation steers but does not report is
+  one whose failure modes cannot be graded - SIL-012 went from 7 checks to 9 the moment the shim
+  passed it through.
+- **2026-08-04** - **The controller earns its keep: 2.5x friction, measured.** The same ~90 deg/s
+  spin was run in SAFE, where no torque is commanded and autonomous entry is off, and in STANDBY,
+  where it pulls the vehicle into DETUMBLE. Friction alone: 161 deg/s^2. With the wheel:
+  412 deg/s^2. That closes the gap REQ-ADCS-001 had been carrying - a platform that stops itself
+  makes "it stopped" worthless as evidence, and the only way through it is a controlled
+  comparison. None of it was measurable at the heartbeat's 1 Hz; the entire decay was one sample
+  until the attitude telemetry moved to the control rate.
+- **2026-08-04** - **The plant model's friction was right all along, and it took two bad
+  "corrections" and an overlay to find that out.** The morning's breakaway sweep was read as
+  bearing stiction and coulomb friction was pulled from 13 mN m down to 4; then a mis-read of the
+  A/B decay moved it to 8. Both were wrong. The first ignored that the wheel does not rotate below
+  ~5 mN m commanded, so the sweep had found the motor's cogging as much as the bearing's stiction.
+  The second averaged a stretch of the decay where the platform was still being pushed by hand,
+  giving 120 deg/s^2 where the arrest alone is 161. Re-fitting on the corrected number lands at
+  12.3 mN m - within a few percent of the original value, from a single measurement and a prior.
+  What caught it: `tools/overlay.py` ran the model and the rig through the same coast and they
+  disagreed by 1.5x, which is not something a model fitted to that very run can do. **A plant
+  model checked only against itself will absorb a bad measurement without complaining.** The
+  overlay is now a scenario of its own (SIL-015) so the comparison runs with the suite.
+- **2026-08-04** - **Breakaway torque measured: 5 mN m.** The vehicle pulsed its own wheel at
+  rising torque over the radio with nothing plugged into it, and reported the peak body rate each
+  pulse produced: 4 mN m moved it 0.1 deg/s, 5 mN m turned it at 7.5. The plant model had guessed
+  16.3 - a factor of three - because a coast-down only ever sees sliding friction and the sticking
+  case was 1.25x that, a ratio sitting on top of a fit. Re-fitting with both measurements
+  separated the terms properly for the first time: the coast-down pins total drag at speed, the
+  sweep pins the sticking case, and what is left has to be viscous.
+  **SIL-011 promptly failed**, which is the harness doing its job. It had been nulling a 2 rad/s
+  spin, and with three times less free drag the wheel ran 36.02 of 36 - it had been passing on
+  borrowed friction. At 1.6 rad/s it peaks at 27.8, so the honest statement of this vehicle's
+  authority moved from "a 2 rad/s upset" to "about 1.6 rad/s, 90 deg/s". A unit test that assumed
+  10 mN m was below breakaway failed in the same pass, for the same reason.
+- **2026-08-04** - Getting that measurement took two tries, and both failures were instructive.
+  The first tool drove the ESC over USB - but the USB cable *is* the tether, and a cable across
+  the rotating joint is a torsion spring, so it measured the cable. The second put the sweep on
+  the radio but had the ground compare heading before and after each pulse: the platform's answer
+  is a transient that starts and ends inside a second, and the radio carries one attitude frame a
+  second, so a real 13 deg/s jolt was recorded as "no movement". The fix was to stop inferring -
+  the vehicle now reports the peak rate it saw since its last pulse, watched at the control rate.
+  Measure where the data is.
+- **2026-08-04** - **POINTING works on the rig.** Commanded to a bearing 28 degrees away, on
+  battery with nothing plugged in and everything over the radio, the platform converged
+  monotonically - error -27.9, -21.8, -16.3, -12.5, -5.3, -2.0, -0.7 - and held at 0.7 degrees
+  against a 2.9 degree band, with no overshoot. It gets there by inching: the feedforward breaks
+  the bearing loose, the platform moves, the push drops out, friction stops it, repeat. That is
+  the honest gait for a wheel this size on a bearing this stiff.
+- **2026-08-04** - Getting there took two wrong turns worth keeping. The pointing law was a PD on
+  angle whose gain saturated the wheel at 7 degrees of error, so it was a relay rather than a
+  controller and the rig answered with 130 deg/s slams and 19 degrees of overshoot; it became a
+  cascade, an outer loop asking for a bounded slew rate and an inner loop that is detumble's law
+  with a setpoint. Then that inner loop was given a gain twelve times detumble's measured one, to
+  give the slew enough torque to break stiction, and it oscillated at 215 deg/s - the same mistake
+  as the morning's, larger. The answer was not a gain at all but a constant feedforward.
+- **2026-08-04** - POINTING and DETUMBLE were fighting each other. A slew is body rate on purpose,
+  and it passed the autonomous-detumble threshold long before reaching the target, so the vehicle
+  cancelled its own manoeuvre, resumed, and started again - forty seconds of that without
+  arriving. REQ-MODE-012 now excludes POINTING: detumble answers rate nobody asked for.
+- **2026-08-04** - The magnetometer is held off while the flywheel turns. Its rotor magnets sweep
+  the field past the sensor at eleven times shaft rate, far above the 10 Hz sample, and the
+  heading walked ~5 deg/s with the gyro reporting the platform was still. The first version of the
+  gate asked the ESC's velocity, which reads +/-3 rad/s at a standstill, so it never opened at
+  all; it asks the wheel *angle* now, which sat on the same count indefinitely. Attitude telemetry
+  went to every control cycle in the same pass - a 10 Hz loop cannot be judged from 1 Hz samples,
+  and a whole detumble was falling between two lines.
+- **2026-08-04** - The last bench inhibit is gone. With the ground station holding the command
+  link, COMMAND_LINK_LOSS came off the list and the vehicle now runs its real fault responses -
+  which promptly safed it five seconds into the first quiet run, correctly. The console holds the
+  link itself now, on 1.3 s of quiet rather than a 2 s metronome: 2 s is a harmonic of the 1 s
+  beacon, so every keepalive landed in the same deaf window and none of them arrived. That trap
+  was already written down two lessons above, and it still got walked into.
+- **2026-08-03** - **The wheel is back.** The replacement B-G431B-ESC1 flashed, aligned FOC, and
+  reported all four health flags; 2 V on the q axis spun it to 14.7 rad/s. The first upload failed
+  with `open failed` because `platformio.ini` still pinned the dead board's ST-Link serial - the
+  pin exists so an upload cannot land on the Nucleo, and a board swap is exactly when it bites.
+  Wired to the OBC on USART1 crossed, `ESC: up at 5334 ms, flags=0x0F`; the 8 s acquire window
+  written for the ESC's cold FOC alignment covered it, so no dropout latched. `WHEEL_DROPOUT` came
+  off the bench-inhibit list and the temporary rx diagnosis block came out with it, leaving
+  COMMAND_LINK_LOSS as the only inhibit. The rig is hardware-complete for the first time.
+- **2026-08-03** - The wheel's sign was measured rather than assumed: positive q-volts turns the
+  platform counterclockwise seen from above, which against the compass convention (clockwise
+  positive) makes `tau = +k_rate * omega` damping, as written. The header comment had claimed
+  `tau = -k_rate * omega` - the opposite of the code, in the one place a sign error already cost a
+  session - and was corrected. The platform swinging ~15-20 deg and then stopping while the
+  flywheel kept spinning is the momentum-exchange signature: reaction torque exists only while the
+  wheel's speed is changing, and the platform's own stiction absorbed the rest.
 - **2026-08-02** - The ground station got its CAD: `ground_plate`, `ground_cover`, and a
   `ground_assembly` tying them to the protoboard and the vendor OLED model. `stack_assembly`
   became `satellite_assembly`, since there are two assemblies on the desk now. Fusion stamps a

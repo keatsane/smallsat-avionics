@@ -103,9 +103,11 @@ The wait is deliberate rather than an immediate hop on the first cycle. A fault 
 **Verification**: SIL, then HIL once the wheel is back
 **Artifact**: fsw/src/executive.cpp, docs/reports/sil/SIL-013.md
 
-**REQ-MODE-012** - The flight software shall enter DETUMBLE autonomously from any operating mode other than SAFE when the measured body rate exceeds a configured threshold for three consecutive samples, shall remember the interrupted mode, and shall return to it when the detumble completes. The transitions shall carry the Nominal trigger.
+**REQ-MODE-012** - The flight software shall enter DETUMBLE autonomously from any operating mode other than SAFE and POINTING when the measured body rate exceeds a configured threshold for three consecutive samples, shall remember the interrupted mode, and shall return to it when the detumble completes. The transitions shall carry the Nominal trigger.
 **Type**: Functional
-**Status**: SIL-verified (SIL-014 - a 2.5 rad/s shove in STANDBY pulls the vehicle into DETUMBLE on its own and it resumes STANDBY when nulled; the resume of an interrupted POINTING is unit-verified. The shove has to beat bearing friction to the threshold, which sheds ~2.9 rad/s per second on its own - on this rig autonomy only sees the upsets friction cannot handle first)
+**Status**: SIL-verified (SIL-014 - a 2.5 rad/s shove in STANDBY pulls the vehicle into DETUMBLE on its own and it resumes STANDBY when nulled; the resume of an interrupted DOWNLINK is unit-verified. The shove has to beat bearing friction to the threshold, which sheds ~2.9 rad/s per second on its own - on this rig autonomy only sees the upsets friction cannot handle first)
+
+**POINTING is excluded, and the rig is why (2026-08-04).** A slew to a new bearing is body rate on purpose, and it passes the entry threshold long before it reaches the target - so the vehicle interrupted its own manoeuvre, detumbled the rate its own controller had asked for, resumed POINTING, and started again. The bench showed forty seconds of that without ever arriving. The rule underneath: this requirement answers rate *nobody asked for*. In POINTING the rate is the controller's own output, and bounding it belongs to the pointing law's damping term, not to a mode change that discards the target. SAFE is excluded for the older reason - a safed vehicle sheds activity, and spinning quietly is what SAFE already accepts.
 **Verification**: unit test, SIL, then HIL once the wheel is back
 **Artifact**: fsw/src/executive.cpp, fsw/test/test_executive.cpp, docs/reports/sil/SIL-014.md
 
@@ -213,7 +215,7 @@ The active retreats - POINTING/DETUMBLE -> STANDBY on ACCEL_GYRO_DROPOUT and on 
 **Verification**: unit test  
 **Artifact**: fsw/src/fault_manager.cpp, fsw/src/executive.cpp, fsw/test/test_fault_manager.cpp, fsw/test/test_comms.cpp, common/protocol/msg.hpp, tools/ground/frames.py
 
-Inhibits exist because the bench rig is routinely missing subsystems the flight configuration assumes: with no ground station, COMMAND_LINK_LOSS safes the vehicle about five seconds after every boot, and with the ESC unplugged WHEEL_DROPOUT latches on top of it. Suppressing the *response* while keeping the *evidence* is the standard fault-protection inhibit used during spacecraft commissioning, and it is why the fault still appears in every heartbeat.
+Inhibits exist because the bench rig is routinely missing subsystems the flight configuration assumes: with no ground station, COMMAND_LINK_LOSS safes the vehicle about five seconds after every boot. Suppressing the *response* while keeping the *evidence* is the standard fault-protection inhibit used during spacecraft commissioning, and it is why the fault still appears in every heartbeat. WHEEL_DROPOUT was inhibited alongside it while the ESC was out of the stack; it came off on 2026-08-03 when the replacement board joined the link, which is the list working as intended - an inhibit is meant to be retired by hardware arriving, not to become permanent.
 
 The inhibited set rides in the heartbeat as its own bitmask, in the same bit layout as the active-fault mask. Announcing it once in the boot banner is not enough: a console attached mid-run, or a log read later, shows two latched faults with the banner long out of scrollback and nothing on the wire saying their responses were suppressed. The status array distinguishes them by colour, but only to someone in the room. Carrying it in telemetry is what makes a saved log self-describing.
 
@@ -365,13 +367,17 @@ The retransmission rule exists because the ground resends: the LoRa link is half
 
 **REQ-SNS-004** - A valid monitored power reading outside its configured operating limits shall raise the corresponding power fault (undervoltage, overvoltage, overcurrent).
 **Type**: Functional
-**Status**: unit-verified (each power fault raised when its reading crosses the configured limit after debounce. An earlier bench run latched UNDERVOLTAGE live, but the monitor has since moved high-side onto the 14.8 V bus and the limits were retuned, so **all three crossings are owed again on hardware**)
+**Status**: unit-verified; **HIL not planned** (2026-08-04). Each power fault is raised when its reading crosses the configured limit after debounce. An earlier bench run latched UNDERVOLTAGE live against the low-side monitor, but it has since moved high-side onto the 14.8 V bus and the limits were retuned, so that evidence does not cover this build.
+
+Re-running it was considered and declined, for reasons worth stating rather than leaving as a gap. **Overcurrent cannot be tested at all here**: tripping 1.5 A needs a load bank the bench does not have, and the vehicle's own draw never approaches it. **Undervoltage and overvoltage would require disconnecting the flight battery and rigging a variable supply in its place**, which is bench work with a real chance of disturbing a rig that currently flies. The fault logic itself is exercised every run by the unit suite and by SIL-001, which drives an undervoltage to SAFE; what is missing is only the ADC-to-fault path on this specific wiring, and that is a narrower claim than the requirement being unverified.
 **Verification**: unit test and HIL
 **Artifact**: fsw/src/sensor_monitor.cpp, fsw/test/test_sensor_monitor.cpp
 
 **REQ-SNS-005** - A valid monitored temperature reading outside its configured operating limits shall raise the corresponding temperature fault (overtemperature, undertemperature).
 **Type**: Functional
-**Status**: unit-verified (both crossings latch after debounce, TEMP_DROPOUT on an invalid sample. Overtemperature is Critical -> SAFE; undertemperature is a report-only Warning, since a low-power state would only cool the spacecraft further. **Owed: a real crossing on hardware**)
+**Status**: unit-verified; **HIL not planned** (2026-08-04). Both crossings latch after debounce, TEMP_DROPOUT on an invalid sample. Overtemperature is Critical -> SAFE; undertemperature is a report-only Warning, since a low-power state would only cool the spacecraft further.
+
+Forcing a real crossing means heating the TMP117 to 60 C while it sits on a plate of PLA next to the flight electronics. A heat gun does that to more than the sensor, and risking a working vehicle to demonstrate a threshold comparison the unit tests already cover is a poor trade. Declined deliberately rather than left owed.
 **Verification**: unit test and HIL
 **Artifact**: fsw/src/sensor_monitor.cpp, fsw/test/test_sensor_monitor.cpp
 
@@ -422,19 +428,39 @@ An inhibited fault is deliberately excluded from the three alarm rungs and colle
 
 **REQ-ADCS-001** - In DETUMBLE the flight software shall command the reaction wheel to reduce the measured body rate below a defined threshold.  
 **Type**: Functional  
-**Status**: SIL-verified (SIL-011 nulls a 2 rad/s spin into the 0.02 rad/s deadband with the wheel short of saturation. Proportional rate feedback, no integral: against stiction an integral winds up while the platform is stuck and overshoots when it breaks loose. **Owed: HIL**, which needs the replacement ESC)  
+**Status**: **working on the rig (2026-08-04)** - a hand-spun platform pulls itself into DETUMBLE, the rate collapses to the deadband, and the vehicle steps back out on its own, repeatably and over the radio. Torques sit at 8-9 mN m against the 50 mN m ceiling. SIL-011 nulls a 2 rad/s spin in the model. Proportional rate feedback, no integral: against stiction an integral winds up while the platform is stuck and overshoots when it breaks loose.
+
+The gain is the rig's, not the model's. At the modelled 0.02 N m per rad/s the loop commanded more torque than the bearing's breakaway and kicked the platform loose in alternating directions - a stick-slip limit cycle at ~90 deg/s that the model never showed, because the model's breakaway friction was a guess. 0.008 is what the bench accepts.
+
+**The controller does about two and a half times what friction does (A/B, 2026-08-04).** "It stopped" is not proof on a platform that stops itself, so the same spin was run twice at 10 Hz on the wired link: in SAFE, where no torque is commanded and autonomous entry is disabled, and in STANDBY, where the spin pulls the vehicle into DETUMBLE. Both runs are checked in under `docs/data/` and graded by `tools/overlay.py`, which measures the arrest - the last unbroken run of falling rate - rather than the whole window, because a hand-spun run has a plateau in it while the platform is still being pushed and averaging that in halves the answer.
+
+Friction alone shed the rate at **161 deg/s^2**; with the controller, **412 deg/s^2**. The peak commanded torque was 13 mN m, which against the measured platform inertia predicts ~164 deg/s^2 of additional deceleration against the ~250 observed - consistent within what an unmeasured `kOhmsPerKt` can account for, and pointing the same way as every other estimate of it. The measurement needs the control-rate telemetry: at the heartbeat's 1 Hz the whole decay is a single sample.  
 **Verification**: SIL (single-axis plant model) and HIL (reaction-wheel rig)  
 **Artifact**: fsw/src/attitude_control.cpp, fsw/test/test_attitude_control.cpp, fsw/sil/plant.cpp, fsw/sil/scenarios/sil_011_detumble.yaml, docs/reports/sil/SIL-011.md
 
 **REQ-ADCS-002** - In POINTING the flight software shall hold a commanded single-axis attitude within a defined error band.  
 **Type**: Functional  
-**Status**: in progress - the control law is unit-verified (PD on wrapped heading error), and the heading is now absolute: a complementary filter blends the integrated gyro with a magnetometer compass heading, so `SET_HEADING` names a bearing in a frame that survives mode changes and reboots. The mag mounting offset (`kMagMountOffsetRad`) is uncalibrated until the rig check. **Owed: SIL against the plant with the absolute reference, then the rig**
+**Status**: **working on the rig for small slews (2026-08-04)** - commanded to a bearing 28 degrees away, untethered and over the radio, the platform converged monotonically and settled at **0.7 degrees of error against a 2.9 degree band**, then held. No overshoot.
+
+Two things about how it gets there, both properties of this plant rather than of the software:
+
+**It is a cascade, not a PD on angle.** The original law asked for torque proportional to heading error, and at `k_angle = 0.4` a 7 degree error already demanded the wheel's entire ceiling - so POINTING was a relay, not a controller, and the rig answered with 130 deg/s slams and 19 degrees of overshoot. The outer loop now turns heading error into a *slew rate* bounded well inside the wheel's momentum budget, and the inner loop is REQ-ADCS-001's law with that rate as its setpoint. Detumble is the same equation with a setpoint of zero, which is why both modes share one sign convention and one measured gain.
+
+**It inches rather than sweeping, and that is correct here.** At the stable gain the feedback asks for ~2 mN m and the bearing does not let go until several times that, so a fixed feedforward supplies the shove, applied only while the platform is stopped. Break loose, move, push drops out, friction stops it, repeat. Smooth rotation would need sustained torque above kinetic friction while staying under the gain that oscillates, and on this bearing those two windows do not overlap. A vehicle in free fall has no bearing and no stiction; the stepping is an artifact of testing attitude control on a lazy susan, and it is the honest limit of the rig rather than of the flight software.
+
+The feedforward is now sized against a measurement rather than a bound: **breakaway is 5 mN m**, taken 2026-08-04 by the vehicle pulsing its own wheel at rising torque over the radio with nothing plugged into it (`PULSE_WHEEL`, and the `breakaway` console macro that drives it). The 8 mN m feedforward clears it by 1.6x. **Owed**: larger slews are untested and are expected to run the wheel out of momentum, which is REQ-ADCS-003's territory.  
 **Verification**: SIL (single-axis plant model) and HIL (reaction-wheel rig)  
 **Artifact**: fsw/src/attitude_control.cpp, fsw/test/test_attitude_control.cpp
 
 **REQ-ADCS-003** - Actuator commands shall be saturation-limited, and sustained saturation shall raise a dedicated actuator fault added with the actuator-control path.  
 **Type**: Functional  
-**Status**: in progress (the limit half is SIL-verified: the controller clamps and reports that it clamped, SIL-011 stays inside the wheel's rate limit, and SIL-012 drives the opposite case, where a sustained disturbance fills the wheel and pointing authority is lost entirely. **Owed: the fault** - what should happen on sustained saturation is a decision that wants the rig, and a fault with no responder is a catalog entry)  
+**Status**: SIL-verified, both halves (SIL-012, 9/9). The limit half: the controller clamps and reports that it clamped, and SIL-011 stays inside the wheel's rate limit. The fault half: `WHEEL_SATURATED` latches at 90% of the wheel's measured top speed after a second of debounce, retreats the steering modes to STANDBY as a Degraded fallback, and STANDBY unwinds the wheel.
+
+**The rig is what made this concrete.** Commanded 90 degrees under the old relay law, the platform travelled about 28 and stopped dead, holding full commanded torque with the rate at zero for fifteen seconds - the wheel at its speed limit, delivering nothing, and no telemetry saying so. The budget explains it: `j_wheel * wheel_rate_max` is 3.9e-3 kg m^2/s, which against the platform is 0.87 rad/s of body rate in total, and any sustained push exceeds that in well under a second.
+
+**The recovery is the interesting half.** A wheel that cannot be desaturated has no cure, and a fault with no responder is a catalog entry - so the fault landed with momentum dumping rather than before it. A real spacecraft dumps against magnetorquers or thrusters; this one dumps against its own bearing. Any torque under the platform's breakaway spins the wheel down without moving the body at all, so the stiction that makes pointing hard on this rig is exactly what makes the wheel rechargeable. Dumping runs in STANDBY only - DETUMBLE and POINTING are steering and must not have their actuator drained underneath them - which is also why the fallback retreats *to* STANDBY: the retreat is where the cure lives, not a parking space. The fault stays latched for the ground to clear (REQ-FAULT-010), because a vehicle that silently re-arms hides how often it ran out.
+
+**Owed: HIL.** The dump is verified against the plant model, not the rig, and it rests on the platform's breakaway being above the dump torque - measured at 5 mN m commanded against a 3 mN m dump.  
 **Verification**: unit test and HIL  
 **Artifact**: fsw/src/attitude_control.cpp, fsw/test/test_attitude_control.cpp, fsw/sil/scenarios/sil_012_pointing_saturation.yaml, docs/reports/sil/SIL-012.md
 
@@ -442,8 +468,8 @@ An inhibited fault is deliberately excluded from the three alarm rungs and colle
 
 **REQ-ADCS-004** - The ground shall be able to command the bearing held in POINTING, and the flight software shall report the held bearing, the commanded bearing, and the measured rate as telemetry.  
 **Type**: Functional  
-**Status**: unit-verified (`SET_HEADING` carries a binary angle - one byte spanning a full turn, 1.4 degrees a step - and `attitude_status_t` reports heading, target, rate and commanded torque at the heartbeat's cadence. The bearing is relative to POINTING entry, which is the only frame this vehicle can honestly offer)  
-**Verification**: unit test, then HIL once the wheel is back  
+**Status**: **demonstrated over the radio (2026-08-04)** - `SET_HEADING 30` was commanded from the ground station with no cable on the vehicle, and the attitude telemetry showed the target, the heading closing on it, and the error settling inside the band. `SET_HEADING` carries a binary angle - one byte spanning a full turn, 1.4 degrees a step, which is why a commanded 30 reads back as 29.5 - and `attitude_status_t` reports heading, target, rate and commanded torque. It now goes out every control cycle rather than at the heartbeat's rate, because a 10 Hz loop cannot be judged from 1 Hz samples; the beacon decimates it back to once a second so the air-time budget is unchanged. The bearing is relative to POINTING entry, which is the only frame this vehicle can honestly offer while the wheel's magnets hold the magnetometer off.  
+**Verification**: unit test and HIL  
 **Artifact**: fsw/test/test_comms.cpp, fsw/src/executive.cpp
 
 **REQ-PAY-001** - An accepted CAPTURE_IMAGE command shall start a payload image capture without blocking the control cycle; the capture outcome shall be reported in telemetry rather than returned to the command.  
@@ -471,6 +497,18 @@ An inhibited fault is deliberately excluded from the three alarm rungs and colle
 **Artifact**: fsw/src/executive.cpp, fsw/test/test_executive.cpp, obc/Src/freertos/downlink_task.cpp, tools/ground/payload.py, tools/tests/test_payload.py
 
 The per-cycle bound is a real-time budget rather than a preference: the UART's transmit ring is 256 bytes and telemetry already spends about 80 of it each cycle, so a larger burst would block in `uart_write` waiting for the ring to drain and stall the control loop. The image length sent is the JPEG length found by scanning for the end-of-image marker, not the camera FIFO's reported length - those differ by a few hundred bytes of padding, which would otherwise be transmitted during a contact pass.
+
+**REQ-PAY-006** - The ground shall be able to command a multi-frame survey - a sequence of point, capture and downlink at different bearings - and assemble the result into a single image.
+**Type**: Functional
+**Status**: in progress - **the sequence flies, the image is not worth having yet (2026-08-04)**. One typed word (`survey 4 60`) flew three legs unattended on battery over the radio: point, capture, downlink with selective repeat, park in STANDBY to unwind the wheel, slew, repeat. That half works, and the sequencer is unit-tested.
+
+What does not work is the part that makes it a panorama. **The bearings land short of the commanded ones** - roughly 0, 9 and 28 degrees against a commanded 0, 20, 40 - because a slew that size runs the wheel out of momentum before it arrives (REQ-ADCS-003). Frames a few degrees apart overlap almost entirely, so the assembled strip is three nearly identical pictures rather than a swept scene. The macro is honest about it at the time (`aim timed out - shooting where it points`), and no output is checked in, because a result that looks like a panorama in a filename and not in the file is worse than none.
+
+**It is a ground macro, not a SURVEY mode**, which is what the roadmap first sketched. A mode is a posture the vehicle holds; a survey is a sequence of postures it already has, so a SURVEY mode would have behaved exactly like POINTING except for who was counting - the case `roadmap.md`'s own design rule warns against. The sequencing lives on the ground where it is visible and abortable, the same reasoning the `shoot` macro settled first.
+
+**Owed**: bearing separation the frames can actually use, which is an actuator problem rather than a sequencing one - more wheel momentum (the flywheel has 8 of 16 weight pockets empty) or less bearing friction. The stitcher is a plain side-by-side join with no feature matching, which is the right shape once the frames are far enough apart to need it.
+**Verification**: unit tests for the sequencer; HIL for the assembled result, once the slews land
+**Artifact**: tools/ground/session.py, tools/tests/test_session.py, tools/stitch.py
 
 **REQ-PAY-005** - The reported size of a captured image shall be the size of the image data, determined by locating its end-of-image marker, and not the raw fill level of the camera's buffer.  
 **Type**: Functional  

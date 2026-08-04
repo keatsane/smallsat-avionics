@@ -46,11 +46,20 @@ Exit 0 all passed, 1 a scenario failed, 2 harness error. Reports are written eit
 | SIL-009 | gyro dropout retreats POINTING to STANDBY | REQ-FAULT-005 | [SIL-009.md](reports/sil/SIL-009.md) |
 | SIL-010 | power dropout retreats DOWNLINK to STANDBY | REQ-FAULT-005 | [SIL-010.md](reports/sil/SIL-010.md) |
 | SIL-011 | detumble nulls a spinning platform without saturating the wheel | REQ-ADCS-001, REQ-ADCS-003 | [SIL-011.md](reports/sil/SIL-011.md) |
-| SIL-012 | a sustained disturbance saturates the wheel and pointing authority is lost | REQ-ADCS-003 | [SIL-012.md](reports/sil/SIL-012.md) |
+| SIL-012 | a saturated wheel is announced, retreats the vehicle, and is unwound in standby | REQ-ADCS-003 | [SIL-012.md](reports/sil/SIL-012.md) |
 | SIL-013 | detumble declares itself done and returns to STANDBY | REQ-MODE-011 | [SIL-013.md](reports/sil/SIL-013.md) |
 | SIL-014 | a spun-up vehicle detumbles itself and resumes | REQ-MODE-012 | [SIL-014.md](reports/sil/SIL-014.md) |
+| SIL-015 | the plant model's friction matches the rig's measured coast-down | REQ-ADCS-001 | [SIL-015.md](reports/sil/SIL-015.md) |
 
-SIL-011 and SIL-012 run against the plant model (`fsw/sil/plant.cpp`), so they are the only ones whose result depends on measured hardware numbers - inertias from CAD, friction fitted to a coast-down. See [architecture.md](architecture.md).
+SIL-011, SIL-012 and SIL-015 run against the plant model (`fsw/sil/plant.cpp`), so they are the only ones whose result depends on measured hardware numbers - inertias from CAD, friction fitted to two platform coast-downs at different speeds (2026-07-31 and 2026-08-04). That dependency is not a weakness of the scenarios, it is the thing they are for: when the friction fit was changed, SIL-011 failed the same day and the vehicle's stated recoverable-upset figure moved with it.
+
+**SIL-015 is the one that checks the model against the world rather than against itself.** It coasts the platform in SAFE - no torque, no autonomous entry - which is the same procedure run on the rig, and `tools/overlay.py` plots the two decays together and prints both decelerations:
+
+```
+just overlay --rig docs/data/rig_coast_safe_2026-08-04.csv --scenario SIL-015
+```
+
+The recorded bench runs live in `docs/data/`, captured with `uart_monitor.py --record`. As of 2026-08-04 the model sheds 141 deg/s^2 against the rig's 161 - a 14% disagreement, which is about as close as a two-point friction fit and a hand-spun platform deserve. Its value is not the number: a model checked only against its own scenarios will absorb a bad measurement silently, and this comparison is what caught one doing exactly that. See [architecture.md](architecture.md).
 
 ### Writing a SIL scenario
 

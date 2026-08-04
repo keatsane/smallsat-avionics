@@ -11,30 +11,44 @@ The companion documents: `journal.md` (the done-log), `hardware.md` (the physica
 Where the build actually is. History belongs in `journal.md`.
 
 **Hardware:** all three plates built and wired (2026-07-26); the PTC fuse is in and the vehicle
-boots and runs missions on the 4S battery (2026-07-31). The ESC is physically out of the stack
-pending a replacement board, so `WHEEL_DROPOUT` and `COMMAND_LINK_LOSS` run under the declared
-bench inhibits. The CAD is final: ground station modeled and the full export synced (2026-08-02).
+boots and runs missions on the 4S battery (2026-07-31). The replacement ESC is in and answering on
+the OBC's UART (2026-08-03). **No bench inhibits remain (2026-08-04)** - the rig is
+hardware-complete and runs its real fault responses. The CAD is final: ground station modeled and
+the full export synced (2026-08-02).
 
-**Software:** phases 0-6 done. Phase 7 has detumble SIL-verified and running autonomously on the
-bench (auto-entry, auto-exit, resume); pointing holds an absolute compass heading, coarse indoors.
+**Software:** phases 0-6 done. **Phase 7's control loop is closed on the rig (2026-08-04):**
+detumble pulls a hand-spun platform back to rest on its own and steps out again, and POINTING
+converges on a commanded bearing and holds it to 0.7 degrees - both untethered, over the radio.
 **Phase 8's deliverable is done:** the vehicle, with no data cable, was commanded over LoRa into
 POINTING, captured, and downlinked an image over nRF24 that reassembled intact on the ground -
 selective repeat refilled what the first pass dropped. The whole sequence has since run as the
 one-word `shoot` mission on battery power alone.
 
-**Next, unblocked:**
+**Phases 0-7 are done (2026-08-04).** Phase 8's deliverable is done and its survey demo flies,
+but the frames are too close together to assemble - see REQ-PAY-006. What follows is what is
+left, and none of it blocks anything else.
 
-1. Measure the bearing's breakaway torque. It is the last unmeasured plant parameter and it
-   decides how fine the pointing can be on this rig.
-2. Bench re-tests owed in `requirements.md`: the three power crossings on the 14.8 V bus and a
-   temperature crossing (REQ-SNS-004/005).
-3. A compass accuracy pass beyond the current smoothing, if indoor repeatability stays coarse -
-   an ellipse fit is the next honest step.
+**Next action - the numbers the control loop is standing on.** Nothing is blocked on a part.
+Breakaway torque is measured (5 mN m, by the vehicle's own `PULSE_WHEEL` sweep) and the plant
+model's friction re-fitted and then corrected back against it; detumble is measured against
+friction alone and does about two and a half times its work; a saturated wheel announces itself, retreats the vehicle and is
+unwound against the bearing (REQ-ADCS-003 closed in SIL); and the sim-versus-rig overlay
+(SIL-015, `just overlay`) agrees with the bench to 14% on a friction-only coast, which closes
+Phase 7. All 2026-08-04. What is left, in order of what buys the most:
 
-**Blocked on the replacement ESC:** the wheel UART link, and HIL for every ADCS requirement. The
-flight software for it is written and green on the host; what is missing is the wire. PA10 must
-reach the ESC's TX (PB3 on J3) and PA9 its RX (PB4), crossed, with the ESC's USB out and a common
-ground. Delete the `TEMP esc rx:` block in `control_task.cpp` once `ESC: up` appears.
+1. **Measure `kOhmsPerKt`** (`platform_stm32.cpp`), the remaining estimate in the actuator path:
+   the flywheel's inertia from Fusion, spin-up acceleration from wheel telemetry, torque = I*alpha,
+   R/kt = V/torque. The 250 ms status period is too coarse to catch spin-up - use a small voltage
+   or shorten it for the run.
+2. **Move the IMU away from the flywheel, or accept a relative bearing.** The rotor magnets swamp
+   the magnetometer whenever the wheel turns, so the heading is dead-reckoned through every
+   manoeuvre and `SET_HEADING` names a bearing relative to POINTING entry. This is the keep-out in
+   `hardware.md` asserting itself; the fix is mechanical.
+
+**Also owed, independent of the wheel:** the bench re-tests in `requirements.md` (three power
+crossings on the 14.8 V bus, one temperature crossing, REQ-SNS-004/005), and a compass accuracy
+pass beyond the current smoothing if indoor repeatability stays coarse - an ellipse fit is the
+next honest step.
 
 ## Phase ledger
 
@@ -47,8 +61,8 @@ ground. Delete the `TEMP esc rx:` block in `control_task.cpp` once `ESC: up` app
 | 4 | First HIL slice | done |
 | 5 | Sensors (real telemetry & faults) | done on bench - all four sensors answering, and an image captured and downlinked end to end |
 | 6 | Real-time task model + recovery (FreeRTOS + watchdog) | **done, HIL-verified 2026-07-29** - HIL-003 passed 7/7: all four tasks in all 60 reports, watchdog fed in every one, worst stack margin 104 words against a 64 floor, and 59 heartbeat periods at a 1.000 s mean. The bite was demonstrated separately (`reset=iwdg-watchdog`) |
-| 7 | ADCS: closed-loop attitude control | control laws SIL-verified against the plant; autonomous detumble entry/exit/resume and the compass-anchored heading run on the bench. Blocked on the replacement ESC for the physical loop and its HIL |
-| 8 | Capstone: untethered rig + demo | **deliverable done 2026-07-30** - commanded, imaged, and downlinked over radio with no data cable. Battery integration (with the PTC fuse) and the survey demo remain |
+| 7 | ADCS: closed-loop attitude control | **done 2026-08-04** - detumble nulls a hand spin and steps out on its own, POINTING converges on a commanded bearing and holds it to 0.7 deg, both untethered over the radio; the controller is measured at 2.5x friction alone; a saturated wheel announces itself, retreats the vehicle and is unwound against the bearing; and the sim-versus-rig overlay agrees to 14% on a friction-only coast. Gains are the rig's rather than the model's, and pointing clears stiction with a feedforward rather than with gain. HIL promotion of the ADCS requirements is what remains |
+| 8 | Capstone: untethered rig + demo | **deliverable done 2026-07-30** - commanded, imaged, and downlinked over radio with no data cable, and on battery since. The `survey` macro flew three legs unattended on 2026-08-04 - point, capture, downlink, unwind the wheel, slew, repeat - but the slews land ~10 deg short of a 20 deg step, so the frames overlap and the assembled image is not a panorama. Sequencing done, picture owed (REQ-PAY-006) |
 
 ---
 
@@ -61,7 +75,7 @@ Items that outlived the phase they were opened in, or that are waiting on a part
   scheduled. The rest of the boot-hardening pass (reset cause, fault handler, clock tree,
   watchdog, hard-float) is done and bench-verified.
 
-- **PTC resettable fuse (Littelfuse RUEF300 or equivalent) - ordered, not yet arrived.** The main + lead currently runs through a temporary jumper. **This must be fitted before the LiPo is ever connected**; until then the bench PSU's current limit is the only fault protection. The one outstanding hardware item on the satellite.
+- **PTC resettable fuse - fitted 2026-07-31** (RUEF300HF, 30 V / 3 A hold), in the main + lead ahead of the rocker switch. The satellite has run on the LiPo since.
 - **Mechanical work on the gimbal plate:** lazy-susan stiction, flywheel inertia (fill pockets outermost-first, consider a larger radius), and tether routing up the spin axis. See the flywheel notes in `hardware.md`.
 - **"Link never acquired" vs "link lost" in telemetry (phase 8, open design question).** `link_lost()` measures against `last_command_ms_ = 0`, so COMMAND_LINK_LOSS (Critical, debounce 1) latches ~5 s after every boot with no ground station and drops the rig to SAFE. That *response* is right - a spacecraft that cannot hear the ground should safe - and it is why bench demos need NOOP keep-alives. What is missing is **observability**: nothing distinguishes "never acquired" from "lost after contact". The status array already separates them (amber vs red, derived from an empty command log), but a heartbeat or log reader cannot. Worth carrying in telemetry once the ground station exists to read it; deliberately not a new fault or mode now, since the derivation already exists and there would be exactly one consumer.
 
@@ -109,7 +123,11 @@ journal, 2026-07-30). What is left of the capstone:
 2. **The package.** The verification matrix, SIL/HIL reports, the sim-versus-rig overlay once
    the wheel is back, and a demo clip.
 
-**The capstone imaging demo is a slew-and-image panorama, in a new SURVEY mode (decided 2026-07-29).** Command a controlled slew, capture at intervals through the rotation, downlink the set, and stitch it on the ground into one wide image. Slew-and-image is how a lot of smallsat imaging actually works, and it *uses* the attitude control rather than duplicating it, so almost all the new code is a ground-side stitcher. The result is one image that took attitude control, payload timing, and a multi-image downlink to produce.
+**The capstone imaging demo is a slew-and-image panorama.** Command a controlled slew, capture at intervals through the rotation, downlink the set, and stitch it on the ground into one wide image. Slew-and-image is how a lot of smallsat imaging actually works, and it *uses* the attitude control rather than duplicating it, so almost all the new code is ground-side.
+
+**Built as a ground macro, not the SURVEY mode first sketched on 2026-07-29.** A mode is a posture the vehicle holds and a survey is a sequence of postures it already has, so the mode would have duplicated POINTING with a counter attached - the case the design rule above warns against. `survey` and `tools/stitch.py` do the job from the console.
+
+**It flies but does not yet produce a picture (2026-08-04).** Three legs ran unattended over the radio, and the frames landed roughly 10 degrees apart against a commanded 20 - close enough that they overlap almost entirely and the strip is three near-identical photographs. What is missing is bearing separation, and that is the actuator: more wheel momentum (the flywheel has 8 of 16 weight pockets empty, the cheapest authority on the rig) or less bearing friction. Nothing in the sequencing needs changing.
 
 **Why SURVEY is a mode when target-tracking is not.** The test: does it change what the vehicle is *doing*, or only what it is *deciding with*? A survey means deliberately slewing at a commanded rate, which directly contradicts POINTING's job of holding still - different control law, different risk, and a POWER_DROPOUT mid-survey should abort the slew rather than do what it does in POINTING. Target tracking is the same control law and the same actuator with the attitude error arriving from vision instead of an inertial setpoint, so it belongs as a **source selected by a command argument**, not a seventh mode. Two modes differing only in an input is exactly the duplication that lets someone narrow one fallback list and forget the other - the failure SIL-010 was written to catch. Adding SURVEY costs one `FSW_MODE_LIST` line (everything derives from the x-macro, and the drift tests catch the Python mirror), a row and column in `kAutoAllowed`, an LED bead case, the console ladder, a review of the three degraded-fallback lists, and its own scenarios.
 
